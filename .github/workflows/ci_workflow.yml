@@ -1,0 +1,44 @@
+name: CI / Automated testing
+on:
+  push:
+    branches: ["**"]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    name: Elixir ${{matrix.elixir}}
+    env:
+      MIX_ENV: test
+
+    strategy:
+      matrix:
+        elixir: [1.12.x, 1.13.x]
+        otp: [22.x, 24.x]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - name: Cache deps
+        uses: actions/cache@v2
+        with:
+          path: |
+            deps
+            _build
+          key: deps-cache-${{ matrix.elixir }}-${{ matrix.otp }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            deps-cache-${{ matrix.elixir }}-${{ matrix.otp }}-
+      - name: Install dependencies
+        run: mix do local.hex --force, local.rebar --force, deps.get
+      - name: Check code formatting
+        run: mix format --check-formatted
+      - name: Compile dependencies
+        run: mix deps.compile
+      - name: Compile code (warnings as errors)
+        run: mix compile --warnings-as-errors
+      - name: Run tests
+        run: mix test
+      - name: Create docs
+        run: mix docs
