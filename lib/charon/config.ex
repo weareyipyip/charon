@@ -4,25 +4,16 @@ defmodule Charon.Config do
 
   ```
   [
-    :token_secret,
-    token_algorithm: :sha256,
     token_module: Charon.Token.SymmetricJwt,
     custom: %{}
   ]
   ```
   """
-
-  @enforce_keys [:token_secret]
-  defstruct [
-    :token_secret,
-    token_algorithm: :sha256,
-    token_module: Charon.Token.SymmetricJwt,
-    custom: %{}
-  ]
+  @enforce_keys []
+  defstruct token_module: Charon.Token.SymmetricJwt,
+            custom: %{}
 
   @type t :: %__MODULE__{
-          token_secret: String.t(),
-          token_algorithm: :sha256 | :poly1305,
           token_module: module(),
           custom: map()
         }

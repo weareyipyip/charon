@@ -6,51 +6,76 @@ defmodule Charon.Token.SymmetricJwt do
   because these require third parties to verify the token signature,
   which requires assymetric keys.
 
+  ## Config
+
+  Additional config is required for this module under `custom.charon_symmetric_jwt`:
+
+      Charon.Config.from_enum(
+        ...,
+        custom: %{
+          charon_symmetric_jwt: %{
+            secret: :crypto.strong_rand_bytes(32),
+            algorithm: :poly1305
+          }
+        }
+      )
+
+  The following options are supported:
+
+      - :secret - required
+      - :algorithm - optional the token signature algorithm, may be :sha256 (default), :sha384, :sha512 or :poly1305
+
   ## Examples / doctests
 
+      # verify ignores the config's algorithm, grabbing it from the JWT header instead
+      # this allows changing algorithms without invalidating existing JWTs
       iex> key = "symmetric key"
-      iex> config = %{token_secret: key, token_algorithm: :sha256}
+      iex> config = %{custom: %{charon_symmetric_jwt: %{secret: key, algorithm: :sha256}}}
       iex> payload = %{"iss" => "joe", "exp" => 1_300_819_380, "http://example.com/is_root" => true}
       iex> {:ok, token} = sign(payload, config)
       {:ok, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEzMDA4MTkzODAsImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlLCJpc3MiOiJqb2UifQ.shLcxOl_HBBsOTvPnskfIlxHUibPN7Y9T4LhPB-iBwM"}
-      iex> {:ok, ^payload} = verify(token, config)
+      iex> {:ok, ^payload} = verify(token, put_in(config.custom.charon_symmetric_jwt.algorithm, :sha512))
 
       iex> key = "symmetric key"
-      iex> config = %{token_secret: key, token_algorithm: :sha256}
+      iex> config = %{custom: %{charon_symmetric_jwt: %{secret: key}}}
       iex> verify("a", config)
       {:error, "malformed token"}
       iex> verify("a.b.c", config)
       {:error, "encoding invalid"}
       iex> verify("#{%{"alg" => "boom"} |> Jason.encode!() |> Base.url_encode64(padding: false)}.YQ.YQ", config)
-      {:error, "unsupported algorithm"}
-      iex> verify("#{%{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)}.YQ.YQ", config)
-      {:error, "signature invalid"}
+      {:error, "unsupported signature algorithm"}
       iex> verify("#{%{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)}.YQ.YQ", config)
       {:error, "signature invalid"}
 
       # poly1305 is also supported, and requires a 256-bits key
-      iex> key = "LhFCsjjaQD0z0MQztnIsIx-1EGXXhIwURGhPkab4AYk" |> Base.url_decode64!(padding: false)
-      iex> config = %{token_secret: key, token_algorithm: :poly1305}
+      iex> key = :crypto.strong_rand_bytes(32)
+      iex> config = %{custom: %{charon_symmetric_jwt: %{secret: key, algorithm: :poly1305}}}
       iex> payload = %{"iss" => "joe", "exp" => 1_300_819_380, "http://example.com/is_root" => true}
       iex> {:ok, token} = sign(payload, config)
       iex> {:ok, ^payload} = verify(token, config)
       iex> header = token |> String.split(".") |> List.first() |> Base.url_decode64!() |> Jason.decode!()
       iex> %{"alg" => "Poly1305", "nonce" => <<_::binary>>, "typ" => "JWT"} = header
-      iex> {:error, "signature invalid"} = verify(token <> "a", config)
+      iex> {:error, "signature invalid"} = verify(token, put_in(config.custom.charon_symmetric_jwt.secret, :crypto.strong_rand_bytes(32)))
   """
   @behaviour Charon.Token
 
   @encoding_opts padding: false
-  @sha256_header %{"alg" => "HS256", "typ" => "JWT"}
-                 |> Jason.encode!()
-                 |> Base.url_encode64(@encoding_opts)
+  @alg_to_header_map %{
+    sha256: "HS256",
+    sha384: "HS384",
+    sha512: "HS512",
+    poly1305: "Poly1305"
+  }
+  @header_to_alg_map Map.new(@alg_to_header_map, fn {k, v} -> {v, k} end)
 
   @impl true
   def sign(payload, config) do
+    %{algorithm: alg, secret: secret} = get_config(config)
+
     with {:ok, json_payload} <- Jason.encode(payload) do
       payload = url_encode(json_payload)
-      mac_base = [generate_header(config.token_algorithm), ?., payload]
-      mac = mac_base |> calc_mac(config) |> url_encode()
+      mac_base = [generate_header(alg), ?., payload]
+      mac = mac_base |> calc_mac(secret, alg) |> url_encode()
       token = [mac_base, ?., mac] |> IO.iodata_to_binary()
       {:ok, token}
     else
@@ -60,10 +85,12 @@ defmodule Charon.Token.SymmetricJwt do
 
   @impl true
   def verify(token, config) do
+    %{secret: secret} = get_config(config)
+
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         :ok <- verify_header(header),
+         {:ok, alg} <- get_signature_algorithm(header),
          mac_base = [header, ?., payload],
-         mac = calc_mac(mac_base, config),
+         mac = calc_mac(mac_base, secret, alg),
          {:ok, signature} <- url_decode(signature),
          true <- Plug.Crypto.secure_compare(mac, signature),
          {:ok, payload} <- to_map(payload) do
@@ -82,23 +109,20 @@ defmodule Charon.Token.SymmetricJwt do
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp generate_header(:sha256), do: @sha256_header
-
-  defp generate_header(:poly1305) do
-    %{
-      "alg" => "Poly1305",
-      "typ" => "JWT",
-      # poly1305 needs a nonce
-      "nonce" => :crypto.strong_rand_bytes(16) |> url_encode()
-    }
+  defp generate_header(alg) do
+    %{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"}
+    |> maybe_add_nonce(alg)
     |> Jason.encode!()
-    |> url_encode()
+    |> Base.url_encode64(@encoding_opts)
   end
 
-  defp calc_mac(data, config = %{token_algorithm: :poly1305}),
-    do: :crypto.mac(:poly1305, config.token_secret, data)
+  defp maybe_add_nonce(header, :poly1305),
+    do: Map.put(header, :nonce, :crypto.strong_rand_bytes(16) |> url_encode())
 
-  defp calc_mac(data, config), do: :crypto.mac(:hmac, :sha256, config.token_secret, data)
+  defp maybe_add_nonce(header, _), do: header
+
+  defp calc_mac(data, secret, :poly1305), do: :crypto.mac(:poly1305, secret, data)
+  defp calc_mac(data, secret, alg), do: :crypto.mac(:hmac, alg, secret, data)
 
   defp to_map(encoded) do
     with {:ok, json} <- url_decode(encoded),
@@ -110,15 +134,18 @@ defmodule Charon.Token.SymmetricJwt do
     end
   end
 
-  defp verify_header(header) do
+  defp get_signature_algorithm(header) do
     with {:ok, payload} <- to_map(header),
          %{"alg" => alg} <- payload,
-         true <- alg in ~w(HS256 Poly1305) do
-      :ok
+         alg when not is_nil(alg) <- Map.get(@header_to_alg_map, alg) do
+      {:ok, alg}
     else
       %{} -> {:error, "malformed header"}
-      false -> {:error, "unsupported algorithm"}
+      nil -> {:error, "unsupported signature algorithm"}
       error -> error
     end
   end
+
+  defp get_config(config),
+    do: Map.merge(%{algorithm: :sha256}, config.custom.charon_symmetric_jwt)
 end
