@@ -10,6 +10,12 @@ jobs:
     env:
       MIX_ENV: test
 
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
     strategy:
       matrix:
         elixir: [1.12.x, 1.13.x]
