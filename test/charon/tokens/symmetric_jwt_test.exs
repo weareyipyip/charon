@@ -1,6 +1,6 @@
-defmodule Charon.Token.SymmetricJwtTest do
+defmodule Charon.Tokens.SymmetricJwtTest do
   use ExUnit.Case, async: true
-  alias Charon.Token.SymmetricJwt
+  alias Charon.Tokens.SymmetricJwt
   import SymmetricJwt
   doctest SymmetricJwt
 end

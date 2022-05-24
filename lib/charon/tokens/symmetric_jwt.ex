@@ -1,4 +1,4 @@
-defmodule Charon.Token.SymmetricJwt do
+defmodule Charon.Tokens.SymmetricJwt do
   @moduledoc """
   The default and most simple form of self-signed tokens,
   JWTs with symmetric-key signatures.
@@ -21,9 +21,8 @@ defmodule Charon.Token.SymmetricJwt do
       )
 
   The following options are supported:
-
-      - :secret - required
-      - :algorithm - optional the token signature algorithm, may be :sha256 (default), :sha384, :sha512 or :poly1305
+    - `:secret` (required). The secret for the JWT's signature algorithm. Must be exactly 256 bits in case of Poly1305 alg.
+    - `:algorithm` (optional). The token signature algorithm, may be `:sha256` (default), `:sha384`, `:sha512` or `:poly1305`.
 
   ## Examples / doctests
 
@@ -57,7 +56,7 @@ defmodule Charon.Token.SymmetricJwt do
       iex> %{"alg" => "Poly1305", "nonce" => <<_::binary>>, "typ" => "JWT"} = header
       iex> {:error, "signature invalid"} = verify(token, put_in(config.custom.charon_symmetric_jwt.secret, :crypto.strong_rand_bytes(32)))
   """
-  @behaviour Charon.Token
+  @behaviour Charon.Tokens
 
   @encoding_opts padding: false
   @alg_to_header_map %{
