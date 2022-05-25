@@ -1,4 +1,4 @@
-defmodule Charon.Tokens do
+defmodule Charon.TokenFactory do
   @moduledoc """
   Behaviour for token-signing modules.
   """
