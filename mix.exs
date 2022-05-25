@@ -23,7 +23,9 @@ defmodule Charon.MixProject do
     [
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
       {:jason, "~> 1.0"},
-      {:plug, "~> 1.0"}
+      {:plug, "~> 1.0"},
+      {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
+      {:redix, "~> 1.1", only: [:test], runtime: false}
     ]
   end
 end
