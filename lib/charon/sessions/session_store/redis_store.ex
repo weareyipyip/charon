@@ -24,7 +24,6 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
   """
   @behaviour Charon.Sessions.SessionStore
-  alias Charon.Sessions.Session
   alias Charon.Config
 
   @impl true
@@ -74,10 +73,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
     end
   end
 
-  @doc """
-  Get all sessions for the user with id `user_id`.
-  """
-  @spec get_all(pos_integer(), Config.t()) :: [Session.t()] | {:error, binary()}
+  @impl true
   def get_all(user_id, config) do
     config = process_config(config)
 
@@ -91,10 +87,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
     end
   end
 
-  @doc """
-  Delete all sessions for the user with id `user_id`.
-  """
-  @spec delete_all(pos_integer(), Config.t()) :: :ok | {:error, binary()}
+  @impl true
   def delete_all(user_id, config) do
     config = process_config(config)
 
