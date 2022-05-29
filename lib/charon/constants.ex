@@ -2,14 +2,16 @@ defmodule Charon.Constants do
   @moduledoc false
   defmacro __using__(_opts) do
     quote do
-      @private_session_key :charon_session_session
-      @private_tokens_key :charon_session_tokens
-      @private_access_token_payload_key :charon_session_access_token_payload
-      @private_refresh_token_payload_key :charon_session_refresh_token_payload
-      @private_auth_error_key :charon_session_auth_error
-      @private_token_signature_transport_key :charon_session_token_signature_transport
-      @private_user_id_key :charon_session_user_id
-      @private_session_id_key :charon_session_session_id
+      @session :charon_session
+      @tokens :charon_tokens
+      @access_token_payload :charon_access_token_payload
+      @refresh_token_payload :charon_refresh_token_payload
+      @auth_error :charon_auth_error
+      @token_signature_transport :charon_token_signature_transport
+      @user_id :charon_user_id
+      @session_id :charon_session_id
+      @bearer_token :charon_bearer_token
+      @bearer_token_payload :charon_bearer_token_payload
     end
   end
 end

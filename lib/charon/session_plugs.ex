@@ -1,11 +1,12 @@
-defmodule Charon.Sessions.SessionPlugs do
+defmodule Charon.SessionPlugs do
   @moduledoc """
-  Function plugs to create and delete sessions. `upsert_session/3` can be used in combination with `Charon.Plugs.ProcessRefreshToken` for token refreshing.
+  Plugs to create, update/refresh and delete sessions.
+  When creating or updating a session, new tokens are created as well.
   """
   alias Plug.Conn
   require Logger
   use Charon.Constants
-  alias Charon.{Config, Utils}
+  alias Charon.{Config, Internal}
   alias Charon.Models.{Session, Tokens}
 
   @type upsert_session_opts :: [
@@ -15,8 +16,8 @@ defmodule Charon.Sessions.SessionPlugs do
         ]
 
   @doc """
-  Create or update a session. If a session exists in the conn, the session is updated, otherwise a new one is created.
-  The session is put on the conn by `Charon.Plugs.ProcessRefreshToken`.
+  Create or update a session. If a session exists in the conn, the session is updated / refreshed, otherwise a new one is created.
+  Refresh an existing session by putting it on the connection with `Charon.TokenPlugs.load_session/2`.
 
   In both cases, new access / refresh tokens are created and stored in the conn's private map.
   The server-side session stored in the session store is created / updated as well.
@@ -28,6 +29,20 @@ defmodule Charon.Sessions.SessionPlugs do
   Optionally, it is possible to add extra claims to the access- and refresh tokens or to store extra payload in the server-side session.
 
   Raises on session store errors. No recovery is possible from this error - the session HAS to be stored or there is no point in handing out tokens.
+
+  ## Claims
+
+  The following claims are set by default:
+  - `"exp"` expires at (this value is guaranteed to never outlive the session itself)
+  - `"iat"` time of token creation
+  - `"iss"` issuer, usually a url like "https://myapp.com"
+  - `"jti"` jwt id, random unique id for the token (a refresh token's id is stored in the session as well)
+  - `"nbf"` not before, same value as `"iat"` but means "token not valid before this time"
+  - `"sid"` session id
+  - `"sub"` subject, the user id of the session owner
+  - `"type"` type, `"access"` or `"refresh"`
+
+  Additional claims or overrides can be provided with `opts`.
 
   ## Examples / doctests
 
@@ -51,7 +66,7 @@ defmodule Charon.Sessions.SessionPlugs do
       # existing session's user id will not change despite attempted override
       iex> old_session = %Session{user_id: 43, id: "a"}
       iex> conn = conn()
-      ...> |> Conn.put_private(@private_session_key, old_session)
+      ...> |> Conn.put_private(@session, old_session)
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
@@ -78,16 +93,16 @@ defmodule Charon.Sessions.SessionPlugs do
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
-      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: <<sid::binary>>, sub: 1, type: "access"} = Utils.get_access_token_payload(conn)
-      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: ^sid, sub: 1, type: "refresh"} = Utils.get_refresh_token_payload(conn)
+      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: <<sid::binary>>, sub: 1, type: "access"} = get_private(conn, @access_token_payload)
+      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: ^sid, sub: 1, type: "refresh"} = get_private(conn, @refresh_token_payload)
 
       # allows adding extra claims to tokens
       iex> conn = conn()
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config, access_claim_overrides: %{much: :extra}, refresh_claim_overrides: %{really: true})
-      iex> %{much: :extra} = Utils.get_access_token_payload(conn)
-      iex> %{really: true} = Utils.get_refresh_token_payload(conn)
+      iex> %{much: :extra} = get_private(conn, @access_token_payload)
+      iex> %{really: true} = get_private(conn, @refresh_token_payload)
 
       # allows adding extra payload to session
       iex> conn = conn()
@@ -99,7 +114,7 @@ defmodule Charon.Sessions.SessionPlugs do
   @spec upsert_session(Conn.t(), Config.t(), upsert_session_opts()) :: Conn.t()
   def upsert_session(
         conn,
-        config = %Config{
+        config = %{
           refresh_token_ttl: max_refresh_ttl,
           session_store_module: session_store,
           session_ttl: session_ttl,
@@ -112,7 +127,7 @@ defmodule Charon.Sessions.SessionPlugs do
         },
         opts \\ []
       ) do
-    now = System.system_time(:second)
+    now = Internal.now()
     access_claim_overrides = Map.new(opts[:access_claim_overrides] || %{})
     refresh_claim_overrides = Map.new(opts[:refresh_claim_overrides] || %{})
     extra_session_payload = Map.new(opts[:extra_session_payload] || %{})
@@ -122,7 +137,7 @@ defmodule Charon.Sessions.SessionPlugs do
 
     # update the existing session or create a new one
     session = %{
-      (Utils.get_session(conn) || new_session(conn, session_ttl, now))
+      (Internal.get_private(conn, @session) || new_session(conn, session_ttl, now))
       | refresh_token_id: refresh_token_id,
         refreshed_at: now,
         extra_payload: extra_session_payload
@@ -142,8 +157,7 @@ defmodule Charon.Sessions.SessionPlugs do
     shared_payload = %{
       iat: now,
       iss: config.token_issuer,
-      # allow some clock drift
-      nbf: now - 5,
+      nbf: now,
       sid: session.id,
       sub: session.user_id
     }
@@ -189,9 +203,11 @@ defmodule Charon.Sessions.SessionPlugs do
       refresh_cookie_opts,
       refresh_cookie_name
     )
-    |> Conn.put_private(@private_session_key, session)
-    |> Conn.put_private(@private_access_token_payload_key, a_payload)
-    |> Conn.put_private(@private_refresh_token_payload_key, r_payload)
+    |> Internal.put_private(%{
+      @session => session,
+      @access_token_payload => a_payload,
+      @refresh_token_payload => r_payload
+    })
   end
 
   @doc """
@@ -213,7 +229,7 @@ defmodule Charon.Sessions.SessionPlugs do
   @spec delete_session(Conn.t(), Config.t()) :: Conn.t()
   def delete_session(
         conn,
-        config = %Config{
+        config = %{
           session_store_module: session_store,
           access_cookie_name: access_cookie_name,
           refresh_cookie_name: refresh_cookie_name,
@@ -222,7 +238,7 @@ defmodule Charon.Sessions.SessionPlugs do
         }
       ) do
     case conn.private do
-      %{@private_user_id_key => uid, @private_session_id_key => sid} ->
+      %{@user_id => uid, @session_id => sid} ->
         session_store.delete(sid, uid, config)
 
       _ ->
@@ -238,9 +254,10 @@ defmodule Charon.Sessions.SessionPlugs do
   # Privates #
   ############
 
+  # this ensures that a token's exp claim never outlives its session
   defp calc_ttl(session, now, max_ttl)
   defp calc_ttl(%{expires_at: nil}, _now, max_ttl), do: max_ttl
-  defp calc_ttl(%{expires_at: timestamp}, now, max_ttl), do: min(timestamp - now, max_ttl)
+  defp calc_ttl(%{expires_at: session_exp}, now, max_ttl), do: min(session_exp - now, max_ttl)
 
   defp transport_tokens(
          conn,
@@ -254,20 +271,20 @@ defmodule Charon.Sessions.SessionPlugs do
        ) do
     case get_sig_transport!(conn) do
       :bearer ->
-        Conn.put_private(conn, @private_tokens_key, tokens)
+        Conn.put_private(conn, @tokens, tokens)
 
       :cookie ->
         [at_header, at_payload, at_signature] = String.split(tokens.access_token, ".", parts: 3)
-        access_token = at_header <> "." <> at_payload <> "."
+        access_token = [at_header, ?., at_payload, ?.] |> IO.iodata_to_binary()
         [rt_header, rt_payload, rt_signature] = String.split(tokens.refresh_token, ".", parts: 3)
-        refresh_token = rt_header <> "." <> rt_payload <> "."
+        refresh_token = [rt_header, ?., rt_payload, ?.] |> IO.iodata_to_binary()
         tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
 
         access_cookie_opts = Keyword.put(access_cookie_opts, :max_age, access_ttl)
         refresh_cookie_opts = Keyword.put(refresh_cookie_opts, :max_age, refresh_ttl)
 
         conn
-        |> Conn.put_private(@private_tokens_key, tokens)
+        |> Conn.put_private(@tokens, tokens)
         |> Conn.put_resp_cookie(access_cookie_name, at_signature, access_cookie_opts)
         |> Conn.put_resp_cookie(refresh_cookie_name, rt_signature, refresh_cookie_opts)
     end
@@ -288,7 +305,7 @@ defmodule Charon.Sessions.SessionPlugs do
 
   defp get_user_id!(conn) do
     conn
-    |> Utils.get_user_id()
+    |> Internal.get_private(@user_id)
     |> case do
       nil -> raise "Set user id using Utils.set_user_id/2"
       result -> result
@@ -297,14 +314,14 @@ defmodule Charon.Sessions.SessionPlugs do
 
   defp get_sig_transport!(conn) do
     conn
-    |> Utils.get_token_signature_transport()
+    |> Internal.get_private(@token_signature_transport)
     |> case do
       nil -> raise "Set token signature transport using Utils.set_token_signature_transport/2"
       result -> result
     end
   end
 
-  # generate random IDs of a specified bit length, default 128, as hex string
+  # generate random IDs of a specified bit length, default 128
   # 2^128 == 16^32 so 128 bits of randomness is equal to a UUID (actually slightly more)
   defp random_id(bits \\ 128) do
     bits |> div(8) |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)

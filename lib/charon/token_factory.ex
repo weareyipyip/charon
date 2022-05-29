@@ -1,6 +1,10 @@
 defmodule Charon.TokenFactory do
   @moduledoc """
   Behaviour for token-signing modules.
+
+  Note that the token payload must be returned as a map with string keys on verification.
+  When the payload is serialized as JSON, this happens automatically.
+  However, when Erlang term format is used, this is not the case.
   """
   alias Charon.Config
 
@@ -11,6 +15,9 @@ defmodule Charon.TokenFactory do
 
   @doc """
   Verify that the signature matches the token's header and payload, and decode the payload.
+
+  Must return a map of string keys.
   """
-  @callback verify(token :: String.t(), config :: Config) :: {:ok, map()} | {:error, String.t()}
+  @callback verify(token :: String.t(), config :: Config) ::
+              {:ok, %{required(String.t()) => any()}} | {:error, String.t()}
 end

@@ -1,6 +1,6 @@
-defmodule Charon.Sessions.SessionStore.RedisStore do
+defmodule Charon.SessionStore.RedisStore do
   @moduledoc """
-  A persistent session store based on Redis, which implements behaviour `Charon.Sessions.SessionStore`.
+  A persistent session store based on Redis, which implements behaviour `Charon.SessionStore`.
   In addition to the required callbacks, this store also provides `get_all/2` and `delete_all/2` (for a user) functions.
   Session keys slowly accumulate in Redis when using this store.
   It provides a `cleanup/1` that should run periodically.
@@ -14,7 +14,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
         custom: %{
           charon_redis_store: %{
             redix_module: MyApp.Redix,
-            key_prefix: "CHARON_SESSION_"
+            key_prefix: "charon_"
           }
         }
       )
@@ -23,8 +23,9 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
     - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
   """
-  @behaviour Charon.Sessions.SessionStore
+  @behaviour Charon.SessionStore
   alias Charon.Config
+  alias Charon.Internal
 
   @impl true
   def get(session_id, user_id, config) do
@@ -42,7 +43,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
   @impl true
   def upsert(%{id: session_id, user_id: user_id} = session, ttl, config) do
     config = process_config(config)
-    now = System.system_time(:second)
+    now = Internal.now()
     session_key = session_key(session_id, user_id, config)
 
     [
@@ -104,7 +105,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
   @spec cleanup(Config.t()) :: :ok | {:error, binary()}
   def cleanup(config) do
     config = process_config(config)
-    now = System.system_time(:second)
+    now = Internal.now()
 
     with {:ok, set_keys = [_ | _]} <- scan([config.key_prefix, ".u.*"], config) do
       set_keys
@@ -124,15 +125,19 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
   ###########
 
   defp process_config(config) do
-    Map.merge(%{key_prefix: "CHARON_SESSION_"}, config.custom.charon_redis_store)
+    Map.merge(%{key_prefix: "charon_"}, config.custom.charon_redis_store)
   end
 
   # key for a single session
-  defp session_key(session_id, user_id, config),
-    do: [config.key_prefix, ".s.", user_id, ?., session_id]
+  @doc false
+  def session_key(session_id, user_id, config) do
+    key = [config.key_prefix, ".s.", user_id, ?., session_id]
+    :crypto.hash(:blake2s, key)
+  end
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
-  defp user_sessions_key(user_id, config), do: [config.key_prefix, ".u.", user_id]
+  @doc false
+  def user_sessions_key(user_id, config), do: [config.key_prefix, ".u.", user_id]
 
   # get all keys, including expired ones, for a user
   defp all_keys(user_id, config) do
@@ -142,7 +147,7 @@ defmodule Charon.Sessions.SessionStore.RedisStore do
 
   # get all valid keys for a user
   defp all_unexpired_keys(user_id, config) do
-    now = System.system_time(:second)
+    now = Internal.now()
 
     # get all of the user's valid session keys (with score/timestamp >= now)
     ["ZRANGE", user_sessions_key(user_id, config), now, "+inf", "BYSCORE"]

@@ -41,9 +41,11 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       {:error, "malformed token"}
       iex> verify("a.b.c", config)
       {:error, "encoding invalid"}
-      iex> verify("#{%{"alg" => "boom"} |> Jason.encode!() |> Base.url_encode64(padding: false)}.YQ.YQ", config)
+      iex> header = %{"alg" => "boom"} |> Jason.encode!() |> Base.url_encode64(padding: false)
+      iex> verify(header <> ".YQ.YQ", config)
       {:error, "unsupported signature algorithm"}
-      iex> verify("#{%{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)}.YQ.YQ", config)
+      iex> header = %{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)
+      iex> verify(header <> ".YQ.YQ", config)
       {:error, "signature invalid"}
 
       # poly1305 is also supported, and requires a 256-bits key

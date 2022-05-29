@@ -1,17 +1,18 @@
-defmodule Charon.Sessions.SessionPlugsTest do
+defmodule Charon.SessionPlugsTest do
   use ExUnit.Case
   @moduletag :capture_log
   use Charon.Constants
   alias Plug.Conn
   alias Charon.Utils
   alias Charon.Models.{Session, Tokens}
-  import Plug.Test
-  import Charon.TestUtils
+  import Charon.{TestUtils, Internal}
+  alias Charon.TestRedix
+  import TestRedix, only: [command: 1]
 
   @sid "a"
   @uid 1
-  @session %{id: @sid, user_id: @uid}
-  @serialized :erlang.term_to_binary(@session)
+  @user_session %{id: @sid, user_id: @uid}
+  @serialized :erlang.term_to_binary(@user_session)
 
   @config Charon.Config.from_enum(
             session_ttl: 68400,
@@ -19,37 +20,33 @@ defmodule Charon.Sessions.SessionPlugsTest do
             token_issuer: "my_test_app",
             custom: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
-              charon_redis_store: %{redix_module: __MODULE__}
+              charon_redis_store: %{redix_module: TestRedix}
             }
           )
 
-  def command(command), do: Redix.command(:redix, command)
-  def pipeline(commands), do: Redix.pipeline(:redix, commands)
-  defp now(), do: System.system_time(:second)
-  defp conn(), do: conn(:get, "/")
   def get_secret(), do: "supersecret"
 
   setup_all do
-    start_supervised!({Redix, name: :redix, host: System.get_env("REDIS_HOSTNAME", "localhost")})
+    TestRedix.init()
     :ok
   end
 
   setup do
-    command(~w(FLUSHDB))
+    TestRedix.before_each()
     :ok
   end
 
-  import Charon.Sessions.SessionPlugs
+  import Charon.SessionPlugs
 
-  doctest Charon.Sessions.SessionPlugs
+  doctest Charon.SessionPlugs
 
   describe "delete_session/2" do
     test "should drop session if present" do
       command(["SET", session_key(@sid, @uid), @serialized])
 
       conn()
-      |> Conn.put_private(@private_user_id_key, @uid)
-      |> Conn.put_private(@private_session_id_key, @sid)
+      |> Conn.put_private(@user_id, @uid)
+      |> Conn.put_private(@session_id, @sid)
       |> delete_session(@config)
 
       assert {:ok, []} = command(~w(KEYS *))
@@ -69,7 +66,7 @@ defmodule Charon.Sessions.SessionPlugsTest do
     end
 
     test "should store sessions with refresh ttl, not session ttl" do
-      # if this test fails, unused infinite sessions would keep accumulating in session stores
+      # if this test fails, unused infinite-ttl sessions would keep accumulating in session stores
       conn()
       |> Utils.set_token_signature_transport(:bearer)
       |> Utils.set_user_id(@uid)

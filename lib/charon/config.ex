@@ -1,11 +1,32 @@
 defmodule Charon.Config do
   @moduledoc """
-  Config struct.
+  Config struct. Keys & defaults:
 
       [
-        token_factory_module: Charon.Token.SymmetricJwt,
-        custom: %{}
+        :refresh_token_ttl,
+        :session_ttl,
+        :token_issuer,
+        access_cookie_name: "_access_token_signature",
+        access_cookie_opts: [
+          http_only: true,
+          same_site: "Strict",
+          secure: true
+        ],
+        access_token_ttl: 1800,
+        custom: %{},
+        refresh_cookie_name: "_refresh_token_signature",
+        refresh_cookie_opts: [
+          http_only: true,
+          same_site: "Strict",
+          secure: true
+        ],
+        session_store_module: Charon.SessionStore.RedisStore,
+        token_factory_module: Charon.TokenFactory.SymmetricJwt
       ]
+
+  Note that all config is compile-time config.
+  Runtime configuration properties should be provided in the form of getters,
+  like the custom config of `Charon.TokenFactory.SymmetricJwt`.
   """
   @enforce_keys [:refresh_token_ttl, :session_ttl, :token_issuer]
   defstruct [
@@ -26,7 +47,7 @@ defmodule Charon.Config do
       same_site: "Strict",
       secure: true
     ],
-    session_store_module: Charon.Sessions.SessionStore.RedisStore,
+    session_store_module: Charon.SessionStore.RedisStore,
     token_factory_module: Charon.TokenFactory.SymmetricJwt
   ]
 

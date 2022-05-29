@@ -1,26 +1,24 @@
-defmodule Charon.Sessions.SessionStore.RedisStoreTest do
+defmodule Charon.SessionStore.RedisStoreTest do
   use ExUnit.Case
-  alias Charon.Sessions.SessionStore.RedisStore
-  import Charon.TestUtils
+  alias Charon.SessionStore.RedisStore
+  import Charon.{TestUtils, Internal}
+  alias Charon.TestRedix
+  import TestRedix, only: [command: 1]
 
-  @config %{custom: %{charon_redis_store: %{redix_module: __MODULE__}}}
+  @config %{custom: %{charon_redis_store: %{redix_module: TestRedix}}}
   @sid "a"
   @uid 1
-  @session %{id: @sid, user_id: @uid}
-  @serialized :erlang.term_to_binary(@session)
+  @user_session %{id: @sid, user_id: @uid}
+  @serialized :erlang.term_to_binary(@user_session)
   @ttl 10
 
-  def command(command), do: Redix.command(:redix, command)
-  def pipeline(commands), do: Redix.pipeline(:redix, commands)
-  defp now(), do: System.system_time(:second)
-
   setup_all do
-    start_supervised!({Redix, name: :redix, host: System.get_env("REDIS_HOSTNAME", "localhost")})
+    TestRedix.init()
     :ok
   end
 
   setup do
-    command(~w(FLUSHDB))
+    TestRedix.before_each()
     :ok
   end
 
@@ -31,13 +29,13 @@ defmodule Charon.Sessions.SessionStore.RedisStoreTest do
 
     test "returns deserialized session" do
       command(["SET", session_key(@sid, @uid), @serialized])
-      assert @session == RedisStore.get(@sid, @uid, @config)
+      assert @user_session == RedisStore.get(@sid, @uid, @config)
     end
   end
 
   describe "upsert/3" do
     test "stores session and adds key to user's set of sessions" do
-      assert :ok = RedisStore.upsert(@session, @ttl, @config)
+      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
       assert {:ok, @serialized} == command(["get", session_key(@sid, @uid)])
 
       assert {:ok, [session_key(@sid, @uid)]} ==
@@ -45,8 +43,8 @@ defmodule Charon.Sessions.SessionStore.RedisStoreTest do
     end
 
     test "sets ttl / exp score" do
-      now = System.system_time(:second)
-      assert :ok = RedisStore.upsert(@session, @ttl, @config)
+      now = now()
+      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
       assert {:ok, ttl} = command(["TTL", session_key(@sid, @uid)])
       assert_in_delta ttl, @ttl, 3
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
@@ -54,12 +52,12 @@ defmodule Charon.Sessions.SessionStore.RedisStoreTest do
     end
 
     test "updates existing session, ttl, exp" do
-      assert :ok = RedisStore.upsert(@session, @ttl, @config)
+      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
 
       Process.sleep(1001)
 
-      assert :ok = RedisStore.upsert(Map.put(@session, :new, "key"), @ttl, @config)
+      assert :ok = RedisStore.upsert(Map.put(@user_session, :new, "key"), @ttl, @config)
       assert {:ok, new_session} = command(["GET", session_key(@sid, @uid)])
       assert {:ok, new_ttl} = command(["TTL", session_key(@sid, @uid)])
 
@@ -109,7 +107,7 @@ defmodule Charon.Sessions.SessionStore.RedisStoreTest do
       command(["ZADD", "user2", now() + @ttl, "e"])
       command(["SET", "e", @serialized])
 
-      assert [@session] == RedisStore.get_all(@uid, @config)
+      assert [@user_session] == RedisStore.get_all(@uid, @config)
     end
   end
 
@@ -126,12 +124,12 @@ defmodule Charon.Sessions.SessionStore.RedisStoreTest do
       # expired and missing as it should be
       command(["ZADD", user_sessions_key(@uid), 0, "d"])
       # another user's session
-      command(["ZADD", "user2", now() + @ttl, "e"])
+      command(["ZADD", user_sessions_key(@uid + 1), now() + @ttl, "e"])
       command(["SET", "e", "session_e"])
 
       assert :ok == RedisStore.delete_all(@uid, @config)
       assert {:ok, keys} = command(~w(KEYS *))
-      assert ["e", "user2"] = Enum.sort(keys)
+      assert [user_sessions_key(@uid + 1) |> IO.iodata_to_binary(), "e"] == Enum.sort(keys)
     end
   end
 
