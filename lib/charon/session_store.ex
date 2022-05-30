@@ -1,4 +1,4 @@
-defmodule Charon.Sessions.SessionStore do
+defmodule Charon.SessionStore do
   @moduledoc """
   Behaviour definition of a persistent session store.
   The implementation is expected to handle cleanup of expired entries.
@@ -7,7 +7,7 @@ defmodule Charon.Sessions.SessionStore do
 
   However, not ignoring the user ID enables the usecase where all sessions for a user are fetched or deleted (the optional callbacks), for example, so there are benefits to storing sessions per user.
   """
-  alias Charon.Sessions.Session
+  alias Charon.Session
   alias Charon.Config
 
   @optional_callbacks [get_all: 2, delete_all: 2]

@@ -1,4 +1,4 @@
-defmodule Charon.Sessions.Session do
+defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
@@ -8,7 +8,6 @@ defmodule Charon.Sessions.Session do
             id: nil,
             refresh_token_id: nil,
             refreshed_at: nil,
-            token_signature_transport: nil,
             user_id: nil
 
   @type t :: %__MODULE__{
@@ -18,7 +17,6 @@ defmodule Charon.Sessions.Session do
           id: String.t(),
           refresh_token_id: String.t(),
           refreshed_at: integer,
-          token_signature_transport: atom,
-          user_id: pos_integer
+          user_id: pos_integer | binary()
         }
 end
