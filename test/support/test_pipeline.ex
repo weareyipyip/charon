@@ -6,8 +6,6 @@ defmodule Charon.TestPipeline do
   def get_secret(), do: "supersecret"
 
   @config Charon.Config.from_enum(
-            session_ttl: 68400,
-            refresh_token_ttl: 3600,
             token_issuer: "my_test_app",
             custom: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
