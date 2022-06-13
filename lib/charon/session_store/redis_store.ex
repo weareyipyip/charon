@@ -125,7 +125,7 @@ defmodule Charon.SessionStore.RedisStore do
   ###########
 
   defp process_config(config) do
-    Map.merge(%{key_prefix: "charon_"}, config.custom.charon_redis_store)
+    Internal.process_custom_config(config, :charon_redis_store, %{key_prefix: "charon_"}, [])
   end
 
   # key for a single session

@@ -44,24 +44,17 @@ defmodule Charon.Utils do
       iex> :cookie = %Conn{} |> set_token_signature_transport(:cookie) |> get_token_signature_transport()
 
       iex> set_token_signature_transport(%Conn{}, "anything else")
-      ** (FunctionClauseError) no function clause matching in Charon.Utils.set_token_signature_transport/2
+      ** (FunctionClauseError) no function clause matching in Charon.Internal.parse_sig_transport/1
   """
   @spec set_token_signature_transport(Conn.t(), binary() | :bearer | :cookie) :: Conn.t()
-  def set_token_signature_transport(conn, token_signature_transport)
-  def set_token_signature_transport(conn, "bearer"), do: set_tst(conn, :bearer)
-  def set_token_signature_transport(conn, "cookie"), do: set_tst(conn, :cookie)
-  def set_token_signature_transport(conn, :bearer), do: set_tst(conn, :bearer)
-  def set_token_signature_transport(conn, :cookie), do: set_tst(conn, :cookie)
+  def set_token_signature_transport(conn, token_signature_transport) do
+    transport = Internal.parse_sig_transport(token_signature_transport)
+    Conn.put_private(conn, @token_signature_transport, transport)
+  end
 
   @doc """
   Set user id for session creation
   """
   @spec set_user_id(Conn.t(), any) :: Conn.t()
   def set_user_id(conn, user_id), do: Conn.put_private(conn, @user_id, user_id)
-
-  ###########
-  # Private #
-  ###########
-
-  defp set_tst(conn, tst), do: Conn.put_private(conn, @token_signature_transport, tst)
 end

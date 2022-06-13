@@ -60,6 +60,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> {:error, "signature invalid"} = verify(token, put_in(config.custom.charon_symmetric_jwt.get_secret, fn -> :crypto.strong_rand_bytes(32) end))
   """
   @behaviour Charon.TokenFactory
+  alias Charon.Internal
 
   @encoding_opts padding: false
   @alg_to_header_map %{
@@ -119,7 +120,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   end
 
   defp maybe_add_nonce(header, :poly1305),
-    do: Map.put(header, :nonce, :crypto.strong_rand_bytes(16) |> url_encode())
+    do: Map.put(header, :nonce, Internal.random_url_encoded(16))
 
   defp maybe_add_nonce(header, _), do: header
 
@@ -149,8 +150,10 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   end
 
   defp process_config(config) do
-    config = config.custom.charon_symmetric_jwt
-    secret = config.get_secret.()
-    Map.merge(%{algorithm: :sha256, secret: secret}, config)
+    config
+    |> Internal.process_custom_config(:charon_symmetric_jwt, %{algorithm: :sha256}, [:get_secret])
+    |> then(fn config ->
+      Map.put(config, :secret, config.get_secret.())
+    end)
   end
 end

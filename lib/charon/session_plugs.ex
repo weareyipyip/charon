@@ -117,7 +117,6 @@ defmodule Charon.SessionPlugs do
         config = %{
           refresh_token_ttl: max_refresh_ttl,
           session_store_module: session_store,
-          session_ttl: session_ttl,
           access_token_ttl: max_access_ttl,
           access_cookie_name: access_cookie_name,
           refresh_cookie_name: refresh_cookie_name,
@@ -133,14 +132,15 @@ defmodule Charon.SessionPlugs do
     extra_session_payload = Map.new(opts[:extra_session_payload] || %{})
 
     # the refresh token id is renewed every time so that refresh tokens are single-use only
-    refresh_token_id = random_id()
+    refresh_token_id = Internal.random_url_encoded(16)
 
     # update the existing session or create a new one
     session = %{
-      (Internal.get_private(conn, @session) || new_session(conn, session_ttl, now))
+      (Internal.get_private(conn, @session) || Session.new(config, user_id: get_user_id!(conn)))
       | refresh_token_id: refresh_token_id,
         refreshed_at: now,
-        extra_payload: extra_session_payload
+        extra_payload: extra_session_payload,
+        type: :full
     }
 
     Logger.debug(fn ->
@@ -164,7 +164,7 @@ defmodule Charon.SessionPlugs do
 
     a_payload =
       shared_payload
-      |> Map.merge(%{jti: random_id(), exp: access_exp, type: "access"})
+      |> Map.merge(%{jti: Internal.random_url_encoded(16), exp: access_exp, type: "access"})
       |> Map.merge(access_claim_overrides)
 
     r_payload =
@@ -274,33 +274,17 @@ defmodule Charon.SessionPlugs do
         Conn.put_private(conn, @tokens, tokens)
 
       :cookie ->
-        [at_header, at_payload, at_signature] = String.split(tokens.access_token, ".", parts: 3)
-        access_token = [at_header, ?., at_payload, ?.] |> IO.iodata_to_binary()
-        [rt_header, rt_payload, rt_signature] = String.split(tokens.refresh_token, ".", parts: 3)
-        refresh_token = [rt_header, ?., rt_payload, ?.] |> IO.iodata_to_binary()
+        split = Internal.split_signature(tokens.access_token, access_ttl, access_cookie_opts)
+        {access_token, at_signature, access_cookie_opts} = split
+        split = Internal.split_signature(tokens.refresh_token, refresh_ttl, refresh_cookie_opts)
+        {refresh_token, rt_signature, refresh_cookie_opts} = split
         tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
-
-        access_cookie_opts = Keyword.put(access_cookie_opts, :max_age, access_ttl)
-        refresh_cookie_opts = Keyword.put(refresh_cookie_opts, :max_age, refresh_ttl)
 
         conn
         |> Conn.put_private(@tokens, tokens)
         |> Conn.put_resp_cookie(access_cookie_name, at_signature, access_cookie_opts)
         |> Conn.put_resp_cookie(refresh_cookie_name, rt_signature, refresh_cookie_opts)
     end
-  end
-
-  defp new_session(conn, session_ttl, timestamp) do
-    %Session{
-      created_at: timestamp,
-      id: random_id(),
-      user_id: get_user_id!(conn),
-      expires_at:
-        case session_ttl do
-          ttl when is_integer(ttl) -> ttl + timestamp
-          _ -> nil
-        end
-    }
   end
 
   defp get_user_id!(conn) do
@@ -319,11 +303,5 @@ defmodule Charon.SessionPlugs do
       nil -> raise "Set token signature transport using Utils.set_token_signature_transport/2"
       result -> result
     end
-  end
-
-  # generate random IDs of a specified bit length, default 128
-  # 2^128 == 16^32 so 128 bits of randomness is equal to a UUID (actually slightly more)
-  defp random_id(bits \\ 128) do
-    bits |> div(8) |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 end
