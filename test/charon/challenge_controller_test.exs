@@ -44,14 +44,14 @@ defmodule Charon.ChallengeControllerTest do
 
       assert %{status: 204} =
                complete_setup("password", seeds, %{
-                 "password" => "boom",
+                 "password" => "boomboom",
                  "current_password" => seeds.user.password
                })
 
       assert %{password_hash: hash, enabled_challenges: ~w(password)} =
                UserContext.get_by_id(seeds.user.id)
 
-      assert Bcrypt.verify_pass("boom", hash)
+      assert Bcrypt.verify_pass("boomboom", hash)
     end
   end
 
@@ -81,7 +81,7 @@ defmodule Charon.ChallengeControllerTest do
 
       assert %{status: 204} = complete_setup("bypass_stage", seeds, %{})
 
-      assert %{enabled_challenges: ~w(bypass_stage)} = UserContext.get_by_id(seeds.user.id)
+      assert %{enabled_challenges: []} = UserContext.get_by_id(seeds.user.id)
     end
   end
 
@@ -96,13 +96,23 @@ defmodule Charon.ChallengeControllerTest do
       assert user.recovery_code_hashes != seeds.user.recovery_code_hashes
       code = Enum.random(new_codes)
 
-      assert :ok =
-               RecoveryCodeChallenge.challenge_complete(user, %{"recovery_code" => code}, @config)
+      assert {:ok, _, _} =
+               RecoveryCodeChallenge.challenge_complete(
+                 conn(:get, "/"),
+                 %{"recovery_code" => code},
+                 user,
+                 @config
+               )
 
       assert user = UserContext.get_by_id(seeds.user.id)
 
       assert {:error, "recovery_code invalid"} =
-               RecoveryCodeChallenge.challenge_complete(user, %{"recovery_code" => code}, @config)
+               RecoveryCodeChallenge.challenge_complete(
+                 conn(:get, "/"),
+                 %{"recovery_code" => code},
+                 user,
+                 @config
+               )
     end
   end
 

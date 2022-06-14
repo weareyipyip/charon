@@ -77,38 +77,42 @@ defmodule Charon.AuthFlow do
   If the challenge fails, the error is returned.
   """
   @spec handle_challenge_result(
-          :ok | {:error, String.t()},
+          {:ok, Plug.Conn.t(), map() | nil} | {:error, String.t() | map()},
           flow_set(),
           Session.t(),
           Plug.Conn.t(),
           Config.t(),
           keyword()
         ) ::
-          {:ok, :flow_complete, Plug.Conn.t()}
-          | {:ok, :challenge_complete, Stage.t()}
-          | {:error, String.t()}
+          {:flow_complete, Plug.Conn.t(), map()}
+          | {:challenge_complete, Plug.Conn.t(), Stage.t()}
+          | {:error, String.t() | map()}
   def handle_challenge_result(result, flow_set, session, conn, config, opts \\ [])
 
-  def handle_challenge_result(:ok, flow_set, session, conn, config, opts) do
+  def handle_challenge_result({:ok, conn, to_return}, flow_set, session, conn, config, opts) do
+    to_return = to_return || %{}
+
     case get_stage(flow_set, session, :next) do
       {:ok, next_stage} ->
         {:ok, _session} = bump_protosession_stage(session, config)
-        {:ok, :challenge_complete, next_stage}
+        {:challenge_complete, conn, Map.put(to_return, :next_stage, next_stage)}
 
       {:error, "stage not found"} ->
         # hand out tokens! hurray!
-        conn =
-          conn
-          |> Internal.put_private(%{
-            @token_signature_transport => session.extra_payload.sig_transport,
-            @session => %{session | extra_payload: %{}}
-          })
-          |> Charon.SessionPlugs.upsert_session(
-            config,
-            Keyword.get(opts, :upsert_session_opts, [])
-          )
-
-        {:ok, :flow_complete, conn}
+        conn
+        |> Internal.put_private(%{
+          @token_signature_transport => session.extra_payload.sig_transport,
+          @session => %{session | extra_payload: %{}}
+        })
+        |> Charon.SessionPlugs.upsert_session(
+          config,
+          Keyword.get(opts, :upsert_session_opts, [])
+        )
+        |> then(fn conn ->
+          %{@session => session, @tokens => tokens} = conn.private
+          to_return = Map.merge(to_return, %{session: session, tokens: tokens})
+          {:flow_complete, conn, to_return}
+        end)
     end
   end
 

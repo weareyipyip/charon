@@ -10,8 +10,8 @@ defmodule Charon.ChallengeController do
     with %{user_id: user_id} <- conn.assigns,
          challenge when not is_nil(challenge) <- Map.get(get_challenge_map(), name),
          {_, user = %{}} <- {:user, UserContext.get_by_id(user_id)},
-         {:ok, response, conn} <- challenge.setup_init(user, conn, get_config()) do
-      case response do
+         {:ok, conn, to_return} <- challenge.setup_init(conn, conn.params, user, get_config()) do
+      case to_return do
         nil -> send_resp(conn, 204, "")
         response -> json_resp(conn, 200, response)
       end
@@ -26,16 +26,15 @@ defmodule Charon.ChallengeController do
     with %{user_id: user_id} <- conn.assigns,
          challenge when not is_nil(challenge) <- Map.get(get_challenge_map(), name),
          {_, user = %{}} <- {:user, UserContext.get_by_id(user_id)},
-         :ok <- challenge.setup_complete(user, conn.params, get_config()) do
-      send_resp(conn, 204, "")
+         {:ok, conn, to_return} <- challenge.setup_complete(conn, conn.params, user, get_config()) do
+      case to_return do
+        nil -> send_resp(conn, 204, "")
+        response -> json_resp(conn, 200, response)
+      end
     else
       nil -> json_resp(conn, 404, %{error: "challenge not found"})
       {:user, nil} -> json_resp(conn, 404, %{error: "user not found"})
       {:error, msg} -> json_resp(conn, 400, %{error: msg})
     end
   end
-
-  ###########
-  # Private #
-  ###########
 end

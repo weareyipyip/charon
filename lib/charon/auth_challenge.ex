@@ -3,6 +3,7 @@ defmodule Charon.AuthChallenge do
   Behaviour for an authentication challenge module.
   """
   alias Charon.Config
+  alias Plug.Conn
 
   defmacro __using__(_opts) do
     quote do
@@ -11,11 +12,16 @@ defmodule Charon.AuthChallenge do
 
       def name(), do: @challenge_name
 
-      def challenge_init(user, config) do
-        AuthChallenge.verify_enabled(user, @challenge_name, config)
+      def challenge_init(conn, _params, user, config) do
+        with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config) do
+          {:ok, conn, nil}
+        else
+          error -> error
+        end
       end
 
-      def setup_init(_user, conn, _config), do: {:ok, nil, conn}
+      def setup_init(conn, _params, _user, _config), do: {:ok, conn, nil}
+      def setup_complete(conn, _params, _user, _config), do: {:ok, conn, nil}
 
       defoverridable AuthChallenge
     end
@@ -26,16 +32,82 @@ defmodule Charon.AuthChallenge do
   """
   @type t :: module()
 
-  @callback challenge_init(user :: map() | struct(), config :: Config.t()) ::
-              :ok | {:error, String.t()}
-  @callback challenge_complete(user :: map() | struct(), params :: map(), config :: Config.t()) ::
-              :ok | {:error, String.t()}
+  @doc """
+  Initiate the challenge.
+  This callback can be used to issue the challenge, in response to the user picking it, for example by sending a code by email.
+  This callback may optionally verify that the user has enabled the challenge.
 
-  @callback setup_init(user :: map() | struct(), conn :: map(), config :: Config.t()) ::
-              {:ok, map() | nil, map()} | {:error, String.t()}
-  @callback setup_complete(user :: map() | struct(), params :: map(), config :: Config.t()) ::
-              :ok | {:error, map() | String.t()}
+  Returns:
+  - `{:ok, maybe-updated-conn, maybe-response-for-client}`
+  - `{:error, message}`
+  - `{:error, map}` (update-user-callback-error)
+  """
+  @callback challenge_init(
+              conn :: Conn.t(),
+              params :: map(),
+              user :: map() | struct(),
+              config :: Config.t()
+            ) ::
+              {:ok, Conn.t(), nil | map()} | {:error, String.t()} | {:error, map()}
 
+  @doc """
+  Complete the challenge.
+  This callback must validate the client's response to the challenge.
+  Passing the challenge means passing the auth flow's stage.
+
+  Returns:
+  - `{:ok, maybe-updated-conn, maybe-response-for-client}`
+  - `{:error, message}`
+  - `{:error, map}` (update-user-callback-error)
+  """
+  @callback challenge_complete(
+              conn :: Conn.t(),
+              params :: map(),
+              user :: map() | struct(),
+              config :: Config.t()
+            ) ::
+              {:ok, Conn.t(), nil | map()} | {:error, String.t()} | {:error, map()}
+
+  @doc """
+  Initiate the challenge's setup.
+  This callback can be used to generate an initial challenge
+  (for example to verify that the user has successfully set up an OTP app),
+  store underlying secrets for the user,
+  or renew a challenge's underlying secret.
+
+  Returns:
+  - `{:ok, maybe-updated-conn, maybe-response-for-client}`
+  - `{:error, message}`
+  - `{:error, map}` (update-user-callback-error)
+  """
+  @callback setup_init(
+              conn :: Conn.t(),
+              params :: map(),
+              user :: map() | struct(),
+              config :: Config.t()
+            ) ::
+              {:ok, Conn.t(), nil | map()} | {:error, String.t()} | {:error, map()}
+
+  @doc """
+  Complete the challenge's setup.
+  This callback should enable the challenge for the user, when applicable.
+
+  Returns:
+  - `{:ok, maybe-updated-conn, maybe-response-for-client}`
+  - `{:error, message}`
+  - `{:error, map}` (update-user-callback-error)
+  """
+  @callback setup_complete(
+              conn :: Conn.t(),
+              params :: map(),
+              user :: map() | struct(),
+              config :: Config.t()
+            ) ::
+              {:ok, Conn.t(), nil | map()} | {:error, String.t()} | {:error, map()}
+
+  @doc """
+  Returns the challenge's name. Should be unique.
+  """
   @callback name() :: String.t()
 
   ###########

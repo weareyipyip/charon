@@ -1,6 +1,6 @@
 defmodule Charon.AuthFlowController do
   use Plug.Router
-  alias Charon.{AuthFlow, AuthFlow.Stage, AuthChallenge, UserContext, TestRedix, Utils}
+  alias Charon.{AuthFlow, AuthFlow.Stage, AuthChallenge, UserContext, TestRedix}
 
   alias AuthChallenge.{
     PasswordChallenge,
@@ -9,8 +9,6 @@ defmodule Charon.AuthFlowController do
     RecoveryCodeChallenge,
     PreSentChallenge
   }
-
-  import BypassStageChallenge, only: [get_token_signature_from_cookie: 2]
 
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
@@ -52,7 +50,6 @@ defmodule Charon.AuthFlowController do
   @challenge_map AuthFlow.to_challenge_map(@flows)
 
   plug(:match)
-  plug(:get_token_signature_from_cookie, @config)
   plug(:dispatch)
 
   post "/init_flow" do
@@ -70,12 +67,16 @@ defmodule Charon.AuthFlowController do
   end
 
   post "/init_challenge/:name" do
-    %{"token" => token} = conn.params
+    params = conn.params
+    %{"token" => token} = params
 
     with {:ok, challenge, session} <- AuthFlow.process_token(token, @flows, name, @config),
          user = %{} <- UserContext.get_by_id(session.user_id),
-         :ok <- challenge.challenge_init(user, @config) do
-      send_resp(conn, 204, "")
+         {:ok, conn, to_return} <- challenge.challenge_init(conn, params, user, @config) do
+      case to_return do
+        nil -> send_resp(conn, 204, "")
+        map -> json_resp(conn, 200, map)
+      end
     else
       nil -> json_resp(conn, 404, %{error: "user not found"})
       {:error, msg} -> json_resp(conn, 400, %{error: msg})
@@ -83,19 +84,19 @@ defmodule Charon.AuthFlowController do
   end
 
   post "/complete_challenge/:name" do
-    %{"token" => token} = conn.params
+    params = conn.params
+    %{"token" => token} = params
 
     with {:ok, challenge, session} <- AuthFlow.process_token(token, @flows, name, @config),
          user = %{} <- UserContext.get_by_id(session.user_id) do
-      result = challenge.challenge_complete(user, conn.params, @config)
+      result = challenge.challenge_complete(conn, params, user, @config)
 
       case AuthFlow.handle_challenge_result(result, @flows, session, conn, @config) do
-        {:ok, :flow_complete, conn} ->
-          tokens = conn |> Utils.get_tokens() |> Map.from_struct()
-          json_resp(conn, 201, tokens)
+        {:flow_complete, conn, to_return} ->
+          json_resp(conn, 201, to_return)
 
-        {:ok, :challenge_complete, next_stage} ->
-          challenges = Map.keys(next_stage.challenges)
+        {:challenge_complete, conn, to_return} ->
+          challenges = Map.keys(to_return.next_stage.challenges)
           json_resp(conn, 200, %{challenges: challenges})
 
         {:error, msg} ->

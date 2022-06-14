@@ -2,6 +2,23 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   @moduledoc """
   TOTP-challenge for which the answer has been sent to the user by SMS/email.
   Basically the same as `Charon.AuthChallenge.TotpChallenge` but with a longer default period (5 minutes).
+
+  ## Config
+
+  Additional config is required for this module under `custom.charon_pre_sent_challenge`:
+
+      Charon.Config.from_enum(
+        ...,
+        custom: %{
+          charon_pre_sent_challenge: %{
+            ...
+          }
+        }
+      )
+
+  The following configuration options are supported:
+    - `:send_challenge_callback` (required). A function/2 used to send a TOTP code to the user. The user and the code are passed in. Must return `:ok` or `{:error, message}`.
+    - `:period` (optional, default 300). The duration in seconds in which a single OTP code is valid.
   """
   @challenge_name "pre_sent"
   use Charon.AuthChallenge
@@ -12,28 +29,31 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   @required [:send_challenge_callback]
 
   @impl true
-  def challenge_init(user, config) do
-    with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config) do
-      %{send_challenge_callback: callback} = process_config(config)
-      code = TotpChallenge.generate_code(user, override_config(config))
-      callback.(user, code)
+  def challenge_init(conn, _params, user, config) do
+    with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config),
+         %{send_challenge_callback: callback} = process_config(config),
+         code = TotpChallenge.generate_code(user, override_config(config)),
+         :ok <- callback.(user, code) do
+      {:ok, conn, nil}
     end
   end
 
   @impl true
-  def challenge_complete(user, params, config) do
+  def challenge_complete(conn, params, user, config) do
     with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config) do
       config = override_config(config)
-      TotpChallenge.challenge_complete(user, params, config)
+      TotpChallenge.challenge_complete(conn, params, user, config)
     end
   end
 
   @impl true
-  def setup_complete(user, _params, config) do
+  def setup_complete(conn, _params, user, config) do
     enabled = AuthChallenge.put_enabled(user, @challenge_name, config)
     params = %{config.enabled_auth_challenges_field => enabled}
-    {:ok, _user} = AuthChallenge.update_user(user, params, config)
-    :ok
+
+    with {:ok, _user} <- AuthChallenge.update_user(user, params, config) do
+      {:ok, conn, nil}
+    end
   end
 
   @doc false

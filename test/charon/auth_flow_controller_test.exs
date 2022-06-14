@@ -52,7 +52,7 @@ defmodule Charon.AuthFlowControllerTest do
 
       assert %{
                status: 201,
-               resp_body: %{access_token: _},
+               resp_body: %{tokens: %{access_token: _}, session: _},
                resp_cookies: %{
                  "_access_token_signature" => %{
                    http_only: true,
@@ -108,7 +108,7 @@ defmodule Charon.AuthFlowControllerTest do
     test "happy flow works", seeds do
       assert %{status: 204} = init_challenge("totp", %{"token" => seeds.token})
 
-      assert %{status: 201, resp_body: %{access_token: _}} =
+      assert %{status: 201, resp_body: %{tokens: %{access_token: _}}} =
                complete_challenge("totp", %{
                  "token" => seeds.token,
                  "otp" => TotpChallenge.generate_code(seeds.user, AuthFlowController.get_config())
@@ -125,7 +125,7 @@ defmodule Charon.AuthFlowControllerTest do
     test "happy flow works", seeds do
       assert %{status: 204} = init_challenge("pre_sent", %{"token" => seeds.token})
 
-      assert %{status: 201, resp_body: %{access_token: _}} =
+      assert %{status: 201, resp_body: %{tokens: %{access_token: _}}} =
                complete_challenge("pre_sent", %{
                  "token" => seeds.token,
                  "otp" =>
@@ -143,7 +143,7 @@ defmodule Charon.AuthFlowControllerTest do
     test "happy flow works", seeds do
       assert %{status: 204} = init_challenge("bypass_stage", %{"token" => seeds.token})
 
-      assert %{status: 201, resp_body: %{access_token: _}} =
+      assert %{status: 201, resp_body: %{tokens: %{access_token: _}}} =
                complete_challenge("bypass_stage", %{
                  "token" => seeds.token,
                  "bypass_stage_token" =>
@@ -167,7 +167,7 @@ defmodule Charon.AuthFlowControllerTest do
     test "happy flow works", seeds do
       assert %{status: 204} = init_challenge("recovery_code", %{"token" => seeds.token})
 
-      assert %{status: 201, resp_body: %{access_token: _}} =
+      assert %{status: 201, resp_body: %{tokens: %{access_token: _}}} =
                complete_challenge("recovery_code", %{
                  "token" => seeds.token,
                  "recovery_code" => seeds.code

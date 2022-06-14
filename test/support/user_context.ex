@@ -19,15 +19,6 @@ defmodule Charon.UserContext do
   def get_by_id(id), do: TestRedix.command(["GET", id]) |> deserialize()
   def get_by_email(email), do: TestRedix.command(["GET", email]) |> deserialize()
 
-  def update(user = %{}, params = %{"password" => pw, "current_password" => cpw}) do
-    if Bcrypt.verify_pass(cpw, user.password_hash) do
-      params = params |> Map.put(:password_hash, Bcrypt.hash_pwd_salt(pw)) |> to_atom_keys()
-      update(user, params)
-    else
-      {:error, "wrong password"}
-    end
-  end
-
   def update(user = %{}, params) do
     user |> Map.merge(to_atom_keys(params)) |> insert()
   end
