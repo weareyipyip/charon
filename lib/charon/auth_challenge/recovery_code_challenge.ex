@@ -19,7 +19,6 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
   The following configuration options are supported:
     - `:param` (optional, default: "recovery_code"). The name of the param that contains a recovery code.
     - `:recovery_code_hashes_field` (optional, default `:recovery_code_hashes`). The string-array field of the user struct that is used to store the hashes of the recovery codes.
-    - `:new_recovery_code_hashes_field` (optional, default `:new_recovery_code_hashes`). The string-array field of the user struct that is used to temporarily store a new set of code hashes.
   """
   @challenge_name "recovery_code"
   use Charon.AuthChallenge
@@ -27,7 +26,6 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
   @custom_config_field :charon_recovery_code_challenge
   @defaults %{
     recovery_code_hashes_field: :recovery_code_hashes,
-    new_recovery_code_hashes_field: :new_recovery_code_hashes,
     param: "recovery_code"
   }
   @required []
@@ -56,34 +54,32 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
   end
 
   @impl true
-  def setup_init(conn, _params, user, config) do
-    %{new_recovery_code_hashes_field: new_field} = process_config(config)
-
-    1..8
-    |> Enum.reduce({[], []}, fn _, {for_user, for_storage} ->
-      code = :crypto.strong_rand_bytes(16)
-      encoded_code = code |> Base.encode32(padding: false, case: :lower)
-      hash = :crypto.hash(:blake2b, code) |> Base.url_encode64(padding: false)
-      {[encoded_code | for_user], [hash | for_storage]}
-    end)
-    |> then(fn {for_user, for_storage} ->
-      with {:ok, _user} <- AuthChallenge.update_user(user, %{new_field => for_storage}, config) do
-        {:ok, conn, %{recovery_codes: for_user}}
-      end
-    end)
+  def setup_init(conn, params, user, config) do
+    with :ok <- AuthChallenge.check_current_password(user, params, config) do
+      1..8
+      |> Enum.reduce({[], []}, fn _, {for_user, for_storage} ->
+        code = :crypto.strong_rand_bytes(16)
+        encoded_code = code |> Base.encode32(padding: false, case: :lower)
+        hash = :crypto.hash(:blake2b, code) |> Base.url_encode64(padding: false)
+        {[encoded_code | for_user], [hash | for_storage]}
+      end)
+      |> then(fn {for_user, for_storage} ->
+        token = AuthChallenge.gen_setup_token(@challenge_name, config, %{"hashes" => for_storage})
+        {:ok, conn, %{config.auth_challenge_setup_token_param => token, recovery_codes: for_user}}
+      end)
+    end
   end
 
   @impl true
-  def setup_complete(conn, _params, user, config) do
+  def setup_complete(conn, params, user, config) do
     # user "ok" click is enough
-    %{new_recovery_code_hashes_field: new_field, recovery_code_hashes_field: field} =
-      process_config(config)
+    %{recovery_code_hashes_field: field} = process_config(config)
 
-    hashes = Map.fetch!(user, new_field)
-    enabled = AuthChallenge.put_enabled(user, @challenge_name, config)
-    params = %{field => hashes, config.enabled_auth_challenges_field => enabled}
-
-    with {:ok, _user} <- AuthChallenge.update_user(user, params, config) do
+    with {:ok, payload} <- AuthChallenge.validate_setup_token(@challenge_name, params, config),
+         %{"hashes" => hashes} = payload,
+         enabled = AuthChallenge.put_enabled(user, @challenge_name, config),
+         params = %{field => hashes, config.enabled_auth_challenges_field => enabled},
+         {:ok, _user} <- AuthChallenge.update_user(user, params, config) do
       {:ok, conn, nil}
     end
   end

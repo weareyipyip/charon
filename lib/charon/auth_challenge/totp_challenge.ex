@@ -20,8 +20,7 @@ defmodule Charon.AuthChallenge.TotpChallenge do
   The following configuration options are supported:
     - `:totp_label` (required). Ends up as a TOTP label in apps like Google Authenticator, for example "Gmail".
     - `:totp_issuer` (required). Similar to `:totp_label`, for example "Google".
-    - `:totp_seed_field` (optional, default `:totp_seed`). The binary field of the user struct that is used to store the seed that is the basis of the TOTP challenges.
-    - `:new_totp_seed_field` (optional, default `:new_totp_seed`). The binary field of the user struct used to temporarily store a new seed.
+    - `:totp_seed_field` (optional, default `:totp_seed`). The binary field of the user struct that is used to store the underlying secret of the TOTP challenges.
     - `:param` (optional, default: "otp"). The name of the param that contains an OTP code.
     - `:period` (optional, default 30). The duration in seconds in which a single OTP code is valid.
   """
@@ -33,7 +32,6 @@ defmodule Charon.AuthChallenge.TotpChallenge do
     @custom_config_field :charon_totp_challenge
     @defaults %{
       totp_seed_field: :totp_seed,
-      new_totp_seed_field: :new_totp_seed,
       param: "otp",
       period: 30
     }
@@ -59,26 +57,29 @@ defmodule Charon.AuthChallenge.TotpChallenge do
     end
 
     @impl true
-    def setup_init(conn, _params, user, config) do
-      %{totp_label: label, totp_issuer: issuer, new_totp_seed_field: new_field} =
-        process_config(config)
-
-      seed = :crypto.strong_rand_bytes(32)
-      secret = Base.encode32(seed, padding: false, case: :upper)
-      uri = NimbleTOTP.otpauth_uri(label, seed, issuer: issuer)
-
-      with {:ok, _} <- AuthChallenge.update_user(user, %{new_field => seed}, config) do
-        {:ok, conn, %{secret: secret, uri: uri}}
+    def setup_init(conn, params, user, config) do
+      with :ok <- AuthChallenge.check_current_password(user, params, config) do
+        %{totp_label: label, totp_issuer: issuer} = process_config(config)
+        seed = :crypto.strong_rand_bytes(32)
+        secret = Base.encode32(seed, padding: false, case: :upper)
+        uri = NimbleTOTP.otpauth_uri(label, seed, issuer: issuer)
+        token = AuthChallenge.gen_setup_token(@challenge_name, config, %{"secret" => secret})
+        {:ok, conn, %{config.auth_challenge_setup_token_param => token, secret: secret, uri: uri}}
       end
     end
 
     @impl true
     def setup_complete(conn, params, user, config) do
-      %{totp_seed_field: field, new_totp_seed_field: new_field} = process_config(config)
-      seed = Map.get(user, new_field)
-      user_overrides = %{field => seed, config.enabled_auth_challenges_field => [@challenge_name]}
+      %{totp_seed_field: field} = process_config(config)
 
-      with {:ok, _, _} <-
+      with {:ok, payload} <- AuthChallenge.validate_setup_token(@challenge_name, params, config),
+           %{"secret" => secret} = payload,
+           seed = Base.decode32!(secret, padding: false, case: :upper),
+           user_overrides = %{
+             field => seed,
+             config.enabled_auth_challenges_field => [@challenge_name]
+           },
+           {:ok, _, _} <-
              challenge_complete(conn, params, Map.merge(user, user_overrides), config),
            enabled = AuthChallenge.put_enabled(user, @challenge_name, config),
            params = %{field => seed, config.enabled_auth_challenges_field => enabled},

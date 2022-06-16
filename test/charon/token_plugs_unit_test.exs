@@ -16,6 +16,7 @@ defmodule Charon.TokenPlugsTest do
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
             update_user_callback: &__MODULE__.update_user/2,
+            password_hashing_module: Bcrypt,
             custom: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
               charon_redis_store: %{redix_module: TestRedix}

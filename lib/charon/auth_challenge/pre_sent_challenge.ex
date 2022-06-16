@@ -29,8 +29,8 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   @required [:send_challenge_callback]
 
   @impl true
-  def challenge_init(conn, _params, user, config) do
-    with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config),
+  def challenge_init(conn, params, user, config) do
+    with {:ok, conn, _} <- super(conn, params, user, config),
          %{send_challenge_callback: callback} = process_config(config),
          code = TotpChallenge.generate_code(user, override_config(config)),
          :ok <- callback.(user, code) do
@@ -47,11 +47,11 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   end
 
   @impl true
-  def setup_complete(conn, _params, user, config) do
-    enabled = AuthChallenge.put_enabled(user, @challenge_name, config)
-    params = %{config.enabled_auth_challenges_field => enabled}
-
-    with {:ok, _user} <- AuthChallenge.update_user(user, params, config) do
+  def setup_complete(conn, params, user, config) do
+    with {:ok, conn, _} <- super(conn, params, user, config),
+         enabled = AuthChallenge.put_enabled(user, @challenge_name, config),
+         params = %{config.enabled_auth_challenges_field => enabled},
+         {:ok, _user} <- AuthChallenge.update_user(user, params, config) do
       {:ok, conn, nil}
     end
   end

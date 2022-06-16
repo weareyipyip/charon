@@ -39,6 +39,7 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
     cookie_opts: [http_only: true, same_site: "Strict", secure: true]
   }
   @required []
+  @token_type "charon_#{@challenge_name}"
 
   @impl true
   def challenge_complete(conn, params, user, config) do
@@ -48,7 +49,7 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
     with <<token::binary>> <- Map.get(params, param, {:error, "#{param} not found"}),
          token = get_token_signature_from_cookie(token, conn, config),
          {:ok, payload} <- config.token_factory_module.verify(token, config),
-         {_, %{"type" => "bypass_stage", "exp" => exp, "sub" => ^user_id}} <-
+         {_, %{"type" => @token_type, "exp" => exp, "sub" => ^user_id}} <-
            {:payload, payload},
          {_, false} <- {:expired, Internal.now() > exp} do
       {:ok, conn, nil}
@@ -60,20 +61,22 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
   end
 
   @impl true
-  def setup_init(conn, _params, user, config) do
-    %{bypass_stage_token_ttl: ttl, cookie_name: cookie_name, cookie_opts: cookie_opts} =
-      process_config(config)
+  def setup_complete(conn, params, user, config) do
+    with {:ok, conn, _} <- super(conn, params, user, config) do
+      %{bypass_stage_token_ttl: ttl, cookie_name: cookie_name, cookie_opts: cookie_opts} =
+        process_config(config)
 
-    token = generate_token(user, config)
+      token = generate_token(user, config)
 
-    case Internal.get_private(conn, @token_signature_transport) do
-      :cookie ->
-        {token, signature, cookie_opts} = Internal.split_signature(token, ttl, cookie_opts)
-        conn = Plug.Conn.put_resp_cookie(conn, cookie_name, signature, cookie_opts)
-        {:ok, conn, %{token: token}}
+      case Internal.get_private(conn, @token_signature_transport) do
+        :cookie ->
+          {token, signature, cookie_opts} = Internal.split_signature(token, ttl, cookie_opts)
+          conn = Plug.Conn.put_resp_cookie(conn, cookie_name, signature, cookie_opts)
+          {:ok, conn, %{token: token}}
 
-      _ ->
-        {:ok, conn, %{token: token}}
+        _ ->
+          {:ok, conn, %{token: token}}
+      end
     end
   end
 
@@ -82,7 +85,7 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
     %{id_field: field, bypass_stage_token_ttl: ttl} = process_config(config)
     user_id = Map.fetch!(user, field)
     now = Internal.now()
-    payload = %{"type" => "bypass_stage", "exp" => now + ttl, "sub" => user_id}
+    payload = %{"type" => @token_type, "exp" => now + ttl, "sub" => user_id}
     {:ok, token} = config.token_factory_module.sign(payload, config)
     token
   end

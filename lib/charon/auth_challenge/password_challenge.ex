@@ -1,6 +1,7 @@
 defmodule Charon.AuthChallenge.PasswordChallenge do
   @moduledoc """
   Auth challenge implementing a standard user password using a Comeonin-compatible hashing module.
+  This challenge cannot be disabled for individual users, every user MUST have a password.
 
   ## Config
 
@@ -16,10 +17,7 @@ defmodule Charon.AuthChallenge.PasswordChallenge do
       )
 
   The following configuration options are supported:
-    - `:hashing_module` (required). A Comeonin-compatible password hashing module, for example `Argon2`.
-    - `:password_hash_field` (optional, default `:password_hash`). The string field of the user struct that is used to store the password hash.
-    - `:password_param` (optional, default "password"). The name of the param that contains the password (or new password).
-    - `:current_password_param` (optional, default "current_password"). The name of the param that contains the current password (when setting up the challenge).
+    - `:new_password_param` (optional, default "new_password"). The name of the param that contains the password (or new password).
     - `:password_check` (optional, default `password_check/1`). Predicate that checks new passwords.
   """
   @challenge_name "password"
@@ -27,50 +25,46 @@ defmodule Charon.AuthChallenge.PasswordChallenge do
   alias Charon.Internal
   @custom_config_field :charon_password_challenge
   @defaults %{
-    password_hash_field: :password_hash,
-    password_param: "password",
-    current_password_param: "current_password",
+    new_password_param: "new_password",
     password_check: &__MODULE__.password_check/1
   }
-  @required [:hashing_module]
+  @required []
 
   @impl true
   def challenge_complete(conn, params, user, config) do
-    with :ok <- AuthChallenge.verify_enabled(user, @challenge_name, config) do
-      %{
-        password_hash_field: field,
-        password_param: pw_param,
-        hashing_module: hashing_module
-      } = process_config(config)
+    %{
+      password_hash_field: field,
+      password_hashing_module: hashing_module,
+      current_password_param: pw_param
+    } = config
 
-      with <<password::binary>> <- Map.get(params, pw_param, {:error, "#{pw_param} not found"}),
-           {:ok, _} <- hashing_module.check_pass(user, password, hash_key: field) do
-        {:ok, conn, nil}
-      end
+    with <<password::binary>> <- Map.get(params, pw_param, {:error, "#{pw_param} not found"}),
+         {:ok, _} <- hashing_module.check_pass(user, password, hash_key: field) do
+      {:ok, conn, nil}
     end
   end
 
   @impl true
   def setup_complete(conn, params, user, config) do
     %{
-      password_hash_field: field,
-      password_param: pw_param,
-      current_password_param: cpw_param,
-      hashing_module: hashing_module,
+      new_password_param: pw_param,
       password_check: check
     } = process_config(config)
 
-    with <<pw::binary>> <- Map.get(params, pw_param, {:error, "#{pw_param} not found"}),
-         <<cpw::binary>> <- Map.get(params, cpw_param, {:error, "#{cpw_param} not found"}),
+    with {:ok, conn, _} <- super(conn, params, user, config),
+         <<pw::binary>> <- Map.get(params, pw_param, {:error, "#{pw_param} not found"}),
          {_, true} <- {:password_check, check.(pw)},
-         {:ok, _} <- hashing_module.check_pass(user, cpw, hash_key: field),
-         new_hash = hashing_module.hash_pwd_salt(pw),
+         new_hash = config.password_hashing_module.hash_pwd_salt(pw),
          enabled = AuthChallenge.put_enabled(user, @challenge_name, config),
-         params = %{config.enabled_auth_challenges_field => enabled, field => new_hash},
+         params = %{
+           config.enabled_auth_challenges_field => enabled,
+           config.password_hash_field => new_hash
+         },
          {:ok, _} <- AuthChallenge.update_user(user, params, config) do
       {:ok, conn, nil}
     else
       {:password_check, _} -> {:error, "#{pw_param} does not meet requirements"}
+      error -> error
     end
   end
 
