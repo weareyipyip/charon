@@ -7,11 +7,11 @@ defmodule Charon.SessionStore.RedisStore do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_symmetric_jwt`:
+  Additional config is required for this module under `optional.charon_symmetric_jwt`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_redis_store: %{
             redix_module: MyApp.Redix,
             key_prefix: "charon_"
@@ -125,7 +125,7 @@ defmodule Charon.SessionStore.RedisStore do
   ###########
 
   defp process_config(config) do
-    Internal.process_custom_config(config, :charon_redis_store, %{key_prefix: "charon_"}, [])
+    Internal.process_optional_config(config, :charon_redis_store, %{key_prefix: "charon_"}, [])
   end
 
   # key for a single session

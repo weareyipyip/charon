@@ -5,11 +5,11 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_pre_sent_challenge`:
+  Additional config is required for this module under `optional.charon_pre_sent_challenge`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_pre_sent_challenge: %{
             ...
           }
@@ -24,7 +24,7 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   use Charon.AuthChallenge
   alias Charon.AuthChallenge.TotpChallenge
   alias Charon.Internal
-  @custom_config_field :charon_pre_sent_challenge
+  @optional_config_field :charon_pre_sent_challenge
   @defaults %{period: 5 * 60}
   @required [:send_challenge_callback]
 
@@ -67,11 +67,11 @@ defmodule Charon.AuthChallenge.PreSentChallenge do
   ###########
 
   defp process_config(config) do
-    Internal.process_custom_config(config, @custom_config_field, @defaults, @required)
+    Internal.process_optional_config(config, @optional_config_field, @defaults, @required)
   end
 
-  defp override_config(config = %{custom: custom}) do
+  defp override_config(config = %{optional_modules: optional}) do
     mod_config = config |> process_config() |> Map.merge(%{totp_label: "", totp_issuer: ""})
-    %{config | custom: Map.put(custom, :charon_totp_challenge, mod_config)}
+    %{config | optional_modules: Map.put(optional, :charon_totp_challenge, mod_config)}
   end
 end

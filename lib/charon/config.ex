@@ -14,8 +14,8 @@ defmodule Charon.Config do
         # 10 minutes
         auth_flow_ttl: 10 * 60,
         current_password_param: "password",
-        custom: %{},
         enabled_auth_challenges_field: :enabled_challenges,
+        optional_modules: %{},
         password_hash_field: :password_hash,
         refresh_cookie_name: "_refresh_token_signature",
         refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
@@ -29,7 +29,7 @@ defmodule Charon.Config do
 
   Note that all config is compile-time config.
   Runtime configuration properties should be provided in the form of getters,
-  like the custom config of `Charon.TokenFactory.SymmetricJwt`.
+  like the optional config of `Charon.TokenFactory.SymmetricJwt`.
   """
   @enforce_keys [:token_issuer, :update_user_callback, :password_hashing_module]
   defstruct [
@@ -44,8 +44,8 @@ defmodule Charon.Config do
     # 10 minutes
     auth_flow_ttl: 10 * 60,
     current_password_param: "password",
-    custom: %{},
     enabled_auth_challenges_field: :enabled_challenges,
+    optional_modules: %{},
     password_hash_field: :password_hash,
     refresh_cookie_name: "_refresh_token_signature",
     refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
@@ -64,8 +64,8 @@ defmodule Charon.Config do
           auth_challenge_setup_token_param: atom() | String.t(),
           auth_flow_ttl: pos_integer(),
           current_password_param: atom() | String.t(),
-          custom: map(),
           enabled_auth_challenges_field: atom(),
+          optional_modules: map(),
           password_hash_field: atom(),
           password_hashing_module: module(),
           refresh_cookie_name: String.t(),

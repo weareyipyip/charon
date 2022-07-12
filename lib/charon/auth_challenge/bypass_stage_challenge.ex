@@ -8,11 +8,11 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_bypass_stage_challenge`:
+  Additional config is required for this module under `optional.charon_bypass_stage_challenge`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_bypass_stage_challenge: %{
             ...
           }
@@ -30,7 +30,7 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
   use Charon.AuthChallenge
   use Charon.Constants
   alias Charon.Internal
-  @custom_config_field :charon_bypass_stage_challenge
+  @optional_config_field :charon_bypass_stage_challenge
   @defaults %{
     id_field: :id,
     param: "bypass_stage_token",
@@ -95,7 +95,7 @@ defmodule Charon.AuthChallenge.BypassStageChallenge do
   ###########
 
   defp process_config(config) do
-    Internal.process_custom_config(config, @custom_config_field, @defaults, @required)
+    Internal.process_optional_config(config, @optional_config_field, @defaults, @required)
   end
 
   defp get_token_signature_from_cookie(token, conn, config) do

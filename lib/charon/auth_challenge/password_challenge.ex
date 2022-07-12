@@ -5,11 +5,11 @@ defmodule Charon.AuthChallenge.PasswordChallenge do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_password_challenge`:
+  Additional config is required for this module under `optional.charon_password_challenge`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_password_challenge: %{
             ...
           }
@@ -23,7 +23,7 @@ defmodule Charon.AuthChallenge.PasswordChallenge do
   @challenge_name "password"
   use Charon.AuthChallenge
   alias Charon.Internal
-  @custom_config_field :charon_password_challenge
+  @optional_config_field :charon_password_challenge
   @defaults %{
     new_password_param: "new_password",
     password_check: &__MODULE__.password_check/1
@@ -79,6 +79,6 @@ defmodule Charon.AuthChallenge.PasswordChallenge do
   ###########
 
   defp process_config(config) do
-    Internal.process_custom_config(config, @custom_config_field, @defaults, @required)
+    Internal.process_optional_config(config, @optional_config_field, @defaults, @required)
   end
 end

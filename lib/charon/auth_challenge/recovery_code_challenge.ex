@@ -5,11 +5,11 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_recovery_code_challenge`:
+  Additional config is required for this module under `optional.charon_recovery_code_challenge`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_recovery_code_challenge: %{
             ...
           }
@@ -23,7 +23,7 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
   @challenge_name "recovery_code"
   use Charon.AuthChallenge
   alias Charon.Internal
-  @custom_config_field :charon_recovery_code_challenge
+  @optional_config_field :charon_recovery_code_challenge
   @defaults %{
     recovery_code_hashes_field: :recovery_code_hashes,
     param: "recovery_code"
@@ -89,6 +89,6 @@ defmodule Charon.AuthChallenge.RecoveryCodeChallenge do
   ###########
 
   defp process_config(config) do
-    Internal.process_custom_config(config, @custom_config_field, @defaults, @required)
+    Internal.process_optional_config(config, @optional_config_field, @defaults, @required)
   end
 end

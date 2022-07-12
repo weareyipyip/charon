@@ -23,10 +23,10 @@ defmodule Charon.Internal do
     byte_size |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
   end
 
-  def process_custom_config(config, custom_key, defaults, required) do
-    custom = Map.fetch!(config.custom, custom_key)
-    Enum.each(required, &Map.fetch!(custom, &1))
-    Map.merge(defaults, custom)
+  def process_optional_config(config, optional_key, defaults, required) do
+    optional = Map.fetch!(config.optional_modules, optional_key)
+    Enum.each(required, &Map.fetch!(optional, &1))
+    Map.merge(defaults, optional)
   end
 
   def parse_sig_transport(token_signature_transport)

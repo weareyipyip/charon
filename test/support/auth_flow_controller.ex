@@ -14,7 +14,7 @@ defmodule Charon.AuthFlowController do
             token_issuer: "my_test_app",
             update_user_callback: &UserContext.update/2,
             password_hashing_module: Bcrypt,
-            custom: %{
+            optional_modules: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
               charon_redis_store: %{redix_module: TestRedix},
               charon_password_challenge: %{hashing_module: Bcrypt},

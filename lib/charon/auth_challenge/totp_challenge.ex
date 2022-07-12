@@ -6,11 +6,11 @@ defmodule Charon.AuthChallenge.TotpChallenge do
 
   ## Config
 
-  Additional config is required for this module under `custom.charon_totp_challenge`:
+  Additional config is required for this module under `optional.charon_totp_challenge`:
 
       Charon.Config.from_enum(
         ...,
-        custom: %{
+        optional_modules: %{
           charon_totp_challenge: %{
             ...
           }
@@ -29,7 +29,7 @@ defmodule Charon.AuthChallenge.TotpChallenge do
 
   if Code.ensure_loaded?(NimbleTOTP) do
     alias Charon.Internal
-    @custom_config_field :charon_totp_challenge
+    @optional_config_field :charon_totp_challenge
     @defaults %{
       totp_seed_field: :totp_seed,
       param: "otp",
@@ -101,7 +101,7 @@ defmodule Charon.AuthChallenge.TotpChallenge do
     ###########
 
     defp process_config(config) do
-      Internal.process_custom_config(config, @custom_config_field, @defaults, @required)
+      Internal.process_optional_config(config, @optional_config_field, @defaults, @required)
     end
   else
     @impl true
