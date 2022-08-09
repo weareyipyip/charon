@@ -20,7 +20,7 @@ defmodule Charon.Models.Session do
           id: String.t(),
           refresh_token_id: String.t(),
           refreshed_at: integer,
-          type: :proto | :full,
+          type: atom(),
           user_id: pos_integer | binary()
         }
 
