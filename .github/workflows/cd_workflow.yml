@@ -1,7 +1,7 @@
 name: CD / Publish release
 on:
   release:
-    types: [released]
+    types: [published]
 
 jobs:
   deploy:
