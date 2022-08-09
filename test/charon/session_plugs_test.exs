@@ -14,17 +14,18 @@ defmodule Charon.SessionPlugsTest do
   @user_session %{id: @sid, user_id: @uid}
   @serialized :erlang.term_to_binary(@user_session)
 
+  def get_secret(), do: "supersecret"
+  def update_user(user, _), do: {:ok, user}
+
   @config Charon.Config.from_enum(
-            session_ttl: 68400,
-            refresh_token_ttl: 3600,
             token_issuer: "my_test_app",
-            custom: %{
+            update_user_callback: &__MODULE__.update_user/2,
+            password_hashing_module: Bcrypt,
+            optional_modules: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
               charon_redis_store: %{redix_module: TestRedix}
             }
           )
-
-  def get_secret(), do: "supersecret"
 
   setup_all do
     TestRedix.init()
@@ -74,7 +75,9 @@ defmodule Charon.SessionPlugsTest do
       |> Utils.get_session()
       |> Map.get(:id)
       |> then(fn id ->
-        assert_in_delta 3600, command(["TTL", session_key(id, @uid)]) |> elem(1), 3
+        assert_in_delta @config.refresh_token_ttl,
+                        command(["TTL", session_key(id, @uid)]) |> elem(1),
+                        3
       end)
     end
 
