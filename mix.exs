@@ -8,7 +8,22 @@ defmodule Charon.MixProject do
       elixir: "~> 1.12",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      elixirc_paths: elixirc_paths(Mix.env())
+      elixirc_paths: elixirc_paths(Mix.env()),
+      description: """
+      Authentication & sessions for API's.
+      """,
+      package: [
+        licenses: ["Apache-2.0"],
+        links: %{github: "https://github.com/weareyipyip/charon"},
+        source_url: "https://github.com/weareyipyip/charon"
+      ],
+      source_url: "https://github.com/weareyipyip/charon",
+      name: "Charon",
+      docs: [
+        source_ref: "master",
+        extras: ["./README.md"],
+        main: "readme"
+      ]
     ]
   end
 
