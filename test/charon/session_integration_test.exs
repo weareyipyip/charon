@@ -37,7 +37,7 @@ defmodule Charon.SessionIntegrationTest do
 
   describe "pipeline" do
     test "successfully validates a SessionPlugs token" do
-      {tokens, cookies, session} = create_session(1, :cookie)
+      {tokens, cookies, session} = create_session(426, :cookie)
       %{id: sid, refresh_token_id: rtid} = session
 
       conn =
@@ -50,7 +50,7 @@ defmodule Charon.SessionIntegrationTest do
 
       assert %{
                # renamed from user_id
-               current_user_id: 1,
+               current_user_id: 426,
                session: %Charon.Models.Session{
                  created_at: _,
                  expires_at: _,
@@ -58,7 +58,7 @@ defmodule Charon.SessionIntegrationTest do
                  id: ^sid,
                  refresh_token_id: ^rtid,
                  refreshed_at: _,
-                 user_id: 1
+                 user_id: 426
                },
                session_id: ^sid,
                token_payload: %{
@@ -68,7 +68,7 @@ defmodule Charon.SessionIntegrationTest do
                  "jti" => ^rtid,
                  "nbf" => _,
                  "sid" => ^sid,
-                 "sub" => 1,
+                 "sub" => 426,
                  "type" => "refresh"
                }
              } = conn.assigns

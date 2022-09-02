@@ -10,7 +10,7 @@ defmodule Charon.SessionPlugsTest do
   import TestRedix, only: [command: 1]
 
   @sid "a"
-  @uid 1
+  @uid 426
   @user_session %{id: @sid, user_id: @uid}
   @serialized :erlang.term_to_binary(@user_session)
 
