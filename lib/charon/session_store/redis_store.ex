@@ -131,23 +131,23 @@ defmodule Charon.SessionStore.RedisStore do
   # key for a single session
   @doc false
   def session_key(session_id, user_id, config) do
-    key = [config.key_prefix, ".s.", user_id, ?., session_id]
+    key = [config.key_prefix, ".s.", to_string(user_id), ?., session_id]
     :crypto.hash(:blake2s, key)
   end
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
   @doc false
-  def user_sessions_key(user_id, config), do: [config.key_prefix, ".u.", user_id]
+  def user_sessions_key(user_id, config), do: [config.key_prefix, ".u.", to_string(user_id)]
 
   # get all keys, including expired ones, for a user
   defp all_keys(user_id, config) do
     # get all of the user's session keys (index 0 = first, -1 = last)
-    ["ZRANGE", user_sessions_key(user_id, config), 0, -1] |> config.redix_module.command()
+    ["ZRANGE", user_sessions_key(user_id, config), "0", "-1"] |> config.redix_module.command()
   end
 
   # get all valid keys for a user
   defp all_unexpired_keys(user_id, config) do
-    now = Internal.now()
+    now = Internal.now() |> Integer.to_string()
 
     # get all of the user's valid session keys (with score/timestamp >= now)
     ["ZRANGE", user_sessions_key(user_id, config), now, "+inf", "BYSCORE"]

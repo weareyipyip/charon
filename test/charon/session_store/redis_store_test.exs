@@ -7,7 +7,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   @config %{optional_modules: %{charon_redis_store: %{redix_module: TestRedix}}}
   @sid "a"
-  @uid 1
+  @uid 426
   @user_session %{id: @sid, user_id: @uid}
   @serialized :erlang.term_to_binary(@user_session)
   @ttl 10
