@@ -50,9 +50,9 @@ defmodule Charon.SessionStore.RedisStore do
       # start transaction
       ~W(MULTI),
       # add session key to user's sorted set, with expiration timestamp as score (or update the score)
-      ["ZADD", user_sessions_key(user_id, config), now + ttl, session_key],
+      ["ZADD", user_sessions_key(user_id, config), Integer.to_string(now + ttl), session_key],
       # add the actual session as a separate key-value pair with expiration ttl (or update the ttl)
-      ["SET", session_key, :erlang.term_to_binary(session), "EX", ttl],
+      ["SET", session_key, :erlang.term_to_binary(session), "EX", Integer.to_string(ttl)],
       ~W(EXEC)
     ]
     |> config.redix_module.pipeline()
@@ -105,7 +105,7 @@ defmodule Charon.SessionStore.RedisStore do
   @spec cleanup(Config.t()) :: :ok | {:error, binary()}
   def cleanup(config) do
     config = process_config(config)
-    now = Internal.now()
+    now = Internal.now() |> Integer.to_string()
 
     with {:ok, set_keys = [_ | _]} <- scan([config.key_prefix, ".u.*"], config) do
       set_keys
