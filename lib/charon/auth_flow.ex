@@ -31,7 +31,7 @@ defmodule Charon.AuthFlow do
   Initialize a new auth flow. Creates a protosession and a token to complete its auth flow with.
   """
   @spec init(map() | struct(), flow_set(), String.t(), String.t(), Config.t()) ::
-          {:ok, String.t()} | {:error, String.t()}
+          {:ok, String.t(), Stage.t()} | {:error, String.t()}
   def init(user, flow_set, flow_name, sig_transport, config) do
     with _flow = %{} <- get_flow(flow_set, flow_name) do
       sig_transport = Internal.parse_sig_transport(sig_transport)
@@ -85,7 +85,7 @@ defmodule Charon.AuthFlow do
           keyword()
         ) ::
           {:flow_complete, Plug.Conn.t(), map()}
-          | {:challenge_complete, Plug.Conn.t(), Stage.t()}
+          | {:challenge_complete, Plug.Conn.t(), %{next_stage: Stage.t()}}
           | {:error, String.t() | map()}
   def handle_challenge_result(result, flow_set, session, conn, config, opts \\ [])
 

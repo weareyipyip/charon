@@ -238,7 +238,7 @@ defmodule Charon.SessionPlugs do
         }
       ) do
     case conn.private do
-      %{@user_id => uid, @session_id => sid} ->
+      %{@bearer_token_payload => %{"sub" => uid, "sid" => sid}} ->
         session_store.delete(sid, uid, config)
 
       _ ->

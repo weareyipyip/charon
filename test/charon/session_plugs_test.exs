@@ -46,8 +46,7 @@ defmodule Charon.SessionPlugsTest do
       command(["SET", session_key(@sid, @uid), @serialized])
 
       conn()
-      |> Conn.put_private(@user_id, @uid)
-      |> Conn.put_private(@session_id, @sid)
+      |> Conn.put_private(@bearer_token_payload, %{"sub" => @uid, "sid" => @sid})
       |> delete_session(@config)
 
       assert {:ok, []} = command(~w(KEYS *))
