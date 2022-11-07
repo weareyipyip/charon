@@ -2,8 +2,6 @@ defmodule Charon.SessionStore.RedisStore do
   @moduledoc """
   A persistent session store based on Redis, which implements behaviour `Charon.SessionStore`.
   In addition to the required callbacks, this store also provides `get_all/2` and `delete_all/2` (for a user) functions.
-  Session keys slowly accumulate in Redis when using this store.
-  It provides a `cleanup/1` that should run periodically.
 
   ## Config
 
@@ -22,6 +20,15 @@ defmodule Charon.SessionStore.RedisStore do
   The following options are supported:
     - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
+
+  ## Redix
+
+  This module depends on a correctly configured `Redix` module with `command/1` and `pipeline/1` functions. See https://hexdocs.pm/redix for instructions.
+
+  ## Cleanup
+
+  Session keys slowly accumulate in Redis when using this store.
+  It provides a `cleanup/1` that should run periodically.
   """
   @behaviour Charon.SessionStore
   alias Charon.Config
