@@ -50,7 +50,7 @@ defmodule Charon.Config do
           refresh_cookie_opts: keyword(),
           refresh_token_ttl: pos_integer(),
           session_store_module: module(),
-          session_ttl: pos_integer(),
+          session_ttl: pos_integer() | :infinite,
           token_factory_module: module(),
           token_issuer: String.t()
         }

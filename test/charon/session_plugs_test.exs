@@ -56,7 +56,7 @@ defmodule Charon.SessionPlugsTest do
         conn()
         |> Utils.set_token_signature_transport(:bearer)
         |> Utils.set_user_id(@uid)
-        |> upsert_session(%{@config | session_ttl: nil})
+        |> upsert_session(%{@config | session_ttl: :infinite})
 
       session = Utils.get_session(conn)
       assert session.expires_at == nil
@@ -67,7 +67,7 @@ defmodule Charon.SessionPlugsTest do
       conn()
       |> Utils.set_token_signature_transport(:bearer)
       |> Utils.set_user_id(@uid)
-      |> upsert_session(%{@config | session_ttl: nil})
+      |> upsert_session(%{@config | session_ttl: :infinite})
       |> Utils.get_session()
       |> Map.get(:id)
       |> then(fn id ->

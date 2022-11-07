@@ -49,6 +49,6 @@ defmodule Charon.Models.Session do
   # Private #
   ###########
 
-  defp expires_at(%{session_ttl: nil}, _now), do: nil
+  defp expires_at(%{session_ttl: :infinite}, _now), do: nil
   defp expires_at(%{session_ttl: ttl}, now), do: ttl + now
 end
