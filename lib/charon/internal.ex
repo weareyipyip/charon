@@ -9,7 +9,7 @@ defmodule Charon.Internal do
     Conn.put_private(conn, @auth_error, error)
   end
 
-  def now(), do: System.system_time(:second)
+  def now(), do: System.os_time(:second)
 
   def get_private(_conn = %{private: priv}, key), do: Map.get(priv, key)
 
