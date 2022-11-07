@@ -38,7 +38,7 @@ defmodule Charon.MixProject do
   defp deps do
     [
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:jason, "~> 1.0"},
+      {:jason, "~> 1.0", optional: true},
       {:plug, "~> 1.11"},
       {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
       {:redix, "~> 1.1", only: [:test], runtime: false}

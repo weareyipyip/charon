@@ -331,13 +331,11 @@ defmodule Charon.TokenPlugs do
 
       # on error, send an error response
       iex> conn = conn() |> Internal.auth_error("oops!")
-      iex> conn = verify_no_auth_error(conn, fn conn, error ->
-      ...>   conn |> send_resp(401, Jason.encode!(%{error: error})) |> halt()
-      ...> end)
+      iex> conn = verify_no_auth_error(conn, & &1 |> send_resp(401, &2) |> halt())
       iex> conn.halted
       true
-      iex> conn.resp_body |> Jason.decode!()
-      %{"error" => "oops!"}
+      iex> conn.resp_body
+      "oops!"
   """
   @spec verify_no_auth_error(Plug.Conn.t(), (Conn.t(), [String.t()] -> Conn.t())) ::
           Plug.Conn.t()
