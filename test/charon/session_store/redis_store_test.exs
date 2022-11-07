@@ -5,7 +5,9 @@ defmodule Charon.SessionStore.RedisStoreTest do
   alias Charon.TestRedix
   import TestRedix, only: [command: 1]
 
-  @config %{optional_modules: %{charon_redis_store: %{redix_module: TestRedix}}}
+  @config %{
+    optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
+  }
   @sid "a"
   @uid 426
   @user_session %{id: @sid, user_id: @uid}

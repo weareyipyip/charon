@@ -8,8 +8,8 @@ defmodule Charon.TestPipeline do
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
             optional_modules: %{
-              charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
-              charon_redis_store: %{redix_module: TestRedix}
+              Charon.TokenFactory.SymmetricJwt => %{get_secret: &__MODULE__.get_secret/0},
+              Charon.SessionStore.RedisStore => %{redix_module: TestRedix}
             }
           )
 

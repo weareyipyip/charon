@@ -58,6 +58,7 @@ defmodule Charon.Config do
   @doc """
   Build config struct from enumerable (useful for passing in application environment).
   Raises for missing mandatory keys and sets defaults for optional keys.
+  Optional modules must implement an `init_config/1` function to process their own config at compile time.
 
   ## Examples / doctests
 
@@ -65,9 +66,23 @@ defmodule Charon.Config do
       ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer]
 
       iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp")
+
+      # optional modules may also check compile-time config
+      iex> from_enum(token_issuer: "Santa", optional_modules: %{Charon.TokenFactory.SymmetricJwt => []})
+      ** (ArgumentError) the following keys must also be given when building struct Charon.TokenFactory.SymmetricJwt.Config: [:get_secret]
   """
   @spec from_enum(Enum.t()) :: %__MODULE__{}
   def from_enum(enum) do
-    struct!(__MODULE__, enum)
+    __MODULE__ |> struct!(enum) |> process_optional_modules()
+  end
+
+  ###########
+  # Private #
+  ###########
+
+  defp process_optional_modules(config = %{optional_modules: opt_mods}) do
+    opt_mods
+    |> Map.new(fn {module, config} -> {module, module.init_config(config)} end)
+    |> then(fn initialized_opt_mods -> %{config | optional_modules: initialized_opt_mods} end)
   end
 end
