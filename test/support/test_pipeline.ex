@@ -4,12 +4,9 @@ defmodule Charon.TestPipeline do
   import Charon.TokenPlugs
 
   def get_secret(), do: "supersecret"
-  def update_user(user, _), do: {:ok, user}
 
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
-            update_user_callback: &__MODULE__.update_user/2,
-            password_hashing_module: Bcrypt,
             optional_modules: %{
               charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
               charon_redis_store: %{redix_module: TestRedix}
