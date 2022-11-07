@@ -99,7 +99,7 @@ defmodule MyApp.AccessTokenPipeline do
   """
   use Plug.Builder
 
-  @config Charon.Config.from_enum(Application.compile_env!(:my_app, :charon))
+  @config Application.compile_env(:my_app, :charon) |> Charon.Config.from_enum()
 
   plug :get_token_from_auth_header
   plug :get_token_sig_from_cookie, @config.access_cookie_name
@@ -122,7 +122,7 @@ defmodule MyApp.RefreshTokenPipeline do
   """
   use Plug.Builder
 
-  @config Charon.Config.from_enum(Application.compile_env!(:my_app, :charon))
+  @config Application.compile_env(:my_app, :charon) |> Charon.Config.from_enum()
 
   plug :get_token_from_auth_header
   plug :get_token_sig_from_cookie, @config.refresh_cookie_name
@@ -184,11 +184,10 @@ defmodule MyAppWeb.SessionController do
   """
   use MyAppWeb, :controller
 
-  alias Charon.SessionPlugs, as: SessionPlugs
-  alias Charon.Utils
+  alias Charon.{SessionPlugs, Utils}
   alias MyApp.{User, Users}
 
-  @config Application.compile_env(:my_app, :yipyip_ex_auth) |> Charon.Config.from_enum()
+  @config Application.compile_env(:my_app, :charon) |> Charon.Config.from_enum()
 
   def login(conn, %{
         "email" => email,
@@ -202,8 +201,8 @@ defmodule MyAppWeb.SessionController do
       conn
       |> Utils.set_user_id(user.id)
       |> Utils.set_token_signature_transport(signature_transport)
-      # you can add extra payload to the tokens
-      |> SessionPlugs.upsert_session(@config, extra_access_payload: %{"roles" => user.roles})
+      # you can add/override claims in the tokens (be careful!)
+      |> SessionPlugs.upsert_session(@config, access_claim_overrides: %{"roles" => user.roles})
       |> put_status(201)
       |> send_token_response(user)
     else
@@ -218,13 +217,13 @@ defmodule MyAppWeb.SessionController do
   end
 
   def refresh(%{assigns: %{current_user_id: user_id}} = conn, _params) do
-    # here you can do extra checks again
-    # for example if the user has been banned since the previous refresh
     with %User{status: "active"} = user <- Users.get_by(id: user_id) do
+      # here you can do extra checks again
+
       conn
       # there's no need to set user_id, token signature transport or extra session payload again
-      # but all extra token payload has to be passed in again
-      |> SessionPlugs.upsert_session(@config, extra_access_payload: %{"roles" => user.roles})
+      # but all added/overridden token claims must be passed in again
+      |> SessionPlugs.upsert_session(@config, access_claim_overrides: %{"roles" => user.roles})
       |> send_token_response(user)
     else
       _error -> send_resp(conn, 401, "user not found or inactive")
