@@ -127,7 +127,6 @@ defmodule Charon.SessionStore.RedisStore do
   # Private #
   ###########
 
-  @compile {:inline, get_module_config: 1}
   defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
 
   # key for a single session

@@ -117,7 +117,6 @@ if Code.ensure_loaded?(Jason) do
     # Private #
     ###########
 
-    @compile {:inline, get_module_config: 1}
     defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
 
     defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
