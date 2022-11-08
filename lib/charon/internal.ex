@@ -50,4 +50,11 @@ defmodule Charon.Internal do
     cookie_opts = Keyword.put(cookie_opts, :max_age, ttl)
     {token, signature, cookie_opts}
   end
+
+  @doc """
+  Merge a map into a `%Absinthe.Resolution{}` context.
+  """
+  def merge_context(resolution = %{context: context}, map) do
+    %{resolution | context: Map.merge(context, map)}
+  end
 end
