@@ -8,14 +8,15 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   ## Config
 
-  Additional config is required for this module under `optional.charon_symmetric_jwt`:
+  Additional config is required for this module:
 
       Charon.Config.from_enum(
         ...,
         optional_modules: %{
-          charon_symmetric_jwt: %{
+          Charon.TokenFactory.SymmetricJwt => %{
             get_secret: fn -> :crypto.strong_rand_bytes(32) end,
-            algorithm: :poly1305
+            algorithm: :poly1305,
+            json_module: Jason
           }
         }
       )
@@ -23,20 +24,22 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   The following options are supported:
     - `:get_secret` (required). A getter/0 for secret for the JWT's signature algorithm. Must be exactly 256 bits in case of Poly1305 alg.
     - `:algorithm` (optional). The token signature algorithm, may be `:sha256` (default), `:sha384`, `:sha512` or `:poly1305`.
+    - `:json_module` (optional, default Jason). The JSON encoding lib.
 
   ## Examples / doctests
 
       # verify ignores the config's algorithm, grabbing it from the JWT header instead
       # this allows changing algorithms without invalidating existing JWTs
       iex> get_secret = fn -> "symmetric key" end
-      iex> config = %{optional_modules: %{charon_symmetric_jwt: %{get_secret: get_secret, algorithm: :sha256}}}
+      iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: get_secret)}}
       iex> payload = %{"iss" => "joe", "exp" => 1_300_819_380, "http://example.com/is_root" => true}
       iex> {:ok, token} = sign(payload, config)
       {:ok, "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJleHAiOjEzMDA4MTkzODAsImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlLCJpc3MiOiJqb2UifQ.shLcxOl_HBBsOTvPnskfIlxHUibPN7Y9T4LhPB-iBwM"}
-      iex> {:ok, ^payload} = verify(token, put_in(config.optional_modules.charon_symmetric_jwt.algorithm, :sha512))
+      iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: get_secret, algorithm: :sha512)}}
+      iex> {:ok, ^payload} = verify(token, config)
 
       iex> get_secret = fn -> "symmetric key" end
-      iex> config = %{optional_modules: %{charon_symmetric_jwt: %{get_secret: get_secret}}}
+      iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: get_secret)}}
       iex> verify("a", config)
       {:error, "malformed token"}
       iex> verify("a.b.c", config)
@@ -51,13 +54,14 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       # poly1305 is also supported, and requires a 256-bits key
       iex> secret = :crypto.strong_rand_bytes(32)
       iex> get_secret = fn -> secret end
-      iex> config = %{optional_modules: %{charon_symmetric_jwt: %{get_secret: get_secret, algorithm: :poly1305}}}
+      iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: get_secret, algorithm: :poly1305)}}
       iex> payload = %{"iss" => "joe", "exp" => 1_300_819_380, "http://example.com/is_root" => true}
       iex> {:ok, token} = sign(payload, config)
       iex> {:ok, ^payload} = verify(token, config)
       iex> header = token |> String.split(".") |> List.first() |> Base.url_decode64!() |> Jason.decode!()
       iex> %{"alg" => "Poly1305", "nonce" => <<_::binary>>, "typ" => "JWT"} = header
-      iex> {:error, "signature invalid"} = verify(token, put_in(config.optional_modules.charon_symmetric_jwt.get_secret, fn -> :crypto.strong_rand_bytes(32) end))
+      iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: fn -> :crypto.strong_rand_bytes(32) end)}}
+      iex> {:error, "signature invalid"} = verify(token, config)
   """
   @behaviour Charon.TokenFactory
   alias Charon.Internal
@@ -73,11 +77,12 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   @impl true
   def sign(payload, config) do
-    %{algorithm: alg, secret: secret} = process_config(config)
+    %{algorithm: alg, get_secret: get_secret, json_module: jmod} = get_module_config(config)
+    secret = get_secret.()
 
-    with {:ok, json_payload} <- Jason.encode(payload) do
+    with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
-      mac_base = [generate_header(alg), ?., payload]
+      mac_base = [generate_header(jmod, alg), ?., payload]
       mac = mac_base |> calc_mac(secret, alg) |> url_encode()
       token = [mac_base, ?., mac] |> IO.iodata_to_binary()
       {:ok, token}
@@ -88,15 +93,16 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   @impl true
   def verify(token, config) do
-    %{secret: secret} = process_config(config)
+    %{get_secret: get_secret, json_module: jmod} = get_module_config(config)
+    secret = get_secret.()
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         {:ok, alg} <- get_signature_algorithm(header),
+         {:ok, alg} <- get_signature_algorithm(jmod, header),
          mac_base = [header, ?., payload],
          mac = calc_mac(mac_base, secret, alg),
          {:ok, signature} <- url_decode(signature),
          true <- Plug.Crypto.secure_compare(mac, signature),
-         {:ok, payload} <- to_map(payload) do
+         {:ok, payload} <- to_map(jmod, payload) do
       {:ok, payload}
     else
       false -> {:error, "signature invalid"}
@@ -105,17 +111,22 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     end
   end
 
+  @doc false
+  def init_config(enum), do: __MODULE__.Config.from_enum(enum)
+
   ###########
   # Private #
   ###########
 
+  defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
+
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp generate_header(alg) do
+  defp generate_header(json_mod, alg) do
     %{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"}
     |> maybe_add_nonce(alg)
-    |> Jason.encode!()
+    |> json_mod.encode!()
     |> Base.url_encode64(@encoding_opts)
   end
 
@@ -127,9 +138,9 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp calc_mac(data, secret, :poly1305), do: :crypto.mac(:poly1305, secret, data)
   defp calc_mac(data, secret, alg), do: :crypto.mac(:hmac, alg, secret, data)
 
-  defp to_map(encoded) do
+  defp to_map(json_mod, encoded) do
     with {:ok, json} <- url_decode(encoded),
-         {:ok, payload} <- Jason.decode(json) do
+         {:ok, payload} <- json_mod.decode(json) do
       {:ok, payload}
     else
       :error -> {:error, "encoding invalid"}
@@ -137,8 +148,8 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     end
   end
 
-  defp get_signature_algorithm(header) do
-    with {:ok, payload} <- to_map(header),
+  defp get_signature_algorithm(json_mod, header) do
+    with {:ok, payload} <- to_map(json_mod, header),
          %{"alg" => alg} <- payload,
          alg when not is_nil(alg) <- Map.get(@header_to_alg_map, alg) do
       {:ok, alg}
@@ -147,15 +158,5 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       nil -> {:error, "unsupported signature algorithm"}
       error -> error
     end
-  end
-
-  defp process_config(config) do
-    config
-    |> Internal.process_optional_config(:charon_symmetric_jwt, %{algorithm: :sha256}, [
-      :get_secret
-    ])
-    |> then(fn config ->
-      Map.put(config, :secret, config.get_secret.())
-    end)
   end
 end

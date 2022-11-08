@@ -11,13 +11,14 @@ defmodule Charon.TokenFactory do
   @doc """
   Create a new token with the provided payload and a valid signature.
   """
-  @callback sign(payload :: map, config :: Config) :: {:ok, String.t()} | {:error, String.t()}
+  @callback sign(payload :: %{required(String.t()) => any()}, config :: Config.t()) ::
+              {:ok, String.t()} | {:error, String.t()}
 
   @doc """
   Verify that the signature matches the token's header and payload, and decode the payload.
 
   Must return a map of string keys.
   """
-  @callback verify(token :: String.t(), config :: Config) ::
+  @callback verify(token :: String.t(), config :: Config.t()) ::
               {:ok, %{required(String.t()) => any()}} | {:error, String.t()}
 end

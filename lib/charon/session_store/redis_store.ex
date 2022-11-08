@@ -2,17 +2,15 @@ defmodule Charon.SessionStore.RedisStore do
   @moduledoc """
   A persistent session store based on Redis, which implements behaviour `Charon.SessionStore`.
   In addition to the required callbacks, this store also provides `get_all/2` and `delete_all/2` (for a user) functions.
-  Session keys slowly accumulate in Redis when using this store.
-  It provides a `cleanup/1` that should run periodically.
 
   ## Config
 
-  Additional config is required for this module under `optional.charon_symmetric_jwt`:
+  Additional config is required for this module:
 
       Charon.Config.from_enum(
         ...,
         optional_modules: %{
-          charon_redis_store: %{
+          Charon.SessionStore.RedisStore => %{
             redix_module: MyApp.Redix,
             key_prefix: "charon_"
           }
@@ -22,6 +20,15 @@ defmodule Charon.SessionStore.RedisStore do
   The following options are supported:
     - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
+
+  ## Redix
+
+  This module depends on a correctly configured `Redix` module with `command/1` and `pipeline/1` functions. See https://hexdocs.pm/redix for instructions.
+
+  ## Cleanup
+
+  Session keys slowly accumulate in Redis when using this store.
+  It provides a `cleanup/1` that should run periodically.
   """
   @behaviour Charon.SessionStore
   alias Charon.Config
@@ -29,7 +36,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def get(session_id, user_id, config) do
-    config = process_config(config)
+    config = get_module_config(config)
 
     ["GET", session_key(session_id, user_id, config)]
     |> config.redix_module.command()
@@ -42,7 +49,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def upsert(%{id: session_id, user_id: user_id} = session, ttl, config) do
-    config = process_config(config)
+    config = get_module_config(config)
     now = Internal.now()
     session_key = session_key(session_id, user_id, config)
 
@@ -64,7 +71,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def delete(session_id, user_id, config) do
-    config = process_config(config)
+    config = get_module_config(config)
 
     ["DEL", session_key(session_id, user_id, config)]
     |> config.redix_module.command()
@@ -76,7 +83,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def get_all(user_id, config) do
-    config = process_config(config)
+    config = get_module_config(config)
 
     with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, config),
          # get all keys with a single round trip
@@ -90,7 +97,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def delete_all(user_id, config) do
-    config = process_config(config)
+    config = get_module_config(config)
 
     with {:ok, keys} <- all_keys(user_id, config),
          to_delete = [user_sessions_key(user_id, config) | keys],
@@ -104,7 +111,7 @@ defmodule Charon.SessionStore.RedisStore do
   """
   @spec cleanup(Config.t()) :: :ok | {:error, binary()}
   def cleanup(config) do
-    config = process_config(config)
+    config = get_module_config(config)
     now = Internal.now() |> Integer.to_string()
 
     with {:ok, set_keys = [_ | _]} <- scan([config.key_prefix, ".u.*"], config) do
@@ -120,13 +127,14 @@ defmodule Charon.SessionStore.RedisStore do
     end
   end
 
+  @doc false
+  def init_config(enum), do: __MODULE__.Config.from_enum(enum)
+
   ###########
   # Private #
   ###########
 
-  defp process_config(config) do
-    Internal.process_optional_config(config, :charon_redis_store, %{key_prefix: "charon_"}, [])
-  end
+  defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
 
   # key for a single session
   @doc false

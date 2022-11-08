@@ -26,6 +26,12 @@ defmodule Charon.Utils do
   def get_auth_error(conn), do: Internal.get_private(conn, @auth_error)
 
   @doc """
+  Get the payload of the bearer token, if present.
+  """
+  @spec get_bearer_token_payload(Conn.t()) :: map() | nil
+  def get_bearer_token_payload(conn), do: Internal.get_private(conn, @bearer_token_payload)
+
+  @doc """
   Get token signature transport mechanism, if present.
   """
   @spec get_token_signature_transport(Conn.t()) :: atom() | nil

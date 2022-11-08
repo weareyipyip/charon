@@ -15,15 +15,12 @@ defmodule Charon.SessionPlugsTest do
   @serialized :erlang.term_to_binary(@user_session)
 
   def get_secret(), do: "supersecret"
-  def update_user(user, _), do: {:ok, user}
 
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
-            update_user_callback: &__MODULE__.update_user/2,
-            password_hashing_module: Bcrypt,
             optional_modules: %{
-              charon_symmetric_jwt: %{get_secret: &__MODULE__.get_secret/0},
-              charon_redis_store: %{redix_module: TestRedix}
+              Charon.TokenFactory.SymmetricJwt => %{get_secret: &__MODULE__.get_secret/0},
+              Charon.SessionStore.RedisStore => %{redix_module: TestRedix}
             }
           )
 
@@ -59,7 +56,7 @@ defmodule Charon.SessionPlugsTest do
         conn()
         |> Utils.set_token_signature_transport(:bearer)
         |> Utils.set_user_id(@uid)
-        |> upsert_session(%{@config | session_ttl: nil})
+        |> upsert_session(%{@config | session_ttl: :infinite})
 
       session = Utils.get_session(conn)
       assert session.expires_at == nil
@@ -70,7 +67,7 @@ defmodule Charon.SessionPlugsTest do
       conn()
       |> Utils.set_token_signature_transport(:bearer)
       |> Utils.set_user_id(@uid)
-      |> upsert_session(%{@config | session_ttl: nil})
+      |> upsert_session(%{@config | session_ttl: :infinite})
       |> Utils.get_session()
       |> Map.get(:id)
       |> then(fn id ->

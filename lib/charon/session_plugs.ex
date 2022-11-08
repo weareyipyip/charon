@@ -10,9 +10,9 @@ defmodule Charon.SessionPlugs do
   alias Charon.Models.{Session, Tokens}
 
   @type upsert_session_opts :: [
-          access_claim_overrides: keyword() | map() | nil,
-          refresh_claim_overrides: keyword() | map() | nil,
-          extra_session_payload: keyword() | map() | nil
+          access_claim_overrides: %{required(String.t()) => any()},
+          refresh_claim_overrides: %{required(String.t()) => any()},
+          extra_session_payload: map()
         ]
 
   @doc """
@@ -93,16 +93,16 @@ defmodule Charon.SessionPlugs do
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
-      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: <<sid::binary>>, sub: 1, type: "access"} = get_private(conn, @access_token_payload)
-      iex> %{exp: _, iat: _, iss: "my_test_app", jti: <<_::binary>>, nbf: _, sid: ^sid, sub: 1, type: "refresh"} = get_private(conn, @refresh_token_payload)
+      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => <<sid::binary>>, "sub" => 1, "type" => "access"} = get_private(conn, @access_token_payload)
+      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => ^sid, "sub" => 1, "type" => "refresh"} = get_private(conn, @refresh_token_payload)
 
       # allows adding extra claims to tokens
       iex> conn = conn()
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
-      ...> |> upsert_session(@config, access_claim_overrides: %{much: :extra}, refresh_claim_overrides: %{really: true})
-      iex> %{much: :extra} = get_private(conn, @access_token_payload)
-      iex> %{really: true} = get_private(conn, @refresh_token_payload)
+      ...> |> upsert_session(@config, access_claim_overrides: %{"much" => :extra}, refresh_claim_overrides: %{"really" => true})
+      iex> %{"much" => :extra} = get_private(conn, @access_token_payload)
+      iex> %{"really" => true} = get_private(conn, @refresh_token_payload)
 
       # allows adding extra payload to session
       iex> conn = conn()
@@ -127,9 +127,9 @@ defmodule Charon.SessionPlugs do
         opts \\ []
       ) do
     now = Internal.now()
-    access_claim_overrides = Map.new(opts[:access_claim_overrides] || %{})
-    refresh_claim_overrides = Map.new(opts[:refresh_claim_overrides] || %{})
-    extra_session_payload = Map.new(opts[:extra_session_payload] || %{})
+    access_claim_overrides = opts[:access_claim_overrides] || %{}
+    refresh_claim_overrides = opts[:refresh_claim_overrides] || %{}
+    extra_session_payload = opts[:extra_session_payload] || %{}
 
     # the refresh token id is renewed every time so that refresh tokens are single-use only
     refresh_token_id = Internal.random_url_encoded(16)
@@ -155,21 +155,25 @@ defmodule Charon.SessionPlugs do
     refresh_exp = refresh_ttl + now
 
     shared_payload = %{
-      iat: now,
-      iss: config.token_issuer,
-      nbf: now,
-      sid: session.id,
-      sub: session.user_id
+      "iat" => now,
+      "iss" => config.token_issuer,
+      "nbf" => now,
+      "sid" => session.id,
+      "sub" => session.user_id
     }
 
     a_payload =
       shared_payload
-      |> Map.merge(%{jti: Internal.random_url_encoded(16), exp: access_exp, type: "access"})
+      |> Map.merge(%{
+        "jti" => Internal.random_url_encoded(16),
+        "exp" => access_exp,
+        "type" => "access"
+      })
       |> Map.merge(access_claim_overrides)
 
     r_payload =
       shared_payload
-      |> Map.merge(%{jti: refresh_token_id, exp: refresh_exp, type: "refresh"})
+      |> Map.merge(%{"jti" => refresh_token_id, "exp" => refresh_exp, "type" => "refresh"})
       |> Map.merge(refresh_claim_overrides)
 
     {:ok, refresh_token} = token_mod.sign(r_payload, config)
