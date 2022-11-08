@@ -8,7 +8,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   ## Config
 
-  Additional config is required for this module:
+  Additional config is required for this module (see `Charon.TokenFactory.SymmetricJwt.Config`):
 
       Charon.Config.from_enum(
         ...,

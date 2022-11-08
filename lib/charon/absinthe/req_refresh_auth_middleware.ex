@@ -4,22 +4,23 @@ defmodule Charon.Absinthe.ReqRefreshAuthMiddleware do
   Can be used if the context was hydrated by `Charon.Absinthe.HydrateContextPlug`.
   """
   @behaviour Absinthe.Middleware
-  alias Charon.Utils
+  alias Charon.{Utils, Internal}
 
   @impl true
-  def call(resolution = %{context: context = %{preauth_conn: preauth_conn}}, config) do
+  def call(resolution = %{context: %{preauth_conn: preauth_conn}}, config) do
+    mod_config = Charon.Absinthe.get_module_config(config)
+
     preauth_conn
-    |> context.refresh_token_pipeline.call(nil)
+    |> mod_config.refresh_token_pipeline.call(nil)
     |> then(fn
       authenticated_conn = %{assigns: assigns = %{user_id: _}} ->
         assigns
         |> Map.merge(%{refresh_token_pipeline_conn: authenticated_conn})
-        |> then(&Charon.Internal.merge_context(resolution, &1))
+        |> then(&Internal.merge_context(resolution, &1))
 
       unauthenticated_conn ->
         error = Utils.get_auth_error(unauthenticated_conn)
-        mod_config = Charon.Absinthe.get_module_config(config)
-        mod_config.auth_error_handler(resolution, error)
+        mod_config.auth_error_handler.(resolution, error) |> Internal.resolve_resolution()
     end)
   end
 end

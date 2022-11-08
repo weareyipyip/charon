@@ -12,6 +12,6 @@ defmodule Charon.Absinthe.ReqAuthMiddleware do
   def call(resolution, config) do
     error = Utils.get_auth_error(resolution.context.access_token_pipeline_conn)
     mod_config = Charon.Absinthe.get_module_config(config)
-    mod_config.auth_error_handler(resolution, error)
+    mod_config.auth_error_handler.(resolution, error) |> Charon.Internal.resolve_resolution()
   end
 end

@@ -1,6 +1,8 @@
 defmodule Charon.Absinthe.HydrateContextPlug do
   @moduledoc """
   Plug to bridge the gap between Plug's conn and Abinthe's context.
+
+  Processes the auth token as an access token, and stores the conn in the context.
   """
   @behaviour Plug
 

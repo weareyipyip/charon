@@ -12,6 +12,7 @@ defmodule Charon.Constants do
       @token_signature_transport :charon_token_signature_transport
       @tokens :charon_tokens
       @user_id :charon_user_id
+      @resp_cookies :charon_resp_cookies
     end
   end
 end

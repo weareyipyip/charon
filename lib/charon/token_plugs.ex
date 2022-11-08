@@ -56,7 +56,7 @@ defmodule Charon.TokenPlugs do
       end
   """
   alias Plug.Conn
-  import Conn
+  import Conn, except: [put_private: 3]
   use Charon.Constants
   import Charon.Internal
   alias Charon.Config
