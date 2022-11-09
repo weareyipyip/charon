@@ -5,6 +5,7 @@ defmodule Charon.Absinthe.HydrateContextPlug do
   Processes the auth token as an access token, and stores the conn in the context.
   """
   @behaviour Plug
+  use Charon.Constants
 
   @doc false
   @impl true
@@ -18,7 +19,18 @@ defmodule Charon.Absinthe.HydrateContextPlug do
     |> then(fn processed_conn = %{assigns: assigns} ->
       assigns
       |> Map.merge(%{access_token_pipeline_conn: processed_conn, preauth_conn: preauth_conn})
+      |> maybe_set_auth_error(processed_conn)
       |> then(&Absinthe.Plug.put_options(preauth_conn, context: &1))
     end)
   end
+
+  ###########
+  # Private #
+  ###########
+
+  defp maybe_set_auth_error(map, _conn = %{private: %{@auth_error => error}}) do
+    Map.put(map, @auth_error, error)
+  end
+
+  defp maybe_set_auth_error(map, _), do: map
 end

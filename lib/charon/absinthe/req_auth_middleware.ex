@@ -4,14 +4,13 @@ defmodule Charon.Absinthe.ReqAuthMiddleware do
   Can be used if the context was hydrated by `Charon.Absinthe.HydrateContextPlug`.
   """
   @behaviour Absinthe.Middleware
-  alias Charon.Utils
+  use Charon.Constants
 
   @impl true
-  def call(%{context: %{user_id: _}} = resolution, _config), do: resolution
-
-  def call(resolution, config) do
-    error = Utils.get_auth_error(resolution.context.access_token_pipeline_conn)
+  def call(resolution = %{context: %{@auth_error => error}}, config) do
     mod_config = Charon.Absinthe.get_module_config(config)
     mod_config.auth_error_handler.(resolution, error) |> Charon.Internal.resolve_resolution()
   end
+
+  def call(resolution, _config), do: resolution
 end
