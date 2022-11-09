@@ -2,14 +2,14 @@ version: "3"
 
 services:
   elixir:
-    image: elixir:${ELIXIR_VERSION:-1.13}-alpine
-    working_dir: /application/${ELIXIR_VERSION:-1.13}
+    image: elixir:${ELIXIR_VERSION:-1.12}-alpine
+    working_dir: /application/${ELIXIR_VERSION:-1.12}
     volumes:
-      - .:/application/${ELIXIR_VERSION:-1.13}:cached
-      - /application/${ELIXIR_VERSION:-1.13}/.elixir_ls
-      - /application/${ELIXIR_VERSION:-1.13}/cover
-      - build:/application/${ELIXIR_VERSION:-1.13}/_build
-      - deps:/application/${ELIXIR_VERSION:-1.13}/deps
+      - .:/application/${ELIXIR_VERSION:-1.12}:cached
+      - /application/${ELIXIR_VERSION:-1.12}/.elixir_ls
+      - /application/${ELIXIR_VERSION:-1.12}/cover
+      - build:/application/${ELIXIR_VERSION:-1.12}/_build
+      - deps:/application/${ELIXIR_VERSION:-1.12}/deps
       - mix:/root/.mix
     entrypoint: tail -f /dev/null
     environment:
