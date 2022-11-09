@@ -4,17 +4,17 @@
     {
       "label": "Start containers",
       "type": "shell",
-      "command": "ELIXIR_VERSION=1.13 docker-compose up -d"
+      "command": "docker-compose up -d"
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "Shell",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir /bin/sh"
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "IEx",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir iex -S mix",
       "group": {
@@ -23,8 +23,8 @@
       }
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "Test",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir mix test",
       "group": {
@@ -33,23 +33,43 @@
       }
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "Test watch",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir mix test.watch",
       "group": "test"
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "Install dependencies",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir mix do local.hex --force, local.rebar --force, deps.get"
     },
     {
-      "dependsOn": ["Start containers"],
       "label": "Update dependencies",
+      "dependsOn": ["Start containers"],
       "type": "shell",
       "command": "docker-compose exec elixir mix deps.update --all"
+    },
+    {
+      "label": "Test file",
+      "dependsOn": ["Start containers"],
+      "type": "shell",
+      "command": "docker-compose exec elixir mix test ${relativeFile}",
+      "group": "test",
+      "runOptions": {
+        "reevaluateOnRerun": false
+      }
+    },
+    {
+      "label": "Test line",
+      "dependsOn": ["Start containers"],
+      "type": "shell",
+      "command": "docker-compose exec elixir mix test ${relativeFile}:${lineNumber}",
+      "group": "test",
+      "runOptions": {
+        "reevaluateOnRerun": false
+      }
     }
   ]
 }
