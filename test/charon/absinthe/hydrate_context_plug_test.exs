@@ -21,7 +21,7 @@ defmodule Charon.Absinthe.HydrateContextPlugTest do
   def handle_auth_error(resolution, _reason), do: %{resolution | state: :resolved}
 
   describe "the thing" do
-    test "puts processed conn, processed conn's assigns in absinthe context" do
+    test "puts processed conn and it's assigns in absinthe context" do
       opts = HydrateContextPlug.init(@config)
       init_conn = %Conn{}
       conn = HydrateContextPlug.call(init_conn, opts)

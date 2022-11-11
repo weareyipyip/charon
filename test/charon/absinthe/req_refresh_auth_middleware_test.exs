@@ -38,7 +38,7 @@ defmodule Charon.Absinthe.ReqRefreshAuthMiddlewareTest do
 
       result = resolution |> ReqRefreshAuthMiddleware.call(@config)
 
-      assert %{state: :unresolved, context: %{user_id: 1, charon_conn: %{assigns: %{user_id: 1}}}} =
+      assert %{resolution | context: %{user_id: 1, charon_conn: %Conn{assigns: %{user_id: 1}}}} ==
                result
     end
 
@@ -57,13 +57,21 @@ defmodule Charon.Absinthe.ReqRefreshAuthMiddlewareTest do
       }
 
       result = resolution |> ReqRefreshAuthMiddleware.call(config)
-      assert %{state: :resolved, errors: ["boom!"]} = result
+
+      assert %{
+               resolution
+               | state: :resolved,
+                 errors: ["boom!"],
+                 context: %{charon_conn: %Conn{private: %{@auth_error => "boom!"}}}
+             } == result
     end
 
     test "merges refresh token pipeline's resulting conn's assigns into context" do
       resolution = %Resolution{state: :unresolved, context: %{charon_conn: %Conn{}}}
       result = resolution |> ReqRefreshAuthMiddleware.call(@config)
-      assert %{context: %{user_id: 1, charon_conn: %{assigns: %{user_id: 1}}}} = result
+
+      assert %{resolution | context: %{user_id: 1, charon_conn: %Conn{assigns: %{user_id: 1}}}} ==
+               result
     end
   end
 end

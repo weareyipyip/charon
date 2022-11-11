@@ -27,7 +27,7 @@ defmodule Charon.Absinthe.ReqAuthMiddlewareTest do
     test "rejects unauthorized requests" do
       resolution = %Resolution{state: :unresolved, context: %{@auth_error => "boom"}}
       result = resolution |> ReqAuthMiddleware.call(@config)
-      assert %{state: :resolved, errors: ["boom"]} = result
+      assert %{resolution | state: :resolved, errors: ["boom"]} == result
     end
 
     test "passes through authorized requests" do
