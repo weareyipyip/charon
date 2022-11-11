@@ -5,7 +5,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   ## Config
 
-  Additional config is required for this module:
+  Additional config is required for this module (see `Charon.SessionStore.RedisStore.Config`):
 
       Charon.Config.from_enum(
         ...,

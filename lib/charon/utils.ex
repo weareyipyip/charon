@@ -2,7 +2,7 @@ defmodule Charon.Utils do
   @moduledoc """
   Utility functions, mainly getters and setters for module internals.
   """
-  use Charon.Constants
+  use Charon.Internal.Constants
   alias Plug.Conn
   alias Charon.Models.{Session, Tokens}
   alias Charon.Internal

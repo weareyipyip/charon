@@ -1,7 +1,7 @@
 defmodule Charon.Internal do
   @moduledoc false
   # module consists of shared functions internal to the package
-  use Charon.Constants
+  use __MODULE__.Constants
   require Logger
   alias Plug.Conn
 
@@ -16,14 +16,21 @@ defmodule Charon.Internal do
   def now(), do: System.os_time(:second)
 
   @doc """
-  Get a value from the conn's private map
+  Get a value from the conn/resolution's private map
   """
-  def get_private(_conn = %{private: priv}, key), do: Map.get(priv, key)
+  def get_private(_res = %{private: priv}, key), do: Map.get(priv, key)
 
   @doc """
-  Merge a map into the conn's private map
+  Merge a map into the conn/resolution's private map
   """
-  def put_private(conn = %{private: priv}, map), do: %{conn | private: Map.merge(priv, map)}
+  def put_private(conn_or_res = %{private: priv}, map),
+    do: %{conn_or_res | private: Map.merge(priv, map)}
+
+  @doc """
+  Put a key/value into the conn/resolution's private map
+  """
+  def put_private(conn_or_res = %{private: priv}, key, value),
+    do: %{conn_or_res | private: Map.put(priv, key, value)}
 
   @doc """
   Generate a random URL-encoded string of `byte_size` bits.

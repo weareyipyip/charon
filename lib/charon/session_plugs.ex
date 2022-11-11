@@ -5,8 +5,8 @@ defmodule Charon.SessionPlugs do
   """
   alias Plug.Conn
   require Logger
-  use Charon.Constants
   alias Charon.{Config, Internal}
+  use Internal.Constants
   alias Charon.Models.{Session, Tokens}
 
   @type upsert_session_opts :: [

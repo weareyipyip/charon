@@ -20,7 +20,7 @@ defmodule Charon.MixProject do
       source_url: "https://github.com/weareyipyip/charon",
       name: "Charon",
       docs: [
-        source_ref: "master",
+        source_ref: "main",
         extras: ["./README.md"],
         main: "readme"
       ]

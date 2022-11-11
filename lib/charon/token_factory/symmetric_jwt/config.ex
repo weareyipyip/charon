@@ -15,6 +15,6 @@ defmodule Charon.TokenFactory.SymmetricJwt.Config do
   Build config struct from enumerable (useful for passing in application environment).
   Raises for missing mandatory keys and sets defaults for optional keys.
   """
-  @spec from_enum(Enum.t()) :: %__MODULE__{}
+  @spec from_enum(Enum.t()) :: t()
   def from_enum(enum), do: struct!(__MODULE__, enum)
 end

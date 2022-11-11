@@ -28,3 +28,4 @@ charon-*.tar
 /.elixir_ls
 /.vscode/*
 !/.vscode/*_example.json
+/.tool-versions

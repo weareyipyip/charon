@@ -1,4 +1,4 @@
 defmodule CharonTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   doctest Charon
 end

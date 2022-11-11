@@ -21,7 +21,7 @@ defmodule Charon.Config do
 
   Note that all config is compile-time config.
   Runtime configuration properties should be provided in the form of getters,
-  like the optional config of `Charon.TokenFactory.SymmetricJwt`.
+  like the config of `Charon.TokenFactory.SymmetricJwt`.
   """
   @enforce_keys [:token_issuer]
   defstruct [
@@ -71,7 +71,7 @@ defmodule Charon.Config do
       iex> from_enum(token_issuer: "Santa", optional_modules: %{Charon.TokenFactory.SymmetricJwt => []})
       ** (ArgumentError) the following keys must also be given when building struct Charon.TokenFactory.SymmetricJwt.Config: [:get_secret]
   """
-  @spec from_enum(Enum.t()) :: %__MODULE__{}
+  @spec from_enum(Enum.t()) :: t()
   def from_enum(enum) do
     __MODULE__ |> struct!(enum) |> process_optional_modules()
   end
