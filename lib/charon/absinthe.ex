@@ -87,7 +87,6 @@ defmodule Charon.Absinthe do
 
   ### Create a session resolver
 
-  Pay attention to the various `conn` structs that are stuffed in the context and which one to use when.
   Error handling is omitted.
 
       defmodule MyAppWeb.Absinthe.SessionResolver do
@@ -99,7 +98,7 @@ defmodule Charon.Absinthe do
         def login(
               _parent,
               _args = %{token_signature_transport: transport, email: email, password: password},
-              _resolution = %{context: %{preauth_conn: conn}}
+              _resolution = %{context: %{charon_conn: conn}}
             ) do
           with {:ok, user} <- Users.get_by(email: email) |> Users.verify_password(password) do
             conn
@@ -110,7 +109,7 @@ defmodule Charon.Absinthe do
           end
         end
 
-        def logout(_parent, _args, _resolution = %{context: %{access_token_pipeline_conn: conn}}) do
+        def logout(_parent, _args, _resolution = %{context: %{charon_conn: conn}}) do
           conn
           |> SessionPlugs.delete_session(@config)
           |> then(fn conn -> {:ok, %{resp_cookies: conn.resp_cookies}} end)
@@ -119,7 +118,7 @@ defmodule Charon.Absinthe do
         def refresh(
               _parent,
               _args,
-              _resolution = %{context: %{refresh_token_pipeline_conn: conn, user_id: user_id}}
+              _resolution = %{context: %{charon_conn: conn, user_id: user_id}}
             ) do
           with %User{status: "active"} <- Users.get_by(id: user_id) do
             conn |> SessionPlugs.upsert_session(@config) |> token_response()

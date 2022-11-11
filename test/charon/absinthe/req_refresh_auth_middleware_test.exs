@@ -30,18 +30,20 @@ defmodule Charon.Absinthe.ReqRefreshAuthMiddlewareTest do
   end
 
   describe "call/2" do
-    test "ignores context's auth_error (from access token)" do
+    test "ignores context's auth_error / assigns (from access token)" do
       resolution = %Resolution{
         state: :unresolved,
-        context: %{@auth_error => "boom", preauth_conn: %Conn{}}
+        context: %{@auth_error => "boom", charon_conn: %Conn{assigns: %{user_id: 2}}}
       }
 
       result = resolution |> ReqRefreshAuthMiddleware.call(@config)
-      assert %{state: :unresolved} = result
+
+      assert %{state: :unresolved, context: %{user_id: 1, charon_conn: %{assigns: %{user_id: 1}}}} =
+               result
     end
 
     test "rejects unauthorized requests (according to refresh token pipeline)" do
-      resolution = %Resolution{state: :unresolved, context: %{preauth_conn: %Conn{}}}
+      resolution = %Resolution{state: :unresolved, context: %{charon_conn: %Conn{}}}
 
       config = %{
         optional_modules: %{
@@ -59,9 +61,9 @@ defmodule Charon.Absinthe.ReqRefreshAuthMiddlewareTest do
     end
 
     test "merges refresh token pipeline's resulting conn's assigns into context" do
-      resolution = %Resolution{state: :unresolved, context: %{preauth_conn: %Conn{}}}
+      resolution = %Resolution{state: :unresolved, context: %{charon_conn: %Conn{}}}
       result = resolution |> ReqRefreshAuthMiddleware.call(@config)
-      assert %{context: %{user_id: 1, refresh_token_pipeline_conn: _}} = result
+      assert %{context: %{user_id: 1, charon_conn: %{assigns: %{user_id: 1}}}} = result
     end
   end
 end
