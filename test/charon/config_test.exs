@@ -1,5 +1,6 @@
 defmodule Charon.ConfigTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
+  alias Charon.Internal.ConfigTest
   import Charon.Config
   doctest Charon.Config
 
@@ -25,49 +26,16 @@ defmodule Charon.ConfigTest do
     Charon.SessionStore.RedisStore.Config => %{
       redix_module: :required,
       key_prefix: "charon_"
-    },
-    Charon.Absinthe.Config => %{
-      access_token_pipeline: :required,
-      refresh_token_pipeline: :required,
-      auth_error_handler: :required
     }
   }
 
-  defp required_keys(config) do
-    config |> Enum.filter(&match?({_k, :required}, &1)) |> Enum.map(fn {k, _} -> k end)
-  end
-
-  defp optional_keys(required_keys, config) do
-    config |> Map.keys() |> Kernel.--(required_keys)
-  end
-
   describe "Configs" do
     test "default optional values" do
-      for {mod, config} <- @configurations do
-        optional = config |> required_keys() |> optional_keys(config)
-
-        for opt <- optional do
-          assert val = config |> Map.delete(opt) |> mod.from_enum() |> Map.get(opt),
-                 "expected #{mod} to set a default value for :#{opt}"
-
-          default = config[opt]
-
-          assert val == default,
-                 "expected #{inspect(default)} default value for :#{opt} of #{mod}"
-        end
-      end
+      ConfigTest.test_optional(@configurations)
     end
 
     test "require required values" do
-      for {mod, config} <- @configurations do
-        required = config |> required_keys()
-
-        for req <- required do
-          assert_raise ArgumentError, fn ->
-            config |> Map.delete(req) |> mod.from_enum()
-          end
-        end
-      end
+      ConfigTest.test_required(@configurations)
     end
   end
 

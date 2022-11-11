@@ -1,6 +1,6 @@
 defmodule Charon.SessionIntegrationTest do
   use ExUnit.Case
-  use Charon.Constants
+  use Charon.Internal.Constants
   alias Charon.TestRedix
   import Charon.TestUtils
   import Plug.Conn

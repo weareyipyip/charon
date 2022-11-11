@@ -1,7 +1,7 @@
 defmodule Charon.Internal do
   @moduledoc false
   # module consists of shared functions internal to the package
-  use Charon.Constants
+  use __MODULE__.Constants
   require Logger
   alias Plug.Conn
 
@@ -57,16 +57,4 @@ defmodule Charon.Internal do
     cookie_opts = Keyword.put(cookie_opts, :max_age, ttl)
     {token, signature, cookie_opts}
   end
-
-  @doc """
-  Merge a map into an `%Absinthe.Resolution{}` context.
-  """
-  def merge_context(resolution = %{context: context}, map) do
-    %{resolution | context: Map.merge(context, map)}
-  end
-
-  @doc """
-  Set an `%Absinthe.Resolution{}` state to `:resolved`.
-  """
-  def resolve_resolution(resolution), do: %{resolution | state: :resolved}
 end

@@ -1,6 +1,6 @@
 defmodule Charon.TokenPlugsTest do
   use ExUnit.Case
-  use Charon.Constants
+  use Charon.Internal.Constants
   alias Charon.{Utils, Internal}
   alias Charon.TestRedix
   alias Charon.TokenPlugs

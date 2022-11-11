@@ -1,7 +1,7 @@
 defmodule Charon.SessionPlugsTest do
   use ExUnit.Case
   @moduletag :capture_log
-  use Charon.Constants
+  use Charon.Internal.Constants
   alias Plug.Conn
   alias Charon.Utils
   alias Charon.Models.{Session, Tokens}

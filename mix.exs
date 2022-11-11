@@ -20,7 +20,7 @@ defmodule Charon.MixProject do
       source_url: "https://github.com/weareyipyip/charon",
       name: "Charon",
       docs: [
-        source_ref: "master",
+        source_ref: "main",
         extras: ["./README.md"],
         main: "readme"
       ]
@@ -41,8 +41,7 @@ defmodule Charon.MixProject do
       {:jason, "~> 1.0", optional: true},
       {:plug, "~> 1.11"},
       {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
-      {:redix, "~> 1.1", only: [:test], runtime: false},
-      {:absinthe_plug, "~> 1.5", optional: true}
+      {:redix, "~> 1.1", only: [:test], runtime: false}
     ]
   end
 

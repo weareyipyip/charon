@@ -35,7 +35,7 @@ defmodule Charon.TokenPlugs.PutAssigns do
       iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
       %{}
   """
-  use Charon.Constants
+  use Charon.Internal.Constants
   @behaviour Plug
 
   @default_names %{
