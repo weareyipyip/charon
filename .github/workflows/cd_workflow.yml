@@ -7,8 +7,6 @@ jobs:
   deploy:
     name: Publish release
     runs-on: ubuntu-latest
-    env:
-      MIX_ENV: test
 
     steps:
       - name: Display build environment
