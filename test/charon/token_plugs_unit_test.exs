@@ -10,6 +10,7 @@ defmodule Charon.TokenPlugsTest do
   import TestRedix, only: [command: 1]
   import TokenPlugs
   alias TokenPlugs.PutAssigns
+  alias Charon.Models.Session
 
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",

@@ -352,10 +352,9 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> command(["SET", session_key("a", 1), :erlang.term_to_binary(%{stored: :session})])
+      iex> command(["SET", session_key("a", 1), %Session{expires_at: 0} |> Session.serialize()])
       iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1})
-      iex> conn |> load_session(@config) |> Internal.get_private(@session)
-      %{stored: :session}
+      iex> %Session{} = conn |> load_session(@config) |> Internal.get_private(@session)
 
       # token payload must contain "sub" and "sid" claims
       iex> conn = conn() |> put_private(@bearer_token_payload, 1)

@@ -64,7 +64,7 @@ defmodule Charon.SessionPlugs do
 
       # renews session if present in conn, updating only refresh_token_id, refreshed_at
       # existing session's user id will not change despite attempted override
-      iex> old_session = %Session{user_id: 43, id: "a"}
+      iex> old_session = %Session{user_id: 43, id: "a", expires_at: :infinite}
       iex> conn = conn()
       ...> |> Conn.put_private(@session, old_session)
       ...> |> Utils.set_token_signature_transport(:bearer)
@@ -260,7 +260,7 @@ defmodule Charon.SessionPlugs do
 
   # this ensures that a token's exp claim never outlives its session
   defp calc_ttl(session, now, max_ttl)
-  defp calc_ttl(%{expires_at: nil}, _now, max_ttl), do: max_ttl
+  defp calc_ttl(%{expires_at: :infinite}, _now, max_ttl), do: max_ttl
   defp calc_ttl(%{expires_at: session_exp}, now, max_ttl), do: min(session_exp - now, max_ttl)
 
   defp transport_tokens(

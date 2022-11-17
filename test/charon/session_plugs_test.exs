@@ -9,13 +9,6 @@ defmodule Charon.SessionPlugsTest do
   alias Charon.TestRedix
   import TestRedix, only: [command: 1]
 
-  @sid "a"
-  @uid 426
-  @user_session %{id: @sid, user_id: @uid}
-  @serialized :erlang.term_to_binary(@user_session)
-
-  def get_secret(), do: "supersecret"
-
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
             optional_modules: %{
@@ -23,6 +16,13 @@ defmodule Charon.SessionPlugsTest do
               Charon.SessionStore.RedisStore => %{redix_module: TestRedix}
             }
           )
+
+  @sid "a"
+  @uid 426
+  @user_session Session.new(@config, id: @sid, user_id: @uid)
+  @serialized Session.serialize(@user_session)
+
+  def get_secret(), do: "supersecret"
 
   setup_all do
     TestRedix.init()
@@ -59,7 +59,7 @@ defmodule Charon.SessionPlugsTest do
         |> upsert_session(%{@config | session_ttl: :infinite})
 
       session = Utils.get_session(conn)
-      assert session.expires_at == nil
+      assert session.expires_at == :infinite
     end
 
     test "should store sessions with refresh ttl, not session ttl" do
