@@ -1,17 +1,19 @@
 defmodule Charon.SessionStore.RedisStoreTest do
   use ExUnit.Case
   alias Charon.SessionStore.RedisStore
+  alias Charon.Models.Session
   import Charon.{TestUtils, Internal}
   alias Charon.TestRedix
   import TestRedix, only: [command: 1]
 
   @config %{
+    session_ttl: :infinite,
     optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
   }
   @sid "a"
   @uid 426
-  @user_session %{id: @sid, user_id: @uid}
-  @serialized :erlang.term_to_binary(@user_session)
+  @user_session Session.new(@config, id: @sid, user_id: @uid)
+  @serialized Session.serialize(@user_session)
   @ttl 10
 
   setup_all do

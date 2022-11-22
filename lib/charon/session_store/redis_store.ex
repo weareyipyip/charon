@@ -33,6 +33,7 @@ defmodule Charon.SessionStore.RedisStore do
   @behaviour Charon.SessionStore
   alias Charon.Config
   alias Charon.Internal
+  alias Charon.Models.Session
 
   @impl true
   def get(session_id, user_id, config) do
@@ -42,7 +43,7 @@ defmodule Charon.SessionStore.RedisStore do
     |> config.redix_module.command()
     |> case do
       {:ok, nil} -> nil
-      {:ok, serialized} -> :erlang.binary_to_term(serialized)
+      {:ok, serialized} -> Session.deserialize(serialized)
       error -> error
     end
   end
@@ -59,7 +60,7 @@ defmodule Charon.SessionStore.RedisStore do
       # add session key to user's sorted set, with expiration timestamp as score (or update the score)
       ["ZADD", user_sessions_key(user_id, config), Integer.to_string(now + ttl), session_key],
       # add the actual session as a separate key-value pair with expiration ttl (or update the ttl)
-      ["SET", session_key, :erlang.term_to_binary(session), "EX", Integer.to_string(ttl)],
+      ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(ttl)],
       ~W(EXEC)
     ]
     |> config.redix_module.pipeline()
@@ -88,7 +89,7 @@ defmodule Charon.SessionStore.RedisStore do
     with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, config),
          # get all keys with a single round trip
          {:ok, values} <- config.redix_module.command(["MGET" | keys]) do
-      values |> Stream.reject(&is_nil/1) |> Enum.map(&:erlang.binary_to_term/1)
+      values |> Stream.reject(&is_nil/1) |> Enum.map(&Session.deserialize/1)
     else
       {:ok, []} -> []
       other -> other
