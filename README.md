@@ -1,6 +1,6 @@
 # Charon
 
-Charon is an extensible auth framework for Elixir, mostly for API's. The base package provides token generation & verification, and session handling. Additional functionality can be added with child packages. The package is opionated with sane config defaults as much as possible.
+Charon is an extensible auth framework for Elixir, mostly for API's. The base package provides token generation & verification, and session handling. Additional functionality can be added with child packages. The package is opinionated with sane config defaults as much as possible.
 
 ## Table of contents
 
