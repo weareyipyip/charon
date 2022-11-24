@@ -4,7 +4,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   JWTs with symmetric-key signatures.
   These are suited for everything but OpenID Connect implementations,
   because these require third parties to verify the token signature,
-  which requires assymetric keys.
+  which requires asymetric keys.
 
   ## Config
 
@@ -82,7 +82,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
     with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
-      mac_base = [generate_header(jmod, alg), ?., payload]
+      mac_base = [generate_header(alg, jmod), ?., payload]
       mac = mac_base |> calc_mac(secret, alg) |> url_encode()
       token = [mac_base, ?., mac] |> IO.iodata_to_binary()
       {:ok, token}
@@ -97,12 +97,12 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     secret = get_secret.()
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         {:ok, alg} <- get_signature_algorithm(jmod, header),
+         {:ok, alg} <- get_signature_algorithm(header, jmod),
          mac_base = [header, ?., payload],
          mac = calc_mac(mac_base, secret, alg),
          {:ok, signature} <- url_decode(signature),
          true <- Plug.Crypto.secure_compare(mac, signature),
-         {:ok, payload} <- to_map(jmod, payload) do
+         {:ok, payload} <- to_map(payload, jmod) do
       {:ok, payload}
     else
       false -> {:error, "signature invalid"}
@@ -123,7 +123,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp generate_header(json_mod, alg) do
+  defp generate_header(alg, json_mod) do
     %{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"}
     |> maybe_add_nonce(alg)
     |> json_mod.encode!()
@@ -138,7 +138,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp calc_mac(data, secret, :poly1305), do: :crypto.mac(:poly1305, secret, data)
   defp calc_mac(data, secret, alg), do: :crypto.mac(:hmac, alg, secret, data)
 
-  defp to_map(json_mod, encoded) do
+  defp to_map(encoded, json_mod) do
     with {:ok, json} <- url_decode(encoded),
          {:ok, payload} <- json_mod.decode(json) do
       {:ok, payload}
@@ -148,8 +148,8 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     end
   end
 
-  defp get_signature_algorithm(json_mod, header) do
-    with {:ok, payload} <- to_map(json_mod, header),
+  defp get_signature_algorithm(header, json_mod) do
+    with {:ok, payload} <- to_map(header, json_mod),
          %{"alg" => alg} <- payload,
          alg when not is_nil(alg) <- Map.get(@header_to_alg_map, alg) do
       {:ok, alg}
