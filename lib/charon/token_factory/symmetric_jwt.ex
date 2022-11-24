@@ -51,7 +51,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> verify(header <> ".YQ.YQ", config)
       {:error, "signature invalid"}
 
-      # poly1305 is also supported, and requires a 256-bits key
+      # poly1305 is experimentally supported, and requires a 256-bits key
       iex> secret = :crypto.strong_rand_bytes(32)
       iex> get_secret = fn -> secret end
       iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: get_secret, algorithm: :poly1305)}}
@@ -64,7 +64,6 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> {:error, "signature invalid"} = verify(token, config)
   """
   @behaviour Charon.TokenFactory
-  alias Charon.Internal
 
   @encoding_opts padding: false
   @alg_to_header_map %{
@@ -82,9 +81,9 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
     with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
-      mac_base = [generate_header(alg, jmod), ?., payload]
-      mac = mac_base |> calc_mac(secret, alg) |> url_encode()
-      token = [mac_base, ?., mac] |> IO.iodata_to_binary()
+      {header_base_pl, secret} = gen_header_pl_and_secret(alg, secret)
+      header = gen_header(header_base_pl, alg, jmod)
+      token = generate_token(header, payload, alg, secret)
       {:ok, token}
     else
       _ -> {:error, "could not encode payload"}
@@ -97,7 +96,8 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     secret = get_secret.()
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         {:ok, alg} <- get_signature_algorithm(header, jmod),
+         {:ok, alg, nonce} <- process_header(header, jmod),
+         secret = generate_msg_secret(secret, nonce),
          mac_base = [header, ?., payload],
          mac = calc_mac(mac_base, secret, alg),
          {:ok, signature} <- url_decode(signature),
@@ -123,17 +123,27 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp generate_header(alg, json_mod) do
-    %{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"}
-    |> maybe_add_nonce(alg)
-    |> json_mod.encode!()
-    |> Base.url_encode64(@encoding_opts)
+  defp gen_header_pl_and_secret(:poly1305, secret) do
+    nonce = :crypto.strong_rand_bytes(12)
+    header = %{nonce: url_encode(nonce)}
+    otk = gen_poly1305_key(secret, nonce)
+    {header, otk}
   end
 
-  defp maybe_add_nonce(header, :poly1305),
-    do: Map.put(header, :nonce, Internal.random_url_encoded(16))
+  defp gen_header_pl_and_secret(_alg, secret), do: {%{}, secret}
 
-  defp maybe_add_nonce(header, _), do: header
+  defp generate_token(header, payload, alg, secret) do
+    mac_base = [header, ?., payload]
+    mac = calc_mac(mac_base, secret, alg) |> url_encode()
+    [mac_base, ?., mac] |> IO.iodata_to_binary()
+  end
+
+  defp gen_header(base, alg, jmod) do
+    base
+    |> Map.merge(%{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"})
+    |> jmod.encode!()
+    |> url_encode()
+  end
 
   defp calc_mac(data, secret, :poly1305), do: :crypto.mac(:poly1305, secret, data)
   defp calc_mac(data, secret, alg), do: :crypto.mac(:hmac, alg, secret, data)
@@ -148,15 +158,31 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     end
   end
 
-  defp get_signature_algorithm(header, json_mod) do
+  defp process_header(header, json_mod) do
     with {:ok, payload} <- to_map(header, json_mod),
          %{"alg" => alg} <- payload,
          alg when not is_nil(alg) <- Map.get(@header_to_alg_map, alg) do
-      {:ok, alg}
+      {:ok, alg, get_nonce_from_header_pl(payload)}
     else
       %{} -> {:error, "malformed header"}
       nil -> {:error, "unsupported signature algorithm"}
       error -> error
     end
+  end
+
+  defp get_nonce_from_header_pl(%{"nonce" => nonce}) when is_binary(nonce) do
+    case url_decode(nonce) do
+      {:ok, <<nonce::binary-size(12)>>} -> nonce
+      _ -> nil
+    end
+  end
+
+  defp get_nonce_from_header_pl(_), do: nil
+
+  defp generate_msg_secret(secret, nil), do: secret
+  defp generate_msg_secret(secret, nonce), do: gen_poly1305_key(secret, nonce)
+
+  defp gen_poly1305_key(key, nonce) do
+    :crypto.crypto_one_time(:chacha20, key, <<0::32, nonce::binary>>, <<0::256>>, true)
   end
 end
