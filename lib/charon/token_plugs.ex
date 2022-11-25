@@ -57,9 +57,10 @@ defmodule Charon.TokenPlugs do
   """
   alias Plug.Conn
   import Conn, except: [put_private: 3]
-  use Charon.Internal.Constants
-  import Charon.Internal
-  alias Charon.Config
+
+  alias Charon.{Config, TokenFactory, Internal, SessionStore}
+  use Internal.Constants
+  import Internal
 
   @doc """
   Get a bearer token from the `authorization` header.
@@ -164,7 +165,7 @@ defmodule Charon.TokenPlugs do
   def verify_token_signature(conn = %{private: %{@auth_error => _}}, _), do: conn
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
-    with {:ok, payload} <- config.token_factory_module.verify(token, config) do
+    with {:ok, payload} <- TokenFactory.verify(token, config) do
       put_private(conn, @bearer_token_payload, payload)
     else
       _ -> auth_error(conn, "bearer token signature invalid")
@@ -371,7 +372,7 @@ defmodule Charon.TokenPlugs do
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
     with %{"sub" => uid, "sid" => sid} <- payload,
-         session = %{} <- config.session_store_module.get(sid, uid, config) do
+         session = %{} <- SessionStore.get(sid, uid, config) do
       put_private(conn, @session, session)
     else
       nil -> auth_error(conn, "session not found")

@@ -30,7 +30,7 @@ defmodule Charon.SessionStore.RedisStore do
   Session keys slowly accumulate in Redis when using this store.
   It provides a `cleanup/1` that should run periodically.
   """
-  @behaviour Charon.SessionStore
+  @behaviour Charon.SessionStore.Behaviour
   alias Charon.Config
   alias Charon.Internal
   alias Charon.Models.Session

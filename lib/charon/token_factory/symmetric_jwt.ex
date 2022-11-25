@@ -63,7 +63,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> config = %{optional_modules: %{SymmetricJwt => SymmetricJwt.Config.from_enum(get_secret: fn -> :crypto.strong_rand_bytes(32) end)}}
       iex> {:error, "signature invalid"} = verify(token, config)
   """
-  @behaviour Charon.TokenFactory
+  @behaviour Charon.TokenFactory.Behaviour
 
   @encoding_opts padding: false
   @alg_to_header_map %{

@@ -1,51 +1,24 @@
 defmodule Charon.SessionStore do
   @moduledoc """
-  Behaviour definition of a persistent session store.
-  The implementation is expected to handle cleanup of expired entries.
-
-  All three callbacks can use only a session ID, and ignore the user ID that is passed in as well, because a session ID is a unique 128-bits binary by itself.
-
-  However, not ignoring the user ID enables the usecase where all sessions for a user are fetched or deleted (the optional callbacks), for example, so there are benefits to storing sessions per user.
+  Entrypoint for `Charon.SessionStore.Behaviour` implementation.
+  All functions delegate to the configured module.
   """
-  alias Charon.Session
-  alias Charon.Config
+  @behaviour __MODULE__.Behaviour
 
-  @optional_callbacks [get_all: 2, delete_all: 2]
+  @impl true
+  def delete(session_id, user_id, config),
+    do: config.session_store_module.delete(session_id, user_id, config)
 
-  @doc """
-  Delete session with id `session_id` for user with id `user_id`.
+  @impl true
+  def get(session_id, user_id, config),
+    do: config.session_store_module.get(session_id, user_id, config)
 
-  Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
-  """
-  @callback delete(session_id :: binary, user_id :: binary | integer(), config :: Config.t()) ::
-              :ok | {:error, binary}
+  @impl true
+  def get_all(user_id, config), do: config.session_store_module.get_all(user_id, config)
 
-  @doc """
-  Insert or update #{Session} `session`, with time-to-live `ttl`.
+  @impl true
+  def upsert(session, ttl, config), do: config.session_store_module.upsert(session, ttl, config)
 
-  The `session_id` and `user_id` are taken from the `session` struct.
-  Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
-  """
-  @callback upsert(session :: Session.t(), ttl :: pos_integer(), config :: Config.t()) ::
-              :ok | {:error, binary}
-
-  @doc """
-  Get session with id `session_id` for user with id `user_id`.
-
-  Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
-  """
-  @callback get(session_id :: binary, user_id :: binary | integer(), config :: Config.t()) ::
-              Session.t() | nil | {:error, binary}
-
-  @doc """
-  Get all sessions for the user with id `user_id`.
-  """
-  @callback get_all(user_id :: binary | integer, config :: Config.t()) ::
-              [Session.t()] | {:error, binary}
-
-  @doc """
-  Delete all sessions for the user with id `user_id`.
-  """
-  @callback delete_all(user_id :: binary | integer, config :: Config.t()) ::
-              :ok | {:error, binary}
+  @impl true
+  def delete_all(user_id, config), do: config.session_store_module.delete_all(user_id, config)
 end
