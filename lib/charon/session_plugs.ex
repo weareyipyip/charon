@@ -5,7 +5,7 @@ defmodule Charon.SessionPlugs do
   """
   alias Plug.Conn
   require Logger
-  alias Charon.{Config, Internal}
+  alias Charon.{Config, Internal, TokenFactory, SessionStore}
   use Internal.Constants
   alias Charon.Models.{Session, Tokens}
 
@@ -116,13 +116,11 @@ defmodule Charon.SessionPlugs do
         conn,
         config = %{
           refresh_token_ttl: max_refresh_ttl,
-          session_store_module: session_store,
           access_token_ttl: max_access_ttl,
           access_cookie_name: access_cookie_name,
           refresh_cookie_name: refresh_cookie_name,
           access_cookie_opts: access_cookie_opts,
-          refresh_cookie_opts: refresh_cookie_opts,
-          token_factory_module: token_mod
+          refresh_cookie_opts: refresh_cookie_opts
         },
         opts \\ []
       ) do
@@ -176,8 +174,8 @@ defmodule Charon.SessionPlugs do
       |> Map.merge(%{"jti" => refresh_token_id, "exp" => refresh_exp, "type" => "refresh"})
       |> Map.merge(refresh_claim_overrides)
 
-    {:ok, refresh_token} = token_mod.sign(r_payload, config)
-    {:ok, access_token} = token_mod.sign(a_payload, config)
+    {:ok, refresh_token} = TokenFactory.sign(r_payload, config)
+    {:ok, access_token} = TokenFactory.sign(a_payload, config)
 
     tokens = %Tokens{
       access_token: access_token,
@@ -187,7 +185,7 @@ defmodule Charon.SessionPlugs do
     }
 
     # store the session
-    case session_store.upsert(session, refresh_ttl, config) do
+    case SessionStore.upsert(session, refresh_ttl, config) do
       :ok ->
         :ok
 
@@ -234,7 +232,6 @@ defmodule Charon.SessionPlugs do
   def delete_session(
         conn,
         config = %{
-          session_store_module: session_store,
           access_cookie_name: access_cookie_name,
           refresh_cookie_name: refresh_cookie_name,
           access_cookie_opts: access_cookie_opts,
@@ -243,7 +240,7 @@ defmodule Charon.SessionPlugs do
       ) do
     case conn.private do
       %{@bearer_token_payload => %{"sub" => uid, "sid" => sid}} ->
-        session_store.delete(sid, uid, config)
+        SessionStore.delete(sid, uid, config)
 
       _ ->
         :ok
