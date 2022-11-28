@@ -4,62 +4,45 @@ defmodule Charon.TokenFactory.SymmetricJwtTest do
   import SymmetricJwt
 
   @base_key :crypto.strong_rand_bytes(32)
+  @payload %{"claim" => "value"}
+  @mod_conf SymmetricJwt.Config.from_enum(get_secret: &__MODULE__.get_secret/0)
+  @config %{optional_modules: %{SymmetricJwt => @mod_conf}}
+
+  def get_secret(), do: @base_key
+
   @encoded_key Base.url_encode64(@base_key, padding: false)
-  @payload %{"iss" => "joe", "exp" => 1_300_819_380, "http://example.com/is_root" => true}
   @jwk %{"k" => @encoded_key, "kty" => "oct"}
 
   describe "HS256" do
-    setup do
-      mod_conf = SymmetricJwt.Config.from_enum(get_secret: fn -> @base_key end)
-      config = %{optional_modules: %{SymmetricJwt => mod_conf}}
-      [config: config]
-    end
-
-    test "Charon token can be verified by JOSE", seeds do
-      {:ok, charon_token} = sign(@payload, seeds.config)
+    test "Charon token can be verified by JOSE" do
+      {:ok, charon_token} = sign(@payload, @config)
       assert JOSE.JWT.verify(@jwk, charon_token)
     end
 
-    test "Charon token can be verified by Charon", seeds do
-      {:ok, token} = sign(@payload, seeds.config)
-      assert {:ok, _} = verify(token, seeds.config)
-    end
-
-    test "JOSE token can be verified by Charon", seeds do
+    test "JOSE token can be verified by Charon" do
       jws = %{"alg" => "HS256"}
       {_, jose_token} = JOSE.JWT.sign(@jwk, jws, @payload) |> JOSE.JWS.compact()
-      assert {:ok, _} = verify(jose_token, seeds.config)
+      assert {:ok, _} = verify(jose_token, @config)
     end
 
-    test "Charon and JOSE generate the same token", seeds do
-      {:ok, charon_token} = sign(@payload, seeds.config)
+    test "Charon and JOSE generate the same token" do
+      {:ok, charon_token} = sign(@payload, @config)
       jws = %{"alg" => "HS256"}
       {_, jose_token} = JOSE.JWT.sign(@jwk, jws, @payload) |> JOSE.JWS.compact()
       assert jose_token == charon_token
     end
   end
 
+  @poly1305_config %{optional_modules: %{SymmetricJwt => %{@mod_conf | algorithm: :poly1305}}}
+
   describe "Poly1305" do
-    setup do
-      mod_conf =
-        SymmetricJwt.Config.from_enum(get_secret: fn -> @base_key end, algorithm: :poly1305)
-
-      config = %{optional_modules: %{SymmetricJwt => mod_conf}}
-      [config: config]
-    end
-
-    test "Charon token can be verified by JOSE", seeds do
-      {:ok, token} = sign(@payload, seeds.config)
+    test "Charon token can be verified by JOSE" do
+      {:ok, token} = sign(@payload, @poly1305_config)
       assert JOSE.JWT.verify(@jwk, token)
     end
 
-    test "Charon token can be verified by Charon", seeds do
-      {:ok, token} = sign(@payload, seeds.config)
-      assert {:ok, _} = verify(token, seeds.config)
-    end
-
-    test "Charon and JOSE generate the same token", seeds do
-      {:ok, charon_token} = sign(@payload, seeds.config)
+    test "Charon and JOSE generate the same token" do
+      {:ok, charon_token} = sign(@payload, @poly1305_config)
 
       [h, _p, _s] =
         charon_token |> String.split(".") |> Enum.map(&Base.url_decode64!(&1, padding: false))
@@ -71,10 +54,10 @@ defmodule Charon.TokenFactory.SymmetricJwtTest do
       assert jose_token == charon_token
     end
 
-    test "JOSE token can be verified by Charon", seeds do
+    test "JOSE token can be verified by Charon" do
       jws = %{"alg" => "Poly1305"}
       {_, jose_token} = JOSE.JWT.sign(@jwk, jws, @payload) |> JOSE.JWS.compact()
-      assert {:ok, _} = verify(jose_token, seeds.config)
+      assert {:ok, _} = verify(jose_token, @poly1305_config)
     end
   end
 
