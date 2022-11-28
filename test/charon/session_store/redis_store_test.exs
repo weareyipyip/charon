@@ -1,5 +1,6 @@
 defmodule Charon.SessionStore.RedisStoreTest do
   use ExUnit.Case
+  import ExUnit.CaptureLog
   alias Charon.SessionStore.RedisStore
   alias Charon.Models.Session
   import Charon.{TestUtils, Internal}
@@ -138,13 +139,24 @@ defmodule Charon.SessionStore.RedisStoreTest do
   end
 
   describe "cleanup/1" do
+    test "works with empty db" do
+      assert capture_log(fn -> assert :ok == RedisStore.cleanup(@config) end) =~
+               "Removed 0 expired session keys."
+    end
+
     test "removes expired keys from user session sets" do
       # unexpired
       command(["ZADD", user_sessions_key(@uid), now() + @ttl, "a"])
-      # expired and missing as it should be
-      command(["ZADD", user_sessions_key(@uid), 0, "b"])
 
-      assert :ok == RedisStore.cleanup(@config)
+      for n <- 1..100 do
+        # expired and missing as it should be
+        command(["ZADD", user_sessions_key(n), 0, "b"])
+      end
+
+      assert capture_log(fn ->
+               assert :ok == RedisStore.cleanup(@config)
+             end) =~ "Removed 100 expired session keys."
+
       assert {:ok, ["a"]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1])
     end
   end
