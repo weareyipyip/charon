@@ -66,19 +66,20 @@ defmodule Charon.Models.Session do
       # serialization is reversible
       iex> %Session{} = @charon_config |> new() |> serialize() |> deserialize()
 
-      # old version - without the :version field - is deserialized without error
-      iex> serialized = "g3QAAAAIZAAKY3JlYXRlZF9hdGJjdlx6ZAAKZXhwaXJlc19hdGJlV4/6ZAANZXh0cmFfcGF5bG9hZHQAAAAAZAACaWRtAAAAFk1xMk0xRUlJUTFKV1dMTEZBSnk2YndkABByZWZyZXNoX3Rva2VuX2lkbQAAAANhYmNkAAxyZWZyZXNoZWRfYXRhAGQABHR5cGVkAARmdWxsZAAHdXNlcl9pZGEB"
-      iex> serialized |> Base.decode64!() |> deserialize()
-      %Charon.Models.Session{created_at: 1668701306, id: "Mq2M1EIIQ1JWWLLFAJy6bw", user_id: 1, expires_at: 1700237306, refresh_token_id: "abc", refreshed_at: 0, type: :full, extra_payload: %{}, version: 1}
+      # old version - without the :version field but with :__struct__ set - is deserialized without error
+      iex> %{__struct__: Session, created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}}
+      ...> |> :erlang.term_to_binary()
+      ...> |> deserialize()
+      %Session{created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}, version: 1}
 
       # old version - with :expires_at = nil - is deserialized without error
       iex> %Session{expires_at: :infinite} = @charon_config |> new(expires_at: nil) |> serialize() |> deserialize()
-
   """
   @spec deserialize(binary) :: struct
   def deserialize(binary) do
     binary
     |> :erlang.binary_to_term()
+    |> Map.drop([:__struct__])
     |> case do
       session = %{expires_at: nil} -> %{session | expires_at: :infinite}
       session -> session
