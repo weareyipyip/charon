@@ -34,6 +34,7 @@ defmodule Charon.SessionStore.RedisStore do
   alias Charon.Config
   alias Charon.Internal
   alias Charon.Models.Session
+  require Logger
 
   @impl true
   def get(session_id, user_id, config) do
@@ -112,20 +113,7 @@ defmodule Charon.SessionStore.RedisStore do
   """
   @spec cleanup(Config.t()) :: :ok | {:error, binary()}
   def cleanup(config) do
-    config = get_module_config(config)
-    now = Internal.now() |> Integer.to_string()
-
-    with {:ok, set_keys = [_ | _]} <- scan([config.key_prefix, ".u.*"], config) do
-      set_keys
-      |> Stream.chunk_every(500)
-      |> Stream.map(fn set_of_user_session_sets ->
-        set_of_user_session_sets
-        # remove expired session keys (with score/timestamp <= now)
-        |> Enum.map(&["ZREMRANGEBYSCORE", &1, "-inf", now])
-        |> config.redix_module.pipeline()
-      end)
-      |> Enum.find(:ok, &match?({:error, _}, &1))
-    end
+    config |> get_module_config() |> do_cleanup()
   end
 
   @doc false
@@ -163,21 +151,28 @@ defmodule Charon.SessionStore.RedisStore do
     |> config.redix_module.command()
   end
 
-  # scan the redis keyspace for a pattern
-  defp scan(pattern, config, iteration \\ nil, results \\ MapSet.new())
-  defp scan(_pattern, _config, "0", results), do: {:ok, MapSet.to_list(results)}
+  defp do_cleanup(mod_conf, now \\ Internal.now() |> to_string(), cursor \\ nil, count \\ 0)
 
-  defp scan(pattern, config, iteration, results) do
-    ["SCAN", iteration, "MATCH", pattern]
-    |> config.redix_module.command()
-    |> case do
-      {:ok, [iteration | [partial_results]]} ->
-        partial_results = MapSet.new(partial_results)
-        results = MapSet.union(results, partial_results)
-        scan(pattern, config, iteration, results)
+  defp do_cleanup(_mod_conf, _now, "0", count) do
+    Logger.info("Removed #{count} expired session keys.")
+  end
 
-      error ->
-        error
-    end
+  defp do_cleanup(mod_conf, now, cursor, count) do
+    ["SCAN", cursor, "MATCH", [mod_conf.key_prefix, ".u.*"]]
+    |> mod_conf.redix_module.command()
+    |> then(fn
+      {:ok, [new_cursor | [[]]]} ->
+        do_cleanup(mod_conf, now, new_cursor, count)
+
+      {:ok, [new_cursor | [partial_results]]} ->
+        partial_results
+        # remove expired session keys (with score/timestamp <= now)
+        |> Enum.map(&["ZREMRANGEBYSCORE", &1, "-inf", now])
+        |> mod_conf.redix_module.pipeline()
+        |> then(fn {:ok, deleted_counts} ->
+          count = Enum.sum([count | deleted_counts])
+          do_cleanup(mod_conf, now, new_cursor, count)
+        end)
+    end)
   end
 end
