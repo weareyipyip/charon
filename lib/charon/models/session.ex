@@ -2,17 +2,26 @@ defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
-  @enforce_keys [:expires_at]
-  defstruct [
+  @enforce_keys [
     :created_at,
-    :id,
-    :user_id,
     :expires_at,
+    :id,
+    :refresh_expires_at,
     :refresh_token_id,
     :refreshed_at,
-    type: :full,
+    :user_id
+  ]
+  defstruct [
+    :created_at,
+    :expires_at,
+    :id,
+    :refresh_expires_at,
+    :refresh_token_id,
+    :refreshed_at,
+    :user_id,
     extra_payload: %{},
-    version: 1
+    type: :full,
+    version: 2
   ]
 
   @type t :: %__MODULE__{
@@ -20,6 +29,7 @@ defmodule Charon.Models.Session do
           expires_at: integer | :infinite,
           extra_payload: map(),
           id: String.t(),
+          refresh_expires_at: integer,
           refresh_token_id: String.t(),
           refreshed_at: integer,
           type: atom(),
@@ -28,25 +38,6 @@ defmodule Charon.Models.Session do
         }
 
   alias Charon.{Config, Internal}
-
-  @doc """
-  Create a new session from config values and overrides.
-
-  Provides defaults for `:id`, `:created_at` and `:expires_at`.
-  """
-  @spec new(Config.t(), keyword() | map()) :: t()
-  def new(config, overrides \\ []) do
-    now = Internal.now()
-
-    defaults = %{
-      id: Internal.random_url_encoded(16),
-      created_at: now,
-      expires_at: expires_at(config, now)
-    }
-
-    enum = Map.merge(defaults, Map.new(overrides))
-    struct!(__MODULE__, enum)
-  end
 
   @doc """
   Serialize a session.
@@ -64,26 +55,25 @@ defmodule Charon.Models.Session do
       @charon_config Charon.Config.from_enum(token_issuer: "local")
 
       # serialization is reversible
-      iex> %Session{} = @charon_config |> new() |> serialize() |> deserialize()
+      iex> %Session{} = test_session() |> serialize() |> deserialize(@charon_config)
 
-      # old version - without the :version field but with :__struct__ set - is deserialized without error
-      iex> %{__struct__: Session, created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}}
+      # old version without the :version and :refesh_expires_at fields but with :__struct__ set
+      # is deserialized without error, and updated to latest version (2)
+      iex> session = %{__struct__: Session, created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}}
       ...> |> :erlang.term_to_binary()
-      ...> |> deserialize()
-      %Session{created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}, version: 1}
+      ...> |> deserialize(@charon_config)
+      iex> %Session{created_at: 0, id: "ab", user_id: 9, expires_at: 1, refresh_token_id: "cd", refreshed_at: 0, type: :full, extra_payload: %{}, version: 2, refresh_expires_at: _} = session
 
       # old version - with :expires_at = nil - is deserialized without error
-      iex> %Session{expires_at: :infinite} = @charon_config |> new(expires_at: nil) |> serialize() |> deserialize()
+      iex> %Session{expires_at: :infinite} = test_session(expires_at: nil) |> serialize() |> deserialize(@charon_config)
   """
-  @spec deserialize(binary) :: struct
-  def deserialize(binary) do
+  @spec deserialize(binary, Config.t()) :: struct
+  def deserialize(binary, config) do
     binary
     |> :erlang.binary_to_term()
     |> Map.drop([:__struct__])
-    |> case do
-      session = %{expires_at: nil} -> %{session | expires_at: :infinite}
-      session -> session
-    end
+    |> update_to_v1()
+    |> update_to_v2(config)
     |> case do
       map -> struct!(__MODULE__, map)
     end
@@ -93,7 +83,23 @@ defmodule Charon.Models.Session do
   # Private #
   ###########
 
-  defp expires_at(%{session_ttl: :infinite}, _now), do: :infinite
-  defp expires_at(%{session_ttl: nil}, _now), do: :infinite
-  defp expires_at(%{session_ttl: ttl}, now), do: ttl + now
+  defp update_to_v1(session = %{expires_at: nil}),
+    do: Map.merge(session, %{version: 1, expires_at: :infinite})
+
+  defp update_to_v1(session), do: session
+
+  defp update_to_v2(session = %{refresh_expires_at: _}, _), do: session
+
+  defp update_to_v2(session, config) do
+    exp = config.refresh_token_ttl + Internal.now()
+
+    exp =
+      if (session_exp = session.expires_at) == :infinite do
+        exp
+      else
+        min(exp, session_exp)
+      end
+
+    Map.merge(session, %{version: 2, refresh_expires_at: exp})
+  end
 end

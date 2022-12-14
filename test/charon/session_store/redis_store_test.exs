@@ -7,15 +7,16 @@ defmodule Charon.SessionStore.RedisStoreTest do
   alias Charon.TestRedix
   import TestRedix, only: [command: 1]
 
+  @ttl 10
   @config %{
     session_ttl: :infinite,
+    refresh_token_ttl: @ttl,
     optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
   }
   @sid "a"
   @uid 426
-  @user_session Session.new(@config, id: @sid, user_id: @uid)
+  @user_session test_session(id: @sid, user_id: @uid, refresh_expires_at: now() + @ttl)
   @serialized Session.serialize(@user_session)
-  @ttl 10
 
   setup_all do
     TestRedix.init()
@@ -40,7 +41,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   describe "upsert/3" do
     test "stores session and adds key to user's set of sessions" do
-      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
+      assert :ok = RedisStore.upsert(@user_session, @config)
       assert {:ok, @serialized} == command(["get", session_key(@sid, @uid)])
 
       assert {:ok, [session_key(@sid, @uid)]} ==
@@ -49,7 +50,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
     test "sets ttl / exp score" do
       now = now()
-      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
+      assert :ok = RedisStore.upsert(@user_session, @config)
       assert {:ok, ttl} = command(["TTL", session_key(@sid, @uid)])
       assert_in_delta ttl, @ttl, 3
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
@@ -57,12 +58,16 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "updates existing session, ttl, exp" do
-      assert :ok = RedisStore.upsert(@user_session, @ttl, @config)
+      assert :ok =
+               @user_session
+               |> Map.put(:refresh_expires_at, now() + @ttl + 5)
+               |> RedisStore.upsert(@config)
+
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
 
       Process.sleep(1001)
 
-      assert :ok = RedisStore.upsert(Map.put(@user_session, :new, "key"), @ttl, @config)
+      assert :ok = RedisStore.upsert(Map.put(@user_session, :new, "key"), @config)
       assert {:ok, new_session} = command(["GET", session_key(@sid, @uid)])
       assert {:ok, new_ttl} = command(["TTL", session_key(@sid, @uid)])
 

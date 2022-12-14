@@ -24,7 +24,7 @@ defmodule Charon.TestPipeline do
   plug(:load_session, @config)
   plug(:verify_refresh_token_fresh)
   plug(:verify_no_auth_error, &__MODULE__.errors/2)
-  plug(Charon.TokenPlugs.PutAssigns, user_id: :current_user_id)
+  plug(Charon.TokenPlugs.PutAssigns, claims: %{"sub" => :current_user_id, "sid" => :session_id})
 
   def errors(conn, _), do: halt(conn)
 end

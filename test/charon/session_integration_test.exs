@@ -95,12 +95,12 @@ defmodule Charon.SessionIntegrationTest do
 
     test "rejects wrong claims" do
       %{
-        %{hi: "boom"} => "claim nbf not found",
+        %{hi: "boom"} => "bearer token claim nbf not found",
         %{nbf: now() + 10} => "bearer token not yet valid",
         %{nbf: now(), exp: now() - 10} => "bearer token expired",
-        %{nbf: now(), exp: now()} => "claim type not found",
+        %{nbf: now(), exp: now()} => "bearer token claim type not found",
         %{nbf: now(), exp: now(), type: "bearer"} => "bearer token claim type invalid",
-        %{nbf: now(), exp: now(), type: "refresh"} => "claim sub or sid not found",
+        %{nbf: now(), exp: now(), type: "refresh"} => "bearer token claim sub or sid not found",
         %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a"} => "session not found"
       }
       |> Enum.each(fn {payload, exp_error} ->

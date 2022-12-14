@@ -19,7 +19,7 @@ defmodule Charon.SessionPlugsTest do
 
   @sid "a"
   @uid 426
-  @user_session Session.new(@config, id: @sid, user_id: @uid)
+  @user_session test_session(id: @sid, user_id: @uid)
   @serialized Session.serialize(@user_session)
 
   def get_secret(), do: "supersecret"

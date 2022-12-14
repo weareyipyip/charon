@@ -17,7 +17,7 @@ defmodule Charon.SessionStore do
   def get_all(user_id, config), do: config.session_store_module.get_all(user_id, config)
 
   @impl true
-  def upsert(session, ttl, config), do: config.session_store_module.upsert(session, ttl, config)
+  def upsert(session, config), do: config.session_store_module.upsert(session, config)
 
   @impl true
   def delete_all(user_id, config), do: config.session_store_module.delete_all(user_id, config)

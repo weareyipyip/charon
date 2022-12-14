@@ -8,7 +8,7 @@ defmodule Charon.SessionStore.DummyStore do
   def get(_session_id, _user_id, _config), do: nil
 
   @impl true
-  def upsert(_session, _ttl, _config), do: :ok
+  def upsert(_session, _config), do: :ok
 
   @impl true
   def delete(_session_id, _user_id, _config), do: :ok

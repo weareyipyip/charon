@@ -38,19 +38,19 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def get(session_id, user_id, config) do
-    config = get_module_config(config)
+    mod_conf = get_module_config(config)
 
-    ["GET", session_key(session_id, user_id, config)]
-    |> config.redix_module.command()
+    ["GET", session_key(session_id, user_id, mod_conf)]
+    |> mod_conf.redix_module.command()
     |> case do
       {:ok, nil} -> nil
-      {:ok, serialized} -> Session.deserialize(serialized)
+      {:ok, serialized} -> Session.deserialize(serialized, config)
       error -> error
     end
   end
 
   @impl true
-  def upsert(%{id: session_id, user_id: user_id} = session, ttl, config) do
+  def upsert(session = %{id: session_id, user_id: user_id, refresh_expires_at: exp}, config) do
     config = get_module_config(config)
     now = Internal.now()
     session_key = session_key(session_id, user_id, config)
@@ -59,9 +59,9 @@ defmodule Charon.SessionStore.RedisStore do
       # start transaction
       ~W(MULTI),
       # add session key to user's sorted set, with expiration timestamp as score (or update the score)
-      ["ZADD", user_sessions_key(user_id, config), Integer.to_string(now + ttl), session_key],
+      ["ZADD", user_sessions_key(user_id, config), Integer.to_string(exp), session_key],
       # add the actual session as a separate key-value pair with expiration ttl (or update the ttl)
-      ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(ttl)],
+      ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(exp - now)],
       ~W(EXEC)
     ]
     |> config.redix_module.pipeline()
@@ -85,12 +85,12 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def get_all(user_id, config) do
-    config = get_module_config(config)
+    mod_conf = get_module_config(config)
 
-    with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, config),
+    with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, mod_conf),
          # get all keys with a single round trip
-         {:ok, values} <- config.redix_module.command(["MGET" | keys]) do
-      values |> Stream.reject(&is_nil/1) |> Enum.map(&Session.deserialize/1)
+         {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
+      values |> Stream.reject(&is_nil/1) |> Enum.map(&Session.deserialize(&1, config))
     else
       {:ok, []} -> []
       other -> other

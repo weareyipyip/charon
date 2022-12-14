@@ -62,9 +62,9 @@ defmodule Charon.SessionPlugs do
       iex> %Session{} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
 
-      # renews session if present in conn, updating only refresh_token_id, refreshed_at
+      # renews session if present in conn, updating only refresh_token_id, refreshed_at, and refresh_expires_at
       # existing session's user id will not change despite attempted override
-      iex> old_session = %Session{user_id: 43, id: "a", expires_at: :infinite}
+      iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0)
       iex> conn = conn()
       ...> |> Conn.put_private(@session, old_session)
       ...> |> Utils.set_token_signature_transport(:bearer)
@@ -72,10 +72,10 @@ defmodule Charon.SessionPlugs do
       ...> |> upsert_session(@config)
       iex> session = Utils.get_session(conn) |> Map.from_struct()
       iex> old_session = Map.from_struct(old_session)
-      iex> Enum.map(~w(id user_id created_at expires_at)a, & session[&1] == old_session[&1])
-      [true, true, true, true]
-      iex> Enum.map(~w(refresh_token_id refreshed_at)a, & session[&1] == old_session[&1])
-      [false, false]
+      iex> Enum.find(~w(id user_id created_at expires_at)a, & session[&1] != old_session[&1])
+      nil
+      iex> Enum.find(~w(refresh_token_id refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
+      nil
 
       # returns signatures in cookies if requested, which removes signatures from tokens
       iex> conn = conn()
@@ -120,7 +120,8 @@ defmodule Charon.SessionPlugs do
           access_cookie_name: access_cookie_name,
           refresh_cookie_name: refresh_cookie_name,
           access_cookie_opts: access_cookie_opts,
-          refresh_cookie_opts: refresh_cookie_opts
+          refresh_cookie_opts: refresh_cookie_opts,
+          session_ttl: session_ttl
         },
         opts \\ []
       ) do
@@ -129,17 +130,32 @@ defmodule Charon.SessionPlugs do
     refresh_claim_overrides = opts[:refresh_claim_overrides] || %{}
     extra_session_payload = opts[:extra_session_payload] || %{}
 
-    # the refresh token id is renewed every time so that refresh tokens are single-use only
+    # the refresh token id is renewed every time so that refresh tokens can be single-use only
     refresh_token_id = Internal.random_url_encoded(16)
 
     # update the existing session or create a new one
-    session = %{
-      (Internal.get_private(conn, @session) || Session.new(config, user_id: get_user_id!(conn)))
-      | refresh_token_id: refresh_token_id,
-        refreshed_at: now,
-        extra_payload: extra_session_payload,
-        type: :full
-    }
+    session =
+      if existing_session = Internal.get_private(conn, @session) do
+        %{
+          existing_session
+          | extra_payload: extra_session_payload,
+            refresh_expires_at: now + max_refresh_ttl,
+            refresh_token_id: refresh_token_id,
+            refreshed_at: now
+        }
+      else
+        %Session{
+          created_at: now,
+          expires_at: if(session_ttl == :infinite, do: :infinite, else: session_ttl + now),
+          extra_payload: extra_session_payload,
+          id: Internal.random_url_encoded(16),
+          refresh_expires_at: now + max_refresh_ttl,
+          refresh_token_id: refresh_token_id,
+          refreshed_at: now,
+          user_id: get_user_id!(conn)
+        }
+      end
+      |> truncate_refresh_expires_at()
 
     Logger.debug(fn ->
       operation = if session.created_at == now, do: "CREATED", else: "REFRESHED"
@@ -147,10 +163,10 @@ defmodule Charon.SessionPlugs do
     end)
 
     # create access and refresh tokens and put them on the conn
-    access_ttl = calc_ttl(session, now, max_access_ttl)
+    refresh_exp = session.refresh_expires_at
+    refresh_ttl = refresh_exp - now
+    access_ttl = min(refresh_ttl, max_access_ttl)
     access_exp = access_ttl + now
-    refresh_ttl = calc_ttl(session, now, max_refresh_ttl)
-    refresh_exp = refresh_ttl + now
 
     shared_payload = %{
       "iat" => now,
@@ -185,7 +201,7 @@ defmodule Charon.SessionPlugs do
     }
 
     # store the session
-    case SessionStore.upsert(session, refresh_ttl, config) do
+    case SessionStore.upsert(session, config) do
       :ok ->
         :ok
 
@@ -255,11 +271,6 @@ defmodule Charon.SessionPlugs do
   # Privates #
   ############
 
-  # this ensures that a token's exp claim never outlives its session
-  defp calc_ttl(session, now, max_ttl)
-  defp calc_ttl(%{expires_at: :infinite}, _now, max_ttl), do: max_ttl
-  defp calc_ttl(%{expires_at: session_exp}, now, max_ttl), do: min(session_exp - now, max_ttl)
-
   defp transport_tokens(
          conn,
          tokens,
@@ -305,4 +316,10 @@ defmodule Charon.SessionPlugs do
       result -> result
     end
   end
+
+  defp truncate_refresh_expires_at(session)
+  defp truncate_refresh_expires_at(s = %{expires_at: :infinite}), do: s
+
+  defp truncate_refresh_expires_at(s = %{expires_at: s_exp, refresh_expires_at: rt_exp}),
+    do: %{s | refresh_expires_at: min(s_exp, rt_exp)}
 end

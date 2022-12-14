@@ -21,16 +21,17 @@ defmodule Charon.SessionStore.Behaviour do
               :ok | {:error, binary}
 
   @doc """
-  Insert or update `session`, with time-to-live `ttl`.
+  Insert or update `session`.
 
   The `session_id` and `user_id` are taken from the `session` struct.
   Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
   """
-  @callback upsert(session :: Session.t(), ttl :: pos_integer(), config :: Config.t()) ::
-              :ok | {:error, binary}
+  @callback upsert(session :: Session.t(), config :: Config.t()) :: :ok | {:error, binary}
 
   @doc """
   Get session with id `session_id` for user with id `user_id`.
+  Must not return sessions that have expired,
+  or that can't be refreshed anymore because the refresh token has expired.
 
   Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
   """
@@ -39,6 +40,8 @@ defmodule Charon.SessionStore.Behaviour do
 
   @doc """
   Get all sessions for the user with id `user_id`.
+  Must not return sessions that have expired,
+  or that can't be refreshed anymore because the refresh token has expired.
   """
   @callback get_all(user_id :: binary | integer, config :: Config.t()) ::
               [Session.t()] | {:error, binary}
