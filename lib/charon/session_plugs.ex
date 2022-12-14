@@ -12,7 +12,8 @@ defmodule Charon.SessionPlugs do
   @type upsert_session_opts :: [
           access_claim_overrides: %{required(String.t()) => any()},
           refresh_claim_overrides: %{required(String.t()) => any()},
-          extra_session_payload: map()
+          extra_session_payload: map(),
+          session_type: atom()
         ]
 
   @doc """
@@ -41,6 +42,7 @@ defmodule Charon.SessionPlugs do
   - `"sid"` session id
   - `"sub"` subject, the user id of the session owner
   - `"type"` type, `"access"` or `"refresh"`
+  - `"styp"` session type
 
   Additional claims or overrides can be provided with `opts`.
 
@@ -93,8 +95,8 @@ defmodule Charon.SessionPlugs do
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
-      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => <<sid::binary>>, "sub" => 1, "type" => "access"} = get_private(conn, @access_token_payload)
-      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => ^sid, "sub" => 1, "type" => "refresh"} = get_private(conn, @refresh_token_payload)
+      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => <<sid::binary>>, "sub" => 1, "type" => "access", "styp" => "full"} = get_private(conn, @access_token_payload)
+      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => ^sid, "sub" => 1, "type" => "refresh", "styp" => "full"} = get_private(conn, @refresh_token_payload)
 
       # allows adding extra claims to tokens
       iex> conn = conn()
@@ -110,6 +112,14 @@ defmodule Charon.SessionPlugs do
       ...> |> Utils.set_token_signature_transport(:bearer)
       ...> |> upsert_session(@config, extra_session_payload: %{what?: "that's right!"})
       iex> %Session{extra_payload: %{what?: "that's right!"}} = Utils.get_session(conn)
+
+      # allows separating sessions by type (default :full)
+      iex> conn = conn()
+      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_user_id(1)
+      ...> |> upsert_session(@config, session_type: :oauth2)
+      iex> %Session{type: :oauth2} = Utils.get_session(conn)
+      iex> %{"styp" => "oauth2"} = get_private(conn, @access_token_payload)
   """
   @spec upsert_session(Conn.t(), Config.t(), upsert_session_opts()) :: Conn.t()
   def upsert_session(
@@ -129,6 +139,7 @@ defmodule Charon.SessionPlugs do
     access_claim_overrides = opts[:access_claim_overrides] || %{}
     refresh_claim_overrides = opts[:refresh_claim_overrides] || %{}
     extra_session_payload = opts[:extra_session_payload] || %{}
+    session_type = opts[:session_type] || :full
 
     # the refresh token id is renewed every time so that refresh tokens can be single-use only
     refresh_token_id = Internal.random_url_encoded(16)
@@ -141,7 +152,8 @@ defmodule Charon.SessionPlugs do
           | extra_payload: extra_session_payload,
             refresh_expires_at: now + max_refresh_ttl,
             refresh_token_id: refresh_token_id,
-            refreshed_at: now
+            refreshed_at: now,
+            type: session_type
         }
       else
         %Session{
@@ -152,7 +164,8 @@ defmodule Charon.SessionPlugs do
           refresh_expires_at: now + max_refresh_ttl,
           refresh_token_id: refresh_token_id,
           refreshed_at: now,
-          user_id: get_user_id!(conn)
+          user_id: get_user_id!(conn),
+          type: session_type
         }
       end
       |> truncate_refresh_expires_at()
@@ -173,7 +186,8 @@ defmodule Charon.SessionPlugs do
       "iss" => config.token_issuer,
       "nbf" => now,
       "sid" => session.id,
-      "sub" => session.user_id
+      "sub" => session.user_id,
+      "styp" => session.type |> Atom.to_string()
     }
 
     a_payload =
@@ -255,8 +269,9 @@ defmodule Charon.SessionPlugs do
         }
       ) do
     case conn.private do
-      %{@bearer_token_payload => %{"sub" => uid, "sid" => sid}} ->
-        SessionStore.delete(sid, uid, config)
+      %{@bearer_token_payload => payload = %{"sub" => uid, "sid" => sid}} ->
+        type = String.to_atom(payload["styp"] || "full")
+        SessionStore.delete(sid, uid, type, config)
 
       _ ->
         :ok

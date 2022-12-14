@@ -30,12 +30,17 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   describe "get/3" do
     test "returns nil if not found (or expired)" do
-      assert nil == RedisStore.get(@sid, @uid, @config)
+      assert nil == RedisStore.get(@sid, @uid, :full, @config)
+    end
+
+    test "returns nil if other type" do
+      command(["SET", session_key(@sid, @uid, :oauth2), @serialized])
+      assert nil == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "returns deserialized session" do
       command(["SET", session_key(@sid, @uid), @serialized])
-      assert @user_session == RedisStore.get(@sid, @uid, @config)
+      assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
     end
   end
 
@@ -55,6 +60,20 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert_in_delta ttl, @ttl, 3
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
       assert_in_delta String.to_integer(exp), now + @ttl, 3
+    end
+
+    test "separates by type" do
+      other_type = %{@user_session | type: :oauth2}
+      assert :ok = RedisStore.upsert(@user_session, @config)
+      assert :ok = RedisStore.upsert(other_type, @config)
+      assert {:ok, @serialized} == command(["get", session_key(@sid, @uid)])
+      assert {:ok, <<_::binary>>} = command(["get", session_key(@sid, @uid, :oauth2)])
+
+      assert {:ok, [session_key(@sid, @uid)]} ==
+               command(["ZRANGE", user_sessions_key(@uid), 0, -1])
+
+      assert {:ok, [session_key(@sid, @uid, :oauth2)]} ==
+               command(["ZRANGE", user_sessions_key(@uid, :oauth2), 0, -1])
     end
 
     test "updates existing session, ttl, exp" do
@@ -81,28 +100,28 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
   end
 
-  describe "delete/2" do
+  describe "delete/4" do
     test "returns ok when not found" do
-      assert :ok = RedisStore.delete(@sid, @uid, @config)
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
     end
 
     test "deletes session" do
       command(["SET", session_key(@sid, @uid), @serialized])
-      assert :ok = RedisStore.delete(@sid, @uid, @config)
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
       assert {:ok, nil} = command(["GET", session_key(@sid, @uid)])
     end
 
     test "leaves the session key in the user's session set alone" do
       command(["ZADD", user_sessions_key(@uid), now() + @ttl, session_key(@sid, @uid)])
-      assert :ok = RedisStore.delete(@sid, @uid, @config)
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
       assert {:ok, [session_key(@sid, @uid)]} ==
                command(["ZRANGE", user_sessions_key(@uid), 0, -1])
     end
   end
 
-  describe "get_all/2" do
-    test "returns the user's unexpired, deserialized sessions" do
+  describe "get_all/3" do
+    test "returns the user's unexpired, deserialized sessions of requested type" do
       # unexpired, present
       command(["ZADD", user_sessions_key(@uid), now() + @ttl, "a"])
       command(["SET", "a", @serialized])
@@ -116,13 +135,16 @@ defmodule Charon.SessionStore.RedisStoreTest do
       # another user's session
       command(["ZADD", "user2", now() + @ttl, "e"])
       command(["SET", "e", @serialized])
+      # unexpired, present, other type
+      command(["ZADD", user_sessions_key(@uid, :oauth2), now() + @ttl, "f"])
+      command(["SET", "f", @serialized])
 
-      assert [@user_session] == RedisStore.get_all(@uid, @config)
+      assert [@user_session] == RedisStore.get_all(@uid, :full, @config)
     end
   end
 
-  describe "delete_all/2" do
-    test "removes all sessions and the user's session set" do
+  describe "delete_all/3" do
+    test "removes all session of requested type and the user's session set" do
       # unexpired, present
       command(["ZADD", user_sessions_key(@uid), now() + @ttl, "a"])
       command(["SET", "a", @serialized])
@@ -136,10 +158,19 @@ defmodule Charon.SessionStore.RedisStoreTest do
       # another user's session
       command(["ZADD", user_sessions_key(@uid + 1), now() + @ttl, "e"])
       command(["SET", "e", "session_e"])
+      # unexpired, present, other type
+      command(["ZADD", user_sessions_key(@uid, :oauth2), now() + @ttl, "f"])
+      command(["SET", "f", @serialized])
 
-      assert :ok == RedisStore.delete_all(@uid, @config)
+      assert :ok == RedisStore.delete_all(@uid, :full, @config)
       assert {:ok, keys} = command(~w(KEYS *))
-      assert [user_sessions_key(@uid + 1) |> IO.iodata_to_binary(), "e"] == Enum.sort(keys)
+
+      assert [
+               user_sessions_key(@uid, :oauth2) |> IO.iodata_to_binary(),
+               user_sessions_key(@uid + 1) |> IO.iodata_to_binary(),
+               "e",
+               "f"
+             ] == Enum.sort(keys)
     end
   end
 
@@ -152,6 +183,8 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "removes expired keys from user session sets" do
       # unexpired
       command(["ZADD", user_sessions_key(@uid), now() + @ttl, "a"])
+      # expired, of other type
+      command(["ZADD", user_sessions_key(@uid, :oauth2), 0, "c"])
 
       for n <- 1..100 do
         # expired and missing as it should be
@@ -160,7 +193,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert capture_log(fn ->
                assert :ok == RedisStore.cleanup(@config)
-             end) =~ "Removed 100 expired session keys."
+             end) =~ "Removed 101 expired session keys."
 
       assert {:ok, ["a"]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1])
     end

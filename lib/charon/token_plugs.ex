@@ -372,7 +372,8 @@ defmodule Charon.TokenPlugs do
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
     with %{"sub" => uid, "sid" => sid} <- payload,
-         session = %{} <- SessionStore.get(sid, uid, config) do
+         type = String.to_atom(payload["styp"] || "full"),
+         session = %{} <- SessionStore.get(sid, uid, type, config) do
       put_private(conn, @session, session)
     else
       nil -> auth_error(conn, "session not found")
