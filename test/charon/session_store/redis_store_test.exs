@@ -95,7 +95,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert %{new: "key"} = new_session |> :erlang.binary_to_term()
       # ttl should be reset
-      assert_in_delta new_ttl, @ttl, 1
+      assert_in_delta new_ttl, @ttl, 3
       assert new_exp != exp
     end
   end

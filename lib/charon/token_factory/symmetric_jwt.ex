@@ -78,7 +78,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> {:ok, token} = sign(@payload, @poly1305_config)
       iex> verify(token, @poly1305_config)
       {:ok, @payload}
-      iex> header = token |> String.split(".") |> List.first() |> Base.url_decode64!() |> Jason.decode!()
+      iex> header = token |> String.split(".") |> List.first() |> Base.url_decode64!(padding: false) |> Jason.decode!()
       iex> %{"alg" => "Poly1305", "nonce" => <<_::binary>>, "typ" => "JWT"} = header
       iex> wrong_secret_conf = %{optional_modules: %{SymmetricJwt => %{@mod_conf | get_secret: fn -> :crypto.strong_rand_bytes(32) end}}}
       iex> {:error, "signature invalid"} = verify(token, wrong_secret_conf)
@@ -96,12 +96,18 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   @impl true
   def sign(payload, config) do
-    %{algorithm: alg, get_secret: get_secret, json_module: jmod} = get_module_config(config)
+    %{
+      algorithm: alg,
+      get_secret: get_secret,
+      json_module: jmod,
+      poly_1305_nonce_factory_name: nonce_factory
+    } = get_module_config(config)
+
     secret = get_secret.()
 
     with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
-      {header_base_pl, secret} = gen_header_pl_and_secret(alg, secret)
+      {header_base_pl, secret} = gen_header_pl_and_secret(alg, secret, nonce_factory)
       header = gen_header(header_base_pl, alg, jmod)
       token = generate_token(header, payload, alg, secret)
       {:ok, token}
@@ -143,14 +149,14 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp gen_header_pl_and_secret(:poly1305, secret) do
-    nonce = :crypto.strong_rand_bytes(12)
+  defp gen_header_pl_and_secret(:poly1305, secret, nonce_factory) do
+    nonce = __MODULE__.Poly1305NonceFactory.get_nonce(nonce_factory)
     header = %{nonce: url_encode(nonce)}
     otk = gen_poly1305_key(secret, nonce)
     {header, otk}
   end
 
-  defp gen_header_pl_and_secret(_alg, secret), do: {%{}, secret}
+  defp gen_header_pl_and_secret(_alg, secret, _), do: {%{}, secret}
 
   defp generate_token(header, payload, alg, secret) do
     mac_base = [header, ?., payload]
@@ -192,7 +198,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   defp get_nonce_from_header_pl(%{"nonce" => nonce}) when is_binary(nonce) do
     case url_decode(nonce) do
-      {:ok, <<nonce::binary-size(12)>>} -> nonce
+      {:ok, nonce} -> nonce
       _ -> nil
     end
   end
@@ -203,6 +209,8 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp generate_msg_secret(secret, nonce), do: gen_poly1305_key(secret, nonce)
 
   defp gen_poly1305_key(key, nonce) do
-    :crypto.crypto_one_time(:chacha20, key, <<0::32, nonce::binary>>, <<0::256>>, true)
+    leading_zero_bits = max(0, 16 - byte_size(nonce)) * 8
+    nonce = <<0::size(leading_zero_bits), nonce::binary>>
+    :crypto.crypto_one_time(:chacha20, key, nonce, <<0::256>>, true)
   end
 end
