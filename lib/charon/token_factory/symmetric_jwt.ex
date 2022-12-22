@@ -15,15 +15,15 @@ defmodule Charon.TokenFactory.SymmetricJwt do
         optional_modules: %{
           Charon.TokenFactory.SymmetricJwt => %{
             get_secret: fn -> :crypto.strong_rand_bytes(32) end,
-            algorithm: :poly1305,
+            algorithm: :sha256,
             json_module: Jason
           }
         }
       )
 
   The following options are supported:
-    - `:get_secret` (required). A getter/0 for secret for the JWT's signature algorithm. Must be exactly 256 bits in case of Poly1305 alg.
-    - `:algorithm` (optional). The token signature algorithm, may be `:sha256` (default), `:sha384`, `:sha512` or `:poly1305`.
+    - `:get_secret` (required). A getter/0 for secret for the JWT's signature algorithm.
+    - `:algorithm` (optional). The token signature algorithm, may be `:sha256` (default), `:sha384`, or `:sha512`.
     - `:json_module` (optional, default Jason). The JSON encoding lib.
 
   ## Deriving the secret from Phoenix's `:secret_key_base`
@@ -71,17 +71,6 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> header = %{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)
       iex> verify(header <> ".YQ.YQ", @config)
       {:error, "signature invalid"}
-
-      # # poly1305 is experimentally supported, and requires a 256-bits key
-      @poly1305_config %{optional_modules: %{SymmetricJwt => %{@mod_conf | algorithm: :poly1305}}}
-
-      iex> {:ok, token} = sign(@payload, @poly1305_config)
-      iex> verify(token, @poly1305_config)
-      {:ok, @payload}
-      iex> header = token |> String.split(".") |> List.first() |> Base.url_decode64!() |> Jason.decode!()
-      iex> %{"alg" => "Poly1305", "nonce" => <<_::binary>>, "typ" => "JWT"} = header
-      iex> wrong_secret_conf = %{optional_modules: %{SymmetricJwt => %{@mod_conf | get_secret: fn -> :crypto.strong_rand_bytes(32) end}}}
-      iex> {:error, "signature invalid"} = verify(token, wrong_secret_conf)
   """
   @behaviour Charon.TokenFactory.Behaviour
 
@@ -89,8 +78,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   @alg_to_header_map %{
     sha256: "HS256",
     sha384: "HS384",
-    sha512: "HS512",
-    poly1305: "Poly1305"
+    sha512: "HS512"
   }
   @header_to_alg_map Map.new(@alg_to_header_map, fn {k, v} -> {v, k} end)
 
@@ -101,8 +89,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
     with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
-      {header_base_pl, secret} = gen_header_pl_and_secret(alg, secret)
-      header = gen_header(header_base_pl, alg, jmod)
+      header = gen_header(alg, jmod)
       token = generate_token(header, payload, alg, secret)
       {:ok, token}
     else
@@ -116,8 +103,7 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     secret = get_secret.()
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         {:ok, alg, nonce} <- process_header(header, jmod),
-         secret = generate_msg_secret(secret, nonce),
+         {:ok, alg} <- process_header(header, jmod),
          mac_base = [header, ?., payload],
          mac = calc_mac(mac_base, secret, alg),
          {:ok, signature} <- url_decode(signature),
@@ -143,29 +129,16 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)
 
-  defp gen_header_pl_and_secret(:poly1305, secret) do
-    nonce = :crypto.strong_rand_bytes(12)
-    header = %{nonce: url_encode(nonce)}
-    otk = gen_poly1305_key(secret, nonce)
-    {header, otk}
-  end
-
-  defp gen_header_pl_and_secret(_alg, secret), do: {%{}, secret}
-
   defp generate_token(header, payload, alg, secret) do
     mac_base = [header, ?., payload]
     mac = calc_mac(mac_base, secret, alg) |> url_encode()
     [mac_base, ?., mac] |> IO.iodata_to_binary()
   end
 
-  defp gen_header(base, alg, jmod) do
-    base
-    |> Map.merge(%{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"})
-    |> jmod.encode!()
-    |> url_encode()
+  defp gen_header(alg, jmod) do
+    %{alg: Map.get(@alg_to_header_map, alg), typ: "JWT"} |> jmod.encode!() |> url_encode()
   end
 
-  defp calc_mac(data, secret, :poly1305), do: :crypto.mac(:poly1305, secret, data)
   defp calc_mac(data, secret, alg), do: :crypto.mac(:hmac, alg, secret, data)
 
   defp to_map(encoded, json_mod) do
@@ -182,27 +155,11 @@ defmodule Charon.TokenFactory.SymmetricJwt do
     with {:ok, payload} <- to_map(header, json_mod),
          %{"alg" => alg} <- payload,
          alg when not is_nil(alg) <- Map.get(@header_to_alg_map, alg) do
-      {:ok, alg, get_nonce_from_header_pl(payload)}
+      {:ok, alg}
     else
       %{} -> {:error, "malformed header"}
       nil -> {:error, "unsupported signature algorithm"}
       error -> error
     end
-  end
-
-  defp get_nonce_from_header_pl(%{"nonce" => nonce}) when is_binary(nonce) do
-    case url_decode(nonce) do
-      {:ok, <<nonce::binary-size(12)>>} -> nonce
-      _ -> nil
-    end
-  end
-
-  defp get_nonce_from_header_pl(_), do: nil
-
-  defp generate_msg_secret(secret, nil), do: secret
-  defp generate_msg_secret(secret, nonce), do: gen_poly1305_key(secret, nonce)
-
-  defp gen_poly1305_key(key, nonce) do
-    :crypto.crypto_one_time(:chacha20, key, <<0::32, nonce::binary>>, <<0::256>>, true)
   end
 end

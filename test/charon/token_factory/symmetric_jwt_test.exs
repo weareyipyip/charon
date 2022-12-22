@@ -33,33 +33,5 @@ defmodule Charon.TokenFactory.SymmetricJwtTest do
     end
   end
 
-  @poly1305_config %{optional_modules: %{SymmetricJwt => %{@mod_conf | algorithm: :poly1305}}}
-
-  describe "Poly1305" do
-    test "Charon token can be verified by JOSE" do
-      {:ok, token} = sign(@payload, @poly1305_config)
-      assert JOSE.JWT.verify(@jwk, token)
-    end
-
-    test "Charon and JOSE generate the same token" do
-      {:ok, charon_token} = sign(@payload, @poly1305_config)
-
-      [h, _p, _s] =
-        charon_token |> String.split(".") |> Enum.map(&Base.url_decode64!(&1, padding: false))
-
-      %{"nonce" => nonce} = Jason.decode!(h)
-
-      jws = %{"alg" => "Poly1305", "nonce" => nonce}
-      {_, jose_token} = JOSE.JWT.sign(@jwk, jws, @payload) |> JOSE.JWS.compact()
-      assert jose_token == charon_token
-    end
-
-    test "JOSE token can be verified by Charon" do
-      jws = %{"alg" => "Poly1305"}
-      {_, jose_token} = JOSE.JWT.sign(@jwk, jws, @payload) |> JOSE.JWS.compact()
-      assert {:ok, _} = verify(jose_token, @poly1305_config)
-    end
-  end
-
   doctest SymmetricJwt
 end
