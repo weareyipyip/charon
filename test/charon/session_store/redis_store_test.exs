@@ -83,19 +83,25 @@ defmodule Charon.SessionStore.RedisStoreTest do
                |> RedisStore.upsert(@config)
 
       assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
+      assert {:ok, ttl} = command(["TTL", session_key(@sid, @uid)])
 
-      Process.sleep(1001)
+      assert :ok =
+               @user_session
+               |> Map.merge(%{
+                 extra_payload: %{new: "key"},
+                 refresh_expires_at: now() + @ttl + 10
+               })
+               |> RedisStore.upsert(@config)
 
-      assert :ok = RedisStore.upsert(Map.put(@user_session, :new, "key"), @config)
       assert {:ok, new_session} = command(["GET", session_key(@sid, @uid)])
       assert {:ok, new_ttl} = command(["TTL", session_key(@sid, @uid)])
 
       assert {:ok, [_, new_exp]} =
                command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
 
-      assert %{new: "key"} = new_session |> :erlang.binary_to_term()
+      assert %{extra_payload: %{new: "key"}} = new_session |> :erlang.binary_to_term()
       # ttl should be reset
-      assert_in_delta new_ttl, @ttl, 1
+      assert_in_delta new_ttl, ttl, 5
       assert new_exp != exp
     end
   end
