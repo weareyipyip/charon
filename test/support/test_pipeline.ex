@@ -1,19 +1,8 @@
 defmodule Charon.TestPipeline do
   use Plug.Builder
-  alias Charon.TestRedix
   import Charon.TokenPlugs
 
-  def get_secret(), do: "supersecret"
-
-  @config Charon.Config.from_enum(
-            token_issuer: "my_test_app",
-            optional_modules: %{
-              Charon.TokenFactory.SymmetricJwt => %{get_secret: &__MODULE__.get_secret/0},
-              Charon.SessionStore.RedisStore => %{redix_module: TestRedix}
-            }
-          )
-
-  def config(), do: @config
+  @config Charon.TestConfig.get()
 
   plug(:get_token_from_auth_header)
   plug(:get_token_sig_from_cookie, @config.refresh_cookie_name)

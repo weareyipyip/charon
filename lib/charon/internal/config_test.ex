@@ -15,8 +15,7 @@ defmodule Charon.Internal.ConfigTest do
       optional = config |> required_keys() |> optional_keys(config)
 
       for opt <- optional do
-        assert val = config |> Map.delete(opt) |> mod.from_enum() |> Map.get(opt),
-               "expected #{mod} to set a default value for :#{opt}"
+        val = config |> Map.delete(opt) |> mod.from_enum() |> Map.get(opt)
 
         default = config[opt]
 

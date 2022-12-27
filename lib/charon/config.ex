@@ -4,11 +4,13 @@ defmodule Charon.Config do
 
       [
         :token_issuer,
+        :get_base_secret,
         access_cookie_name: "_access_token_signature",
         access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
         # 15 minutes
         access_token_ttl: 15 * 60,
         optional_modules: %{},
+        key_generator_cache_key: Charon.Internal.KeyGenerator,
         refresh_cookie_name: "_refresh_token_signature",
         refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
         # 2 months
@@ -23,14 +25,16 @@ defmodule Charon.Config do
   Runtime configuration properties should be provided in the form of getters,
   like the config of `Charon.TokenFactory.SymmetricJwt`.
   """
-  @enforce_keys [:token_issuer]
+  @enforce_keys [:token_issuer, :get_base_secret]
   defstruct [
     :token_issuer,
+    :get_base_secret,
     access_cookie_name: "_access_token_signature",
     access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
     # 15 minutes
     access_token_ttl: 15 * 60,
     optional_modules: %{},
+    key_generator_cache_key: Charon.Internal.KeyGenerator,
     refresh_cookie_name: "_refresh_token_signature",
     refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
     # 2 months
@@ -45,7 +49,9 @@ defmodule Charon.Config do
           access_cookie_name: String.t(),
           access_cookie_opts: keyword(),
           access_token_ttl: pos_integer(),
+          get_base_secret: (() -> binary()),
           optional_modules: map(),
+          key_generator_cache_key: atom(),
           refresh_cookie_name: String.t(),
           refresh_cookie_opts: keyword(),
           refresh_token_ttl: pos_integer(),
@@ -63,13 +69,13 @@ defmodule Charon.Config do
   ## Examples / doctests
 
       iex> from_enum([])
-      ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer]
+      ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer, :get_base_secret]
 
-      iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp")
+      iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp", get_base_secret: "supersecure")
 
       # optional modules may also check compile-time config
-      iex> from_enum(token_issuer: "Santa", optional_modules: %{Charon.TokenFactory.SymmetricJwt => []})
-      ** (ArgumentError) the following keys must also be given when building struct Charon.TokenFactory.SymmetricJwt.Config: [:get_secret]
+      iex> from_enum(token_issuer: "Santa", get_base_secret: "supersecure", optional_modules: %{Charon.SessionStore.RedisStore => []})
+      ** (ArgumentError) the following keys must also be given when building struct Charon.SessionStore.RedisStore.Config: [:redix_module]
   """
   @spec from_enum(Enum.t()) :: t()
   def from_enum(enum) do

@@ -7,6 +7,7 @@ defmodule Charon.ConfigTest do
   @configurations %{
     Charon.Config => %{
       token_issuer: :required,
+      get_base_secret: :required,
       access_cookie_name: "_access_token_signature",
       access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
       access_token_ttl: 15 * 60,
@@ -19,9 +20,10 @@ defmodule Charon.ConfigTest do
       token_factory_module: Charon.TokenFactory.SymmetricJwt
     },
     Charon.TokenFactory.SymmetricJwt.Config => %{
-      get_secret: :required,
+      secret_override: nil,
       algorithm: :sha256,
-      json_module: Jason
+      json_module: Jason,
+      gen_secret_salt: "Charon.TokenFactory.SymmetricJwt"
     },
     Charon.SessionStore.RedisStore.Config => %{
       redix_module: :required,

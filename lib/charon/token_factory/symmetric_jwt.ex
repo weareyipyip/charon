@@ -14,44 +14,26 @@ defmodule Charon.TokenFactory.SymmetricJwt do
         ...,
         optional_modules: %{
           Charon.TokenFactory.SymmetricJwt => %{
-            get_secret: fn -> :crypto.strong_rand_bytes(32) end,
+            secret_override: fn -> :crypto.strong_rand_bytes(32) end,
             algorithm: :sha256,
-            json_module: Jason
+            json_module: Jason,
+            gen_secret_salt: "salt"
           }
         }
       )
 
   The following options are supported:
-    - `:get_secret` (required). A getter/0 for secret for the JWT's signature algorithm.
+    - `:secret_override` (optional). By default, the signing secret is derived from Charon's base secret. It is possible to override the signing secret for backwards compatibility.
     - `:algorithm` (optional). The token signature algorithm, may be `:sha256` (default), `:sha384`, or `:sha512`.
     - `:json_module` (optional, default Jason). The JSON encoding lib.
-
-  ## Deriving the secret from Phoenix's `:secret_key_base`
-
-  It is possible to use Phoenix's `:secret_key_base` as the secret for the token factory.
-  However, unlike `Phoenix.Token`, this module does not process the secret using PBKDF2 by default.
-  This is not a problem when a dedicated secret is used, but in the case of `:secret_key_base`, the reuse of the secret will weaken security without such key derivation.
-  It is very easy to add such preprocessing yourself, however, thanks to `Plug.Crypto.KeyGenerator`:
-
-      defmodule MyApp.Charon do
-        @token_salt "charon_token"
-
-        def get_token_secret() do
-          base_secret = Application.get_env(:my_app, MyAppWeb.Endpoint)[:secret_key_base]
-          Plug.Crypto.KeyGenerator.generate(base_secret, @token_salt)
-        end
-      end
-
-  And then pass `MyApp.Charon.get_token_secret/0` to this module's config, naturally.
+    - `:gen_secret_salt` (optional). The salt used to derive the token signing key.
 
   ## Examples / doctests
 
-      @base_key :crypto.strong_rand_bytes(32)
       @payload %{"claim" => "value"}
-      @mod_conf SymmetricJwt.Config.from_enum(get_secret: &__MODULE__.get_secret/0)
-      @config %{optional_modules: %{SymmetricJwt => @mod_conf}}
-
-      def get_secret(), do: @base_key
+      @config Charon.TestConfig.get()
+      @mod_conf @config.optional_modules |> Map.get(SymmetricJwt, SymmetricJwt.Config.default())
+      @base_key Charon.Internal.KeyGenerator.get_secret(Map.get(@mod_conf, :gen_secret_salt), 32, @config)
 
       # verify ignores the config's algorithm, grabbing it from the JWT header instead
       # this allows changing algorithms without invalidating existing JWTs
@@ -71,7 +53,14 @@ defmodule Charon.TokenFactory.SymmetricJwt do
       iex> header = %{"alg" => "HS256"} |> Jason.encode!() |> Base.url_encode64(padding: false)
       iex> verify(header <> ".YQ.YQ", @config)
       {:error, "signature invalid"}
+
+      # supports overriding the signing key, for backwards compatibility
+      iex> {:ok, token} = sign(@payload, @config)
+      iex> config = %{optional_modules: %{SymmetricJwt => %{@mod_conf | secret_override: fn -> "supersecret but wrong" end}}}
+      iex> verify(token, config)
+      {:error, "signature invalid"}
   """
+  alias Charon.Internal.KeyGenerator
   @behaviour Charon.TokenFactory.Behaviour
 
   @encoding_opts padding: false
@@ -84,8 +73,10 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   @impl true
   def sign(payload, config) do
-    %{algorithm: alg, get_secret: get_secret, json_module: jmod} = get_module_config(config)
-    secret = get_secret.()
+    %{algorithm: alg, secret_override: secret_override, json_module: jmod, gen_secret_salt: salt} =
+      get_module_config(config)
+
+    secret = get_secret(config, salt, secret_override)
 
     with {:ok, json_payload} <- jmod.encode(payload) do
       payload = url_encode(json_payload)
@@ -99,8 +90,10 @@ defmodule Charon.TokenFactory.SymmetricJwt do
 
   @impl true
   def verify(token, config) do
-    %{get_secret: get_secret, json_module: jmod} = get_module_config(config)
-    secret = get_secret.()
+    %{secret_override: secret_override, json_module: jmod, gen_secret_salt: salt} =
+      get_module_config(config)
+
+    secret = get_secret(config, salt, secret_override)
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
          {:ok, alg} <- process_header(header, jmod),
@@ -124,7 +117,12 @@ defmodule Charon.TokenFactory.SymmetricJwt do
   # Private #
   ###########
 
+  defp get_secret(config, salt, override)
+  defp get_secret(config, salt, nil), do: KeyGenerator.get_secret(salt, 32, config)
+  defp get_secret(_, _, override), do: override.()
+
   defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
+  defp get_module_config(_), do: __MODULE__.Config.default()
 
   defp url_encode(bin), do: Base.url_encode64(bin, @encoding_opts)
   defp url_decode(bin), do: Base.url_decode64(bin, @encoding_opts)

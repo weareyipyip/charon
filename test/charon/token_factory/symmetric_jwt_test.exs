@@ -3,12 +3,14 @@ defmodule Charon.TokenFactory.SymmetricJwtTest do
   alias Charon.TokenFactory.SymmetricJwt
   import SymmetricJwt
 
-  @base_key :crypto.strong_rand_bytes(32)
   @payload %{"claim" => "value"}
-  @mod_conf SymmetricJwt.Config.from_enum(get_secret: &__MODULE__.get_secret/0)
-  @config %{optional_modules: %{SymmetricJwt => @mod_conf}}
-
-  def get_secret(), do: @base_key
+  @config Charon.TestConfig.get()
+  @mod_conf @config.optional_modules |> Map.get(SymmetricJwt, SymmetricJwt.Config.default())
+  @base_key Charon.Internal.KeyGenerator.get_secret(
+              Map.get(@mod_conf, :gen_secret_salt),
+              32,
+              @config
+            )
 
   @encoded_key Base.url_encode64(@base_key, padding: false)
   @jwk %{"k" => @encoded_key, "kty" => "oct"}

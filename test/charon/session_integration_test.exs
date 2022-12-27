@@ -10,7 +10,7 @@ defmodule Charon.SessionIntegrationTest do
   import Charon.Internal
 
   @moduletag :capture_log
-  @config TestPipeline.config()
+  @config Charon.TestConfig.get()
 
   setup_all do
     TestRedix.init()
