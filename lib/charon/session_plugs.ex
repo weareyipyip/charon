@@ -269,9 +269,8 @@ defmodule Charon.SessionPlugs do
         }
       ) do
     case conn.private do
-      %{@bearer_token_payload => payload = %{"sub" => uid, "sid" => sid}} ->
-        type = String.to_atom(payload["styp"] || "full")
-        SessionStore.delete(sid, uid, type, config)
+      %{@bearer_token_payload => %{"sub" => uid, "sid" => sid, "styp" => type}} ->
+        SessionStore.delete(sid, uid, String.to_atom(type), config)
 
       _ ->
         :ok

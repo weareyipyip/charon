@@ -100,7 +100,9 @@ defmodule Charon.SessionIntegrationTest do
         %{nbf: now(), exp: now() - 10} => "bearer token expired",
         %{nbf: now(), exp: now()} => "bearer token claim type not found",
         %{nbf: now(), exp: now(), type: "bearer"} => "bearer token claim type invalid",
-        %{nbf: now(), exp: now(), type: "refresh"} => "bearer token claim sub or sid not found",
+        %{nbf: now(), exp: now(), type: "refresh"} =>
+          "bearer token claim sub, sid or styp not found",
+        # this works because a default claim styp=full is added
         %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a"} => "session not found"
       }
       |> Enum.each(fn {payload, exp_error} ->

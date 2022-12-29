@@ -148,13 +148,20 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> token = sign("hurray!")
+      iex> token = sign(%{"msg" => "hurray!"})
       iex> conn = conn() |> put_private(@bearer_token, token) |> verify_token_signature(@config)
-      iex> Internal.get_private(conn, @bearer_token_payload)
-      "hurray!"
+      iex> %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
+
+      # a default claim "styp" = "full" is added to the payload on verification
+      iex> token = sign(%{"msg" => "hurray!"})
+      iex> conn = conn() |> put_private(@bearer_token, token) |> verify_token_signature(@config)
+      iex> %{"styp" => "full"} = Internal.get_private(conn, @bearer_token_payload)
+      iex> token = sign(%{"styp" => "other"})
+      iex> conn = conn() |> put_private(@bearer_token, token) |> verify_token_signature(@config)
+      iex> %{"styp" => "other"} = Internal.get_private(conn, @bearer_token_payload)
 
       # signature must match
-      iex> token = sign("hurray!")
+      iex> token = sign(%{"msg" => "hurray!"})
       iex> conn = conn() |> put_private(@bearer_token, token <> "boom") |> verify_token_signature(@config)
       iex> Internal.get_private(conn, @bearer_token_payload)
       nil
@@ -166,6 +173,7 @@ defmodule Charon.TokenPlugs do
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
+      payload = Map.put_new(payload, "styp", "full")
       put_private(conn, @bearer_token_payload, payload)
     else
       _ -> auth_error(conn, "bearer token signature invalid")
@@ -259,7 +267,7 @@ defmodule Charon.TokenPlugs do
       iex> conn |> verify_token_claim_in({"type", ~w(access)}) |> Utils.get_auth_error()
       "bearer token claim type not found"
   """
-  @spec verify_token_claim_in(Conn.t(), {String.t(), [String.t()]}) :: Conn.t()
+  @spec verify_token_claim_in(Conn.t(), {String.t(), [any()]}) :: Conn.t()
   def verify_token_claim_in(conn, _claim_and_expected = {claim, expected}) do
     verify_claim(conn, claim, fn conn, v ->
       if v in expected, do: conn, else: "bearer token claim #{claim} invalid"
@@ -354,16 +362,16 @@ defmodule Charon.TokenPlugs do
   ## Doctests
 
       iex> command(["SET", session_key("a", 1), test_session() |> Session.serialize()])
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1})
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1, "styp" => "full"})
       iex> %Session{} = conn |> load_session(@config) |> Internal.get_private(@session)
 
-      # token payload must contain "sub" and "sid" claims
+      # token payload must contain "sub", "sid" and "styp" claims
       iex> conn = conn() |> put_private(@bearer_token_payload, 1)
       iex> conn |> load_session(@config) |> Utils.get_auth_error()
-      "bearer token claim sub or sid not found"
+      "bearer token claim sub, sid or styp not found"
 
       # session must be found
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1})
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1, "styp" => "full"})
       iex> conn |> load_session(@config) |> Utils.get_auth_error()
       "session not found"
   """
@@ -371,14 +379,13 @@ defmodule Charon.TokenPlugs do
   def load_session(conn = %{private: %{@auth_error => _}}, _), do: conn
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
-    with %{"sub" => uid, "sid" => sid} <- payload,
-         type = String.to_atom(payload["styp"] || "full"),
-         session = %{} <- SessionStore.get(sid, uid, type, config) do
+    with %{"sub" => uid, "sid" => sid, "styp" => type} <- payload,
+         session = %{} <- SessionStore.get(sid, uid, String.to_atom(type), config) do
       put_private(conn, @session, session)
     else
       nil -> auth_error(conn, "session not found")
       {:error, error} -> raise "could not fetch session: #{inspect(error)}"
-      _error -> auth_error(conn, "bearer token claim sub or sid not found")
+      _error -> auth_error(conn, "bearer token claim sub, sid or styp not found")
     end
   end
 
@@ -404,19 +411,63 @@ defmodule Charon.TokenPlugs do
       "bearer token claim jti not found"
   """
   @spec verify_refresh_token_fresh(Conn.t(), Plug.opts()) :: Conn.t()
-  def verify_refresh_token_fresh(conn = %{private: %{@auth_error => _}}, _opts), do: conn
-
-  def verify_refresh_token_fresh(
-        conn = %{private: %{@session => %{refresh_token_id: expected}}},
-        _opts
-      ) do
-    verify_claim(conn, "jti", fn
-      conn, ^expected -> conn
-      _, _ -> "refresh token stale"
+  def verify_refresh_token_fresh(conn, _opts) do
+    verify_session_payload(conn, fn conn, %{refresh_token_id: expected} ->
+      verify_claim(conn, "jti", fn
+        conn, ^expected -> conn
+        _, _ -> "refresh token stale"
+      end)
     end)
   end
 
-  def verify_refresh_token_fresh(_, _opts), do: raise("must be used after load_session/2")
+  def verify_session_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+
+  def verify_session_payload(conn = %{private: %{@session => session}}, func) do
+    func.(conn, session)
+  end
+
+  def verify_session_payload(_, _opts), do: raise("must be used after load_session/2")
+
+  @doc """
+  Verify that a token claim that is a set of values (in the form of a list),
+  intersects with another set of values.
+
+  ## Doctests
+
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{"scope" => ["a", "b", "c"]})
+      iex> ^conn = conn |> verify_token_claim_intersects({"scope", ["a"]})
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{"scope" => ["a"]})
+      iex> ^conn = conn |> verify_token_claim_intersects({"scope", ["a", "b", "c"]})
+
+      # invalid
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{"scope" => ["a", "b", "c"]})
+      iex> conn |> verify_token_claim_intersects({"scope", ["d"]}) |> Utils.get_auth_error()
+      "bearer token claim scope invalid"
+
+      # claim must be present
+      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn |> verify_token_claim_intersects({"scope", ["a"]}) |> Utils.get_auth_error()
+      "bearer token claim scope not found"
+  """
+  @spec verify_token_claim_intersects(Conn.t(), {binary, [any()]}) :: Conn.t()
+  def verify_token_claim_intersects(conn, _claim_and_expected = {claim, set1}) do
+    verify_claim(conn, claim, fn conn, set2 ->
+      disjoint? = MapSet.disjoint?(MapSet.new(set1), MapSet.new(set2))
+      if not disjoint?, do: conn, else: "bearer token claim #{claim} invalid"
+    end)
+  end
+
+  def verify_token_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+
+  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, func) do
+    func.(conn, payload)
+    |> case do
+      <<error::binary>> -> auth_error(conn, error)
+      conn -> conn
+    end
+  end
+
+  def verify_token_payload(_, _), do: raise("must be used after verify_token_signature/2")
 
   ###########
   # Private #
@@ -426,19 +477,12 @@ defmodule Charon.TokenPlugs do
   defp auth_header_to_token(["Bearer: " <> token | _]), do: token
   defp auth_header_to_token(_), do: nil
 
-  defp verify_claim(conn = %{private: %{@auth_error => _}}, _, _), do: conn
-
-  defp verify_claim(conn = %{private: %{@bearer_token_payload => payload}}, claim, func) do
-    with %{^claim => value} <- payload do
-      func.(conn, value)
-    else
-      _ -> "bearer token claim #{claim} not found"
-    end
-    |> case do
-      <<error::binary>> -> auth_error(conn, error)
-      conn -> conn
-    end
+  defp verify_claim(conn, claim, func) do
+    verify_token_payload(conn, fn _conn, payload ->
+      case payload do
+        %{^claim => value} -> func.(conn, value)
+        _ -> "bearer token claim #{claim} not found"
+      end
+    end)
   end
-
-  defp verify_claim(_, _, _), do: raise("must be used after verify_token_signature/2")
 end
