@@ -5,6 +5,8 @@ defmodule Charon.Internal do
   require Logger
   alias Plug.Conn
 
+  @url_enc_opts padding: false
+
   @doc """
   Put an auth error on the conn
   """
@@ -36,7 +38,7 @@ defmodule Charon.Internal do
   Generate a random URL-encoded string of `byte_size` bits.
   """
   def random_url_encoded(byte_size) do
-    byte_size |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false)
+    byte_size |> :crypto.strong_rand_bytes() |> url_encode()
   end
 
   @doc """
@@ -57,4 +59,8 @@ defmodule Charon.Internal do
     cookie_opts = Keyword.put(cookie_opts, :max_age, ttl)
     {token, signature, cookie_opts}
   end
+
+  def url_encode(data), do: Base.url_encode64(data, @url_enc_opts)
+  def url_decode(data), do: Base.url_decode64(data, @url_enc_opts)
+  def url_decode!(data), do: Base.url_decode64!(data, @url_enc_opts)
 end

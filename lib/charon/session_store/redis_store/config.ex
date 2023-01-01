@@ -2,6 +2,7 @@ defmodule Charon.SessionStore.RedisStore.Config do
   @moduledoc """
   Config module for `Charon.SessionStore.RedisStore`.
   """
+  alias Charon.SessionStore.RedisStore
   @enforce_keys [:redix_module]
   defstruct [:redix_module, key_prefix: "charon_"]
 
@@ -13,4 +14,11 @@ defmodule Charon.SessionStore.RedisStore.Config do
   """
   @spec from_enum(Enum.t()) :: t()
   def from_enum(enum), do: struct!(__MODULE__, enum)
+
+  @doc """
+  Get the config for this module from the parent `Charon.Config` struct.
+  """
+  @spec get_mod_config(Charon.Config.t()) :: t()
+  def get_mod_config(_charon_config = %{optional_modules: %{RedisStore => config}}), do: config
+  def get_mod_config(_), do: from_enum([])
 end

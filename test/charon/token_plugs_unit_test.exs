@@ -14,7 +14,7 @@ defmodule Charon.TokenPlugsTest do
 
   @config Charon.TestConfig.get()
 
-  def sign(payload), do: Charon.TokenFactory.SymmetricJwt.sign(payload, @config) |> elem(1)
+  def sign(payload), do: Charon.TokenFactory.Jwt.sign(payload, @config) |> elem(1)
 
   def verify_read_scope(conn, value) do
     if "read" in String.split(value, ",") do

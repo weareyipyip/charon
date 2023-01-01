@@ -17,13 +17,13 @@ defmodule Charon.ConfigTest do
       refresh_token_ttl: 2 * 30 * 24 * 60 * 60,
       session_store_module: Charon.SessionStore.RedisStore,
       session_ttl: 365 * 24 * 60 * 60,
-      token_factory_module: Charon.TokenFactory.SymmetricJwt
+      token_factory_module: Charon.TokenFactory.Jwt
     },
-    Charon.TokenFactory.SymmetricJwt.Config => %{
-      secret_override: nil,
-      algorithm: :sha256,
+    Charon.TokenFactory.Jwt.Config => %{
+      get_keyset: &Charon.TokenFactory.Jwt.default_keyset/1,
       json_module: Jason,
-      gen_secret_salt: "Charon.TokenFactory.SymmetricJwt"
+      gen_secret_salt: "charon_jwt_secret",
+      signing_key: "default"
     },
     Charon.SessionStore.RedisStore.Config => %{
       redix_module: :required,

@@ -18,12 +18,12 @@ defmodule Charon.Config do
         session_store_module: Charon.SessionStore.RedisStore,
         # 1 year
         session_ttl: 365 * 24 * 60 * 60,
-        token_factory_module: Charon.TokenFactory.SymmetricJwt
+        token_factory_module: Charon.TokenFactory.Jwt
       ]
 
   Note that all config is compile-time config.
   Runtime configuration properties should be provided in the form of getters,
-  like the config of `Charon.TokenFactory.SymmetricJwt`.
+  like the config of `Charon.TokenFactory.Jwt`.
   """
   @enforce_keys [:token_issuer, :get_base_secret]
   defstruct [
@@ -42,7 +42,7 @@ defmodule Charon.Config do
     session_store_module: Charon.SessionStore.RedisStore,
     # 1 year
     session_ttl: 365 * 24 * 60 * 60,
-    token_factory_module: Charon.TokenFactory.SymmetricJwt
+    token_factory_module: Charon.TokenFactory.Jwt
   ]
 
   @type t :: %__MODULE__{

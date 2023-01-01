@@ -53,7 +53,7 @@ The package can be installed by adding `charon` to your list of dependencies in 
 def deps do
   [
     {:charon, "~> 0.0.0+development"},
-    # to use the default Charon.TokenFactory.SymmetricJwt
+    # to use the default Charon.TokenFactory.Jwt
     {:jason, "~> 1.0"}
   ]
 end
@@ -69,7 +69,7 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 @my_config Charon.Config.from_enum(
              token_issuer: "MyApp",
              optional_modules: %{
-               Charon.TokenFactory.SymmetricJwt => %{get_secret: &MyApp.get_jwt_secret/0},
+               Charon.TokenFactory.Jwt => %{get_secret: &MyApp.get_jwt_secret/0},
                Charon.SessionStore.RedisStore => %{redix_module: MyApp.Redix}
              }
            )

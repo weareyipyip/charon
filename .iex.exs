@@ -1,6 +1,6 @@
 alias Charon.{Internal, SessionPlugs, TokenPlugs, Utils}
 alias Charon.Models.{Session, Tokens}
-alias Charon.TokenFactory.SymmetricJwt
+alias Charon.TokenFactory.Jwt
 alias Charon.SessionStore.RedisStore
 alias Charon.Config, as: CharonConfig
 

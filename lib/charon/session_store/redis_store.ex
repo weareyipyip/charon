@@ -34,11 +34,12 @@ defmodule Charon.SessionStore.RedisStore do
   alias Charon.Config
   alias Charon.Internal
   alias Charon.Models.Session
+  import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
   require Logger
 
   @impl true
   def get(session_id, user_id, type, config) do
-    mod_conf = get_module_config(config)
+    mod_conf = get_mod_config(config)
 
     ["GET", session_key(session_id, user_id, type, mod_conf)]
     |> mod_conf.redix_module.command()
@@ -54,7 +55,7 @@ defmodule Charon.SessionStore.RedisStore do
         session = %{id: session_id, user_id: user_id, refresh_expires_at: exp, type: type},
         config
       ) do
-    config = get_module_config(config)
+    config = get_mod_config(config)
     now = Internal.now()
     session_key = session_key(session_id, user_id, type, config)
 
@@ -76,7 +77,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def delete(session_id, user_id, type, config) do
-    config = get_module_config(config)
+    config = get_mod_config(config)
 
     ["DEL", session_key(session_id, user_id, type, config)]
     |> config.redix_module.command()
@@ -88,7 +89,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def get_all(user_id, type, config) do
-    mod_conf = get_module_config(config)
+    mod_conf = get_mod_config(config)
 
     with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, type, mod_conf),
          # get all keys with a single round trip
@@ -102,7 +103,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   @impl true
   def delete_all(user_id, type, config) do
-    config = get_module_config(config)
+    config = get_mod_config(config)
 
     with {:ok, keys} <- all_keys(user_id, type, config),
          to_delete = [user_sessions_key(user_id, type, config) | keys],
@@ -116,7 +117,7 @@ defmodule Charon.SessionStore.RedisStore do
   """
   @spec cleanup(Config.t()) :: :ok | {:error, binary()}
   def cleanup(config) do
-    config |> get_module_config() |> do_cleanup()
+    config |> get_mod_config() |> do_cleanup()
   end
 
   @doc false
@@ -125,8 +126,6 @@ defmodule Charon.SessionStore.RedisStore do
   ###########
   # Private #
   ###########
-
-  defp get_module_config(%{optional_modules: %{__MODULE__ => config}}), do: config
 
   # key for a single session
   @doc false

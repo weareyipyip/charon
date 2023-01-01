@@ -106,7 +106,7 @@ defmodule Charon.SessionIntegrationTest do
         %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a"} => "session not found"
       }
       |> Enum.each(fn {payload, exp_error} ->
-        {:ok, token} = Charon.TokenFactory.SymmetricJwt.sign(payload, @config)
+        {:ok, token} = Charon.TokenFactory.Jwt.sign(payload, @config)
 
         conn =
           conn()
