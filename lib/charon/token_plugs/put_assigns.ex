@@ -15,12 +15,12 @@ defmodule Charon.TokenPlugs.PutAssigns do
   ## Doctests
 
       iex> opts = PutAssigns.init([])
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sub" => 1, "sid" => "a"})
+      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"})
       iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
       %{session_id: "a", token_payload: %{"sid" => "a", "sub" => 1}, user_id: 1}
 
       iex> opts = PutAssigns.init(session: :da_session_baby)
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sub" => 1, "sid" => "a"}) |> put_private(@session, "hii")
+      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"}) |> set_session("hii")
       iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
       %{
         session_id: "a",
@@ -31,7 +31,7 @@ defmodule Charon.TokenPlugs.PutAssigns do
 
       # skipped on auth error
       iex> opts = PutAssigns.init([])
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sub" => 1, "sid" => "a"}) |> Internal.auth_error("boom")
+      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"}) |> Internal.auth_error("boom")
       iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
       %{}
   """

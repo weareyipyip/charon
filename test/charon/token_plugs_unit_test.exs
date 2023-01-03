@@ -11,6 +11,7 @@ defmodule Charon.TokenPlugsTest do
   import TokenPlugs
   alias TokenPlugs.PutAssigns
   alias Charon.Models.Session
+  import Charon.TestHelpers
 
   @config Charon.TestConfig.get()
 
