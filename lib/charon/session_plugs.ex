@@ -64,7 +64,7 @@ defmodule Charon.SessionPlugs do
       iex> %Session{} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
 
-      # renews session if present in conn, updating only refresh_token_id, refreshed_at, and refresh_expires_at
+      # renews session if present in conn, updating only refresh_tokens, refreshed_at, and refresh_expires_at
       # existing session's user id will not change despite attempted override
       iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0)
       iex> conn = conn()
@@ -76,7 +76,7 @@ defmodule Charon.SessionPlugs do
       iex> old_session = Map.from_struct(old_session)
       iex> Enum.find(~w(id user_id created_at expires_at)a, & session[&1] != old_session[&1])
       nil
-      iex> Enum.find(~w(refresh_token_id refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
+      iex> Enum.find(~w(refresh_tokens refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
       nil
 
       # returns signatures in cookies if requested, which removes signatures from tokens
@@ -147,14 +147,17 @@ defmodule Charon.SessionPlugs do
     # update the existing session or create a new one
     session =
       if existing_session = Internal.get_private(conn, @session) do
+        %{refresh_tokens: tokens = %{current: rt_ids}} = existing_session
+
         %{
           existing_session
           | extra_payload: extra_session_payload,
             refresh_expires_at: now + max_refresh_ttl,
-            refresh_token_id: refresh_token_id,
+            refresh_tokens: %{tokens | current: :ordsets.add_element(refresh_token_id, rt_ids)},
             refreshed_at: now,
             type: session_type
         }
+        |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
       else
         %Session{
           created_at: now,
@@ -162,18 +165,14 @@ defmodule Charon.SessionPlugs do
           extra_payload: extra_session_payload,
           id: Internal.random_url_encoded(16),
           refresh_expires_at: now + max_refresh_ttl,
-          refresh_token_id: refresh_token_id,
+          refresh_tokens: %{current_at: now, current: [refresh_token_id], previous: []},
           refreshed_at: now,
           user_id: get_user_id!(conn),
           type: session_type
         }
+        |> tap(&Logger.debug("CREATED session: #{inspect(&1)}"))
       end
       |> truncate_refresh_expires_at()
-
-    Logger.debug(fn ->
-      operation = if session.created_at == now, do: "CREATED", else: "REFRESHED"
-      "#{operation} session #{session.id}: #{inspect(session)}"
-    end)
 
     # create access and refresh tokens and put them on the conn
     refresh_exp = session.refresh_expires_at
