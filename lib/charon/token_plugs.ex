@@ -464,6 +464,13 @@ defmodule Charon.TokenPlugs do
       iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
       nil
       iex> %{current: [], current_at: _, previous: ~w(a)} = conn |> set_token_payload(%{"jti" => "whatevs"}) |> verify_refresh_token_fresh(3) |> Utils.get_session() |> Map.get(:refresh_tokens)
+
+      # a cycle also triggers if there are too many tokens in the current gen (25)
+      iex> now = System.os_time(:second)
+      iex> current = Enum.map(1..25, &to_string/1)
+      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: now - 5, current: current, previous: ~w(b)}})
+      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
+      "refresh token stale"
   """
   @spec verify_refresh_token_fresh(Conn.t(), non_neg_integer()) :: Conn.t()
   def verify_refresh_token_fresh(conn, grace_period \\ 10) do
