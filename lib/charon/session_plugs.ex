@@ -147,13 +147,12 @@ defmodule Charon.SessionPlugs do
     # update the existing session or create a new one
     session =
       if existing_session = Internal.get_private(conn, @session) do
-        %{refresh_tokens: tokens = %{current: rt_ids}} = existing_session
-
         %{
           existing_session
           | extra_payload: extra_session_payload,
             refresh_expires_at: now + max_refresh_ttl,
-            refresh_tokens: %{tokens | current: :ordsets.add_element(refresh_token_id, rt_ids)},
+            refresh_tokens:
+              :ordsets.add_element(refresh_token_id, existing_session.refresh_tokens),
             refreshed_at: now,
             type: session_type
         }
@@ -165,10 +164,11 @@ defmodule Charon.SessionPlugs do
           extra_payload: extra_session_payload,
           id: Internal.random_url_encoded(16),
           refresh_expires_at: now + max_refresh_ttl,
-          refresh_tokens: %{current_at: now, current: [refresh_token_id], previous: []},
+          refresh_tokens_at: now,
+          refresh_tokens: [refresh_token_id],
           refreshed_at: now,
-          user_id: get_user_id!(conn),
-          type: session_type
+          type: session_type,
+          user_id: get_user_id!(conn)
         }
         |> tap(&Logger.debug("CREATED session: #{inspect(&1)}"))
       end

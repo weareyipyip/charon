@@ -434,23 +434,23 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: 0, current: ~w(a)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
       iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
       nil
 
       # token's jti claim does not match session's refresh_token_id
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: 0, current: ~w(a)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
       iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
       "refresh token stale"
 
       # token's jti claim missing
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: 0, current: ~w(a)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
       iex> conn |> set_token_payload(%{}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
       "bearer token claim jti not found"
 
       # if current gen is still within the grace period, tokens from both it and previous gen are "fresh"
       iex> now = System.os_time(:second)
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: now - 5, current: ~w(a), previous: ~w(b)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
       iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
       nil
       iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
@@ -458,36 +458,42 @@ defmodule Charon.TokenPlugs do
 
       # if current gen is too old, a generation cycle happens, and previous gen tokens are no longer valid
       iex> now = System.os_time(:second)
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: now - 5, current: ~w(a), previous: ~w(b)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
       iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
       "refresh token stale"
       iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
       nil
-      iex> %{current: [], current_at: _, previous: ~w(a)} = conn |> set_token_payload(%{"jti" => "whatevs"}) |> verify_refresh_token_fresh(3) |> Utils.get_session() |> Map.get(:refresh_tokens)
+      iex> %{refresh_tokens: [], refresh_tokens_at: _, prev_refresh_tokens: ~w(a)} = conn |> set_token_payload(%{"jti" => "whatevs"}) |> verify_refresh_token_fresh(3) |> Utils.get_session()
 
       # a cycle also triggers if there are too many tokens in the current gen (25)
       iex> now = System.os_time(:second)
       iex> current = Enum.map(1..25, &to_string/1)
-      iex> conn = conn() |> set_session(%{refresh_tokens: %{current_at: now - 5, current: current, previous: ~w(b)}})
+      iex> conn = conn() |> set_session(%{refresh_tokens: current, refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
       iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
       "refresh token stale"
   """
   @spec verify_refresh_token_fresh(Conn.t(), non_neg_integer()) :: Conn.t()
   def verify_refresh_token_fresh(conn, grace_period \\ 10) do
-    verify_session_payload(conn, fn conn, session = %{refresh_tokens: refresh_tokens} ->
-      %{current_at: current_at, current: current} = refresh_tokens
+    verify_session_payload(conn, fn conn, session ->
+      %{refresh_tokens_at: rt_ids_at, refresh_tokens: rt_ids} = session
       now = now()
 
-      if current_at < now - grace_period || Enum.count(current) >= 25 do
-        refresh_tokens = %{current_at: now, current: [], previous: current}
-        conn = put_private(conn, @session, Map.put(session, :refresh_tokens, refresh_tokens))
-        {conn, refresh_tokens}
+      if rt_ids_at < now - grace_period || Enum.count(rt_ids) >= 25 do
+        session = %{
+          session
+          | refresh_tokens_at: now,
+            refresh_tokens: [],
+            prev_refresh_tokens: rt_ids
+        }
+
+        conn = put_private(conn, @session, session)
+        {conn, [], rt_ids}
       else
-        {conn, refresh_tokens}
+        {conn, rt_ids, session.prev_refresh_tokens}
       end
-      |> then(fn {conn, %{current: current, previous: previous}} ->
+      |> then(fn {conn, rt_ids, prev_rt_ids} ->
         verify_claim(conn, "jti", fn conn, jti ->
-          if :ordsets.is_element(jti, current) or :ordsets.is_element(jti, previous) do
+          if :ordsets.is_element(jti, rt_ids) or :ordsets.is_element(jti, prev_rt_ids) do
             conn
           else
             "refresh token stale"

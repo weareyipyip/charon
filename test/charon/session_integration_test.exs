@@ -45,7 +45,7 @@ defmodule Charon.SessionIntegrationTest do
 
       assert nil == Utils.get_auth_error(conn)
 
-      [rtid] = refresh_tokens.current
+      [rtid] = refresh_tokens
 
       assert %{
                # renamed from user_id
@@ -89,7 +89,7 @@ defmodule Charon.SessionIntegrationTest do
       # "wait" for the grace period to pass, causing the current refresh token(s) to be considered "previous gen"
       retire_token_gen = fn ->
         SessionStore.get(session.id, session.user_id, session.type, @config)
-        |> then(fn s = %{refresh_tokens: t} -> %{s | refresh_tokens: %{t | current_at: 0}} end)
+        |> then(fn s -> %{s | refresh_tokens_at: 0} end)
         |> SessionStore.upsert(@config)
       end
 
