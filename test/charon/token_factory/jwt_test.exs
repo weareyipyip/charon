@@ -43,6 +43,26 @@ defmodule Charon.TokenFactory.JwtTest do
     end
   end
 
+  describe "Blake2" do
+    setup do
+      mod_conf = @charon_config |> Config.get_mod_config()
+      base_key = mod_conf.get_keyset.(@charon_config)["default"] |> elem(1)
+
+      config =
+        override_mod_config(@charon_config,
+          get_keyset: fn _ -> %{"k1" => {:blake2b_256, base_key}} end,
+          signing_key: "k1"
+        )
+
+      [config: config]
+    end
+
+    test "Charon token can be verified by Charon", seeds do
+      {:ok, charon_token} = sign(%{}, seeds.config)
+      assert {:ok, _} = verify(charon_token, seeds.config)
+    end
+  end
+
   describe "Ed25519" do
     setup do
       pub_jwk = Jwt.keypair_to_pub_jwk(@ed25519_keypair)

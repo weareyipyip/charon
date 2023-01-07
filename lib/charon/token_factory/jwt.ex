@@ -130,14 +130,17 @@ defmodule Charon.TokenFactory.Jwt do
     hmac_sha384: "HS384",
     hmac_sha512: "HS512",
     eddsa_ed25519: "EdDSA",
-    eddsa_ed448: "EdDSA"
+    eddsa_ed448: "EdDSA",
+    blake2b_256: "Bl2b256",
+    blake2b_512: "Bl2b512"
   }
 
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
+  @type mac_alg :: :blake2b_256 | :blake2b_512
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
-  @type hmac_key :: {hmac_alg(), binary()}
-  @type key :: hmac_key() | eddsa_keypair()
+  @type mac_key :: {hmac_alg() | mac_alg(), binary()}
+  @type key :: mac_key() | eddsa_keypair()
   @type keyset :: %{required(String.t()) => key()}
 
   @impl true
@@ -217,34 +220,29 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
-  defp calc_hmac(data, key, alg), do: :crypto.mac(:hmac, alg, key, data)
-
   # Sign #
-  defp do_sign(data, {:hmac_sha256, key}), do: calc_hmac(data, key, :sha256)
-  defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
-  defp do_sign(data, {:hmac_sha512, key}), do: calc_hmac(data, key, :sha512)
-
   defp do_sign(data, {:eddsa_ed25519, {_, privkey}}),
     do: :crypto.sign(:eddsa, nil, data, [privkey, :ed25519])
 
   defp do_sign(data, {:eddsa_ed448, {_, privkey}}),
     do: :crypto.sign(:eddsa, nil, data, [privkey, :ed448])
 
+  defp do_sign(data, key), do: calc_mac(data, key)
+
   # Verify #
-  defp do_verify(data, {:hmac_sha256, key}, signature),
-    do: data |> calc_hmac(key, :sha256) |> secure_compare(signature)
-
-  defp do_verify(data, {:hmac_sha384, key}, signature),
-    do: data |> calc_hmac(key, :sha384) |> secure_compare(signature)
-
-  defp do_verify(data, {:hmac_sha512, key}, signature),
-    do: data |> calc_hmac(key, :sha512) |> secure_compare(signature)
-
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed25519])
 
   defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed448])
+
+  defp do_verify(data, key, signature), do: data |> calc_mac(key) |> secure_compare(signature)
+
+  defp calc_mac(data, {:hmac_sha256, key}), do: :crypto.mac(:hmac, :sha256, key, data)
+  defp calc_mac(data, {:hmac_sha384, key}), do: :crypto.mac(:hmac, :sha384, key, data)
+  defp calc_mac(data, {:hmac_sha512, key}), do: :crypto.mac(:hmac, :sha512, key, data)
+  defp calc_mac(data, {:blake2b_256, key}), do: __MODULE__.Blake2b.hash(data, key, 32)
+  defp calc_mac(data, {:blake2b_512, key}), do: __MODULE__.Blake2b.hash(data, key, 64)
 
   # header stuff #
   defp gen_header(alg, kid, jmod) do

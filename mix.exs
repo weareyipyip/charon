@@ -43,7 +43,8 @@ defmodule Charon.MixProject do
       {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
       {:redix, "~> 1.1", only: [:test], runtime: false},
       {:jose, "~> 1.11", only: [:test], runtime: false},
-      {:fastglobal, "~> 1.0"}
+      {:fastglobal, "~> 1.0"},
+      {:blake2_elixir, "~> 0.8", optional: true}
     ]
   end
 
