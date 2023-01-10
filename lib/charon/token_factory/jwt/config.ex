@@ -6,13 +6,11 @@ defmodule Charon.TokenFactory.Jwt.Config do
 
   @enforce_keys []
   defstruct get_keyset: &Jwt.default_keyset/1,
-            json_module: Jason,
             gen_secret_salt: "charon_jwt_secret",
             signing_key: "default"
 
   @type t :: %__MODULE__{
           get_keyset: (Charon.Config.t() -> Jwt.keyset()),
-          json_module: module(),
           gen_secret_salt: binary,
           signing_key: binary
         }

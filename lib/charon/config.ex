@@ -33,6 +33,7 @@ defmodule Charon.Config do
     access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
     # 15 minutes
     access_token_ttl: 15 * 60,
+    json_module: Jason,
     optional_modules: %{},
     key_generator_cache_key: Charon.Internal.KeyGenerator,
     refresh_cookie_name: "_refresh_token_signature",
@@ -51,6 +52,7 @@ defmodule Charon.Config do
           access_token_ttl: pos_integer(),
           get_base_secret: (() -> binary()),
           optional_modules: map(),
+          json_module: module(),
           key_generator_cache_key: atom(),
           refresh_cookie_name: String.t(),
           refresh_cookie_opts: keyword(),

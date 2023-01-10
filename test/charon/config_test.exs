@@ -11,6 +11,7 @@ defmodule Charon.ConfigTest do
       access_cookie_name: "_access_token_signature",
       access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
       access_token_ttl: 15 * 60,
+      json_module: Jason,
       optional_modules: %{},
       refresh_cookie_name: "_refresh_token_signature",
       refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
@@ -21,7 +22,6 @@ defmodule Charon.ConfigTest do
     },
     Charon.TokenFactory.Jwt.Config => %{
       get_keyset: &Charon.TokenFactory.Jwt.default_keyset/1,
-      json_module: Jason,
       gen_secret_salt: "charon_jwt_secret",
       signing_key: "default"
     },

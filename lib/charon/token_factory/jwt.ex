@@ -66,7 +66,6 @@ defmodule Charon.TokenFactory.Jwt do
         optional_modules: %{
           Charon.TokenFactory.Jwt => %{
             get_keyset: fn _charon_config -> %{"key1" => {:hmac_sha256, "my_key"}} end,
-            json_module: Jason,
             gen_secret_salt: "charon_jwt_secret"
             signing_key: "key1"
           }
@@ -75,7 +74,6 @@ defmodule Charon.TokenFactory.Jwt do
 
   The following options are supported:
     - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. A default keyset with a key called "default" is derived from Charon's base secret using `:gen_secret_salt`.
-    - `:json_module` (optional, default Jason). The JSON encoding lib.
     - `:gen_secret_salt` (optional, default "charon_jwt_secret"). The salt used to derive the default token signing key. Note that if you override the keyset, the keys are used as-is without further key derivation!
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
 
@@ -142,7 +140,8 @@ defmodule Charon.TokenFactory.Jwt do
 
   @impl true
   def sign(payload, config) do
-    %{get_keyset: get_keyset, json_module: jmod, signing_key: kid} = get_mod_config(config)
+    jmod = config.json_module
+    %{get_keyset: get_keyset, signing_key: kid} = get_mod_config(config)
 
     with {:ok, key = {alg, _secret}} <- config |> get_keyset.() |> get_key(kid),
          {:ok, json_payload} <- jmod.encode(payload) do
@@ -159,7 +158,8 @@ defmodule Charon.TokenFactory.Jwt do
 
   @impl true
   def verify(token, config) do
-    %{get_keyset: get_keyset, json_module: jmod} = get_mod_config(config)
+    jmod = config.json_module
+    %{get_keyset: get_keyset} = get_mod_config(config)
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
          {:ok, kid} <- process_header(header, jmod),
