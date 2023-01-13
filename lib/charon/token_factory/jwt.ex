@@ -25,9 +25,12 @@ defmodule Charon.TokenFactory.Jwt do
   ### Key cycling
 
   It is possible to transition to a new signing key by adding a new key to the keyset
-  and setting it is the new signing key using the `:signing_key` config option:
+  and setting it as the new signing key using the `:signing_key` config option:
 
-      %{"default" => {:hmac_sha256, <<0, ...>>}, "new!" => {:hmac_sha512, <<1, ...>>}}
+      %{
+        "default" => {:hmac_sha256, <<0, ...>>},
+        "new!" => {:hmac_sha512, <<1, ...>>}
+      }
 
   Older tokens will be verified using the older key, based on their `"kid"` header claim.
 
@@ -65,16 +68,14 @@ defmodule Charon.TokenFactory.Jwt do
         ...,
         optional_modules: %{
           Charon.TokenFactory.Jwt => %{
-            get_keyset: fn _charon_config -> %{"key1" => {:hmac_sha256, "my_key"}} end,
-            gen_secret_salt: "charon_jwt_secret"
+            get_keyset: fn -> %{"key1" => {:hmac_sha256, "my_key"}} end,
             signing_key: "key1"
           }
         }
       )
 
   The following options are supported:
-    - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. A default keyset with a key called "default" is derived from Charon's base secret using `:gen_secret_salt`.
-    - `:gen_secret_salt` (optional, default "charon_jwt_secret"). The salt used to derive the default token signing key. Note that if you override the keyset, the keys are used as-is without further key derivation!
+    - `:get_keyset` (optional, default `default_keyset/0`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
 
   ## Examples / doctests
@@ -99,7 +100,7 @@ defmodule Charon.TokenFactory.Jwt do
 
       # supports cycling to a new signing key, while still verifying old tokens
       iex> {:ok, token} = sign(%{}, @charon_config)
-      iex> keyset = @charon_config |> Jwt.default_keyset()
+      iex> keyset = Jwt.default_keyset(@charon_config)
       iex> keyset = Map.put(keyset, "ed25519_1", Jwt.gen_keypair(:eddsa_ed25519))
       iex> config = override_mod_config(@charon_config, get_keyset: fn _ -> keyset end, signing_key: "ed25519_1")
       iex> {:ok, _} = verify(token, config)
@@ -110,14 +111,17 @@ defmodule Charon.TokenFactory.Jwt do
       # an old / external / legacy token without a "kid" claim can still be verified
       # by adding a "kid_not_set.<alg>" key to the keyset
       # a token MUST have an alg claim, which is mandatory according to the JWT spec
-      iex> token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJjbGFpbSI6InZhbHVlIn0.gPOzG6JmRDHqosIohEJQ7PbIKQfeWSwKbf0_Z22YK9k"
+      iex> [header, pl] = [%{"alg" => "HS256"}, %{}] |> Enum.map(&Jason.encode!/1) |> Enum.map(&url_encode/1)
+      iex> base = "\#{header}.\#{pl}"
+      iex> key = :crypto.strong_rand_bytes(32)
+      iex> signature = :crypto.mac(:hmac, :sha256, key, base) |> url_encode()
+      iex> token = "\#{base}.\#{signature}"
       iex> {:error, "key not found"} = verify(token, @charon_config)
-      iex> keyset = @charon_config |> Jwt.default_keyset()
-      iex> keyset = Map.put(keyset, "kid_not_set.HS256", keyset["default"])
+      iex> keyset = %{"kid_not_set.HS256" => {:hmac_sha256, key}}
       iex> config = override_mod_config(@charon_config, get_keyset: fn _ -> keyset end)
       iex> {:ok, _} = verify(token, config)
   """
-  alias Charon.Internal.KeyGenerator
+  import Charon.Utils.KeyGenerator
   import __MODULE__.Config, only: [get_mod_config: 1]
   import Plug.Crypto, only: [secure_compare: 2]
   import Charon.Internal
@@ -134,8 +138,8 @@ defmodule Charon.TokenFactory.Jwt do
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
-  @type hmac_key :: {hmac_alg(), binary()}
-  @type key :: hmac_key() | eddsa_keypair()
+  @type symmetric_key :: {hmac_alg(), binary()}
+  @type key :: symmetric_key() | eddsa_keypair()
   @type keyset :: %{required(String.t()) => key()}
 
   @impl true
@@ -201,8 +205,7 @@ defmodule Charon.TokenFactory.Jwt do
   """
   @spec default_keyset(Charon.Config.t()) :: keyset()
   def default_keyset(config) do
-    %{gen_secret_salt: salt} = get_mod_config(config)
-    %{"default" => {:hmac_sha256, KeyGenerator.get_secret(salt, 32, config)}}
+    %{"default" => {:hmac_sha256, derive_key(config.get_base_secret.(), "charon_jwt_default")}}
   end
 
   ###########

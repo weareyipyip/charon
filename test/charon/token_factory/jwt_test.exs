@@ -18,8 +18,8 @@ defmodule Charon.TokenFactory.JwtTest do
   describe "HS256" do
     setup do
       mod_conf = @charon_config |> Config.get_mod_config()
-      base_key = mod_conf.get_keyset.(@charon_config)["default"] |> elem(1)
-      encoded_key = Base.url_encode64(base_key, padding: false)
+      %{"default" => {_, key}} = mod_conf.get_keyset.(@charon_config)
+      encoded_key = Base.url_encode64(key, padding: false)
       jwk = %{"k" => encoded_key, "kty" => "oct"}
       [jwk: jwk]
     end

@@ -22,7 +22,6 @@ defmodule Charon.ConfigTest do
     },
     Charon.TokenFactory.Jwt.Config => %{
       get_keyset: &Charon.TokenFactory.Jwt.default_keyset/1,
-      gen_secret_salt: "charon_jwt_secret",
       signing_key: "default"
     },
     Charon.SessionStore.RedisStore.Config => %{
