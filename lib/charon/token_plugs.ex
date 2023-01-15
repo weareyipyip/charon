@@ -61,6 +61,7 @@ defmodule Charon.TokenPlugs do
   alias Charon.{Config, TokenFactory, Internal, SessionStore}
   use Internal.Constants
   import Internal
+  import Charon.Utils
 
   @doc """
   Get a bearer token from the `authorization` header.
@@ -95,7 +96,7 @@ defmodule Charon.TokenPlugs do
     |> auth_header_to_token()
     |> case do
       not_found when not_found in [nil, ""] ->
-        auth_error(conn, "bearer token not found")
+        set_auth_error(conn, "bearer token not found")
 
       token ->
         put_private(conn, %{@bearer_token => token, @token_signature_transport => :bearer})
@@ -183,7 +184,7 @@ defmodule Charon.TokenPlugs do
       payload = Map.put_new(payload, "styp", "full")
       put_private(conn, @bearer_token_payload, payload)
     else
-      _ -> auth_error(conn, "bearer token signature invalid")
+      _ -> set_auth_error(conn, "bearer token signature invalid")
     end
   end
 
@@ -341,7 +342,7 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Make sure that no previous plug of this module added an auth error.
-  In case of an error, `on_error` is called (it must halt the connection!).
+  In case of an error, `on_error` is called (it should probably halt the connection).
 
   ## Doctests
 
@@ -349,14 +350,14 @@ defmodule Charon.TokenPlugs do
       iex> ^conn = verify_no_auth_error(conn, fn _conn, _error -> "BOOM" end)
 
       # on error, send an error response
-      iex> conn = conn() |> Internal.auth_error("oops!")
+      iex> conn = conn() |> set_auth_error("oops!")
       iex> conn = verify_no_auth_error(conn, & &1 |> send_resp(401, &2) |> halt())
       iex> conn.halted
       true
       iex> conn.resp_body
       "oops!"
   """
-  @spec verify_no_auth_error(Plug.Conn.t(), (Conn.t(), [String.t()] -> Conn.t())) ::
+  @spec verify_no_auth_error(Plug.Conn.t(), (Conn.t(), String.t() -> Conn.t())) ::
           Plug.Conn.t()
   def verify_no_auth_error(conn = %{private: %{@auth_error => error}}, on_error) do
     on_error.(conn, error)
@@ -396,9 +397,9 @@ defmodule Charon.TokenPlugs do
          session = %{} <- SessionStore.get(sid, uid, String.to_atom(type), config) do
       put_private(conn, @session, session)
     else
-      nil -> auth_error(conn, "session not found")
+      nil -> set_auth_error(conn, "session not found")
       {:error, error} -> raise "could not fetch session: #{inspect(error)}"
-      _error -> auth_error(conn, "bearer token claim sub, sid or styp not found")
+      _error -> set_auth_error(conn, "bearer token claim sub, sid or styp not found")
     end
   end
 
@@ -603,6 +604,6 @@ defmodule Charon.TokenPlugs do
     end)
   end
 
-  defp maybe_add_error(<<err::binary>>, conn), do: auth_error(conn, err)
+  defp maybe_add_error(<<err::binary>>, conn), do: set_auth_error(conn, err)
   defp maybe_add_error(conn, _conn), do: conn
 end

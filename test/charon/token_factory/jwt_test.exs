@@ -1,19 +1,12 @@
 defmodule Charon.TokenFactory.JwtTest do
   use ExUnit.Case, async: true
-  import Charon.Internal
+  import Charon.{Internal, TestHelpers}
   alias Charon.TokenFactory.Jwt
   alias Jwt.Config
   import Jwt
 
   @charon_config Charon.TestConfig.get()
   @ed25519_keypair Jwt.gen_keypair(:eddsa_ed25519)
-
-  defp override_mod_config(config, overrides) do
-    opt_mods = config.optional_modules
-    mod_conf = config |> Config.get_mod_config() |> Map.merge(Map.new(overrides))
-    opt_mods = Map.merge(opt_mods, %{Jwt => mod_conf})
-    Map.put(config, :optional_modules, opt_mods)
-  end
 
   describe "HS256" do
     setup do
@@ -52,7 +45,7 @@ defmodule Charon.TokenFactory.JwtTest do
       jws = %{"alg" => "EdDSA", "kid" => "ed25519_1", "typ" => "JWT"}
 
       config =
-        override_mod_config(@charon_config,
+        override_opt_mod_conf(@charon_config, Jwt,
           get_keyset: fn _ -> %{"ed25519_1" => @ed25519_keypair} end,
           signing_key: "ed25519_1"
         )

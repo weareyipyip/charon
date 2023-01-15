@@ -3,14 +3,8 @@ defmodule Charon.Internal do
   # module consists of shared functions internal to the package
   use __MODULE__.Constants
   require Logger
-  alias Plug.Conn
 
   @url_enc_opts padding: false
-
-  @doc """
-  Put an auth error on the conn
-  """
-  def auth_error(conn, error), do: Conn.put_private(conn, @auth_error, error)
 
   @doc """
   Get a `now` unix timestamp

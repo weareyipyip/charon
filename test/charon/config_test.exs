@@ -1,7 +1,9 @@
 defmodule Charon.ConfigTest do
   use ExUnit.Case, async: true
+  alias Charon.SessionStore.RedisStore
+  alias Charon.TokenFactory.Jwt
   alias Charon.Internal.ConfigTest
-  import Charon.Config
+  import Charon.{Config, TestHelpers}
   doctest Charon.Config
 
   @configurations %{
@@ -16,15 +18,15 @@ defmodule Charon.ConfigTest do
       refresh_cookie_name: "_refresh_token_signature",
       refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
       refresh_token_ttl: 2 * 30 * 24 * 60 * 60,
-      session_store_module: Charon.SessionStore.RedisStore,
+      session_store_module: RedisStore,
       session_ttl: 365 * 24 * 60 * 60,
-      token_factory_module: Charon.TokenFactory.Jwt
+      token_factory_module: Jwt
     },
-    Charon.TokenFactory.Jwt.Config => %{
-      get_keyset: &Charon.TokenFactory.Jwt.default_keyset/1,
+    Jwt.Config => %{
+      get_keyset: &Jwt.default_keyset/1,
       signing_key: "default"
     },
-    Charon.SessionStore.RedisStore.Config => %{
+    RedisStore.Config => %{
       redix_module: :required,
       key_prefix: "charon_"
     }
@@ -43,7 +45,7 @@ defmodule Charon.ConfigTest do
   describe "Charon.Config.from_enum/1" do
     test "calls optional module config init" do
       base_config = @configurations[Charon.Config]
-      config = %{base_config | optional_modules: %{Charon.SessionStore.RedisStore => %{}}}
+      config = override_opt_mod_conf(base_config, RedisStore, %{})
 
       assert_raise ArgumentError,
                    "the following keys must also be given when building struct Charon.SessionStore.RedisStore.Config: [:redix_module]",

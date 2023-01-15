@@ -102,7 +102,7 @@ defmodule Charon.TokenFactory.Jwt do
       iex> {:ok, token} = sign(%{}, @charon_config)
       iex> keyset = Jwt.default_keyset(@charon_config)
       iex> keyset = Map.put(keyset, "ed25519_1", Jwt.gen_keypair(:eddsa_ed25519))
-      iex> config = override_mod_config(@charon_config, get_keyset: fn _ -> keyset end, signing_key: "ed25519_1")
+      iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end, signing_key: "ed25519_1")
       iex> {:ok, _} = verify(token, config)
       iex> {:ok, new_token} = sign(%{}, config)
       iex> new_token == token
@@ -118,7 +118,7 @@ defmodule Charon.TokenFactory.Jwt do
       iex> token = "\#{base}.\#{signature}"
       iex> {:error, "key not found"} = verify(token, @charon_config)
       iex> keyset = %{"kid_not_set.HS256" => {:hmac_sha256, key}}
-      iex> config = override_mod_config(@charon_config, get_keyset: fn _ -> keyset end)
+      iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
       iex> {:ok, _} = verify(token, config)
   """
   import Charon.Utils.KeyGenerator

@@ -5,13 +5,13 @@ defmodule Charon.TokenPlugsTest do
   alias Charon.TestRedix
   alias Charon.TokenPlugs
   import Charon.TestUtils
+  import Utils
   import Plug.Conn
   import Plug.Test
   import TestRedix, only: [command: 1]
   import TokenPlugs
   alias TokenPlugs.PutAssigns
   alias Charon.Models.Session
-  import Charon.TestHelpers
 
   @config Charon.TestConfig.get()
 
