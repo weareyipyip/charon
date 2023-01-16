@@ -3,9 +3,9 @@ defmodule Charon.SessionStore.Behaviour do
   Behaviour definition of a persistent session store.
   The implementation is expected to handle cleanup of expired entries.
 
-  All three callbacks can use only a session ID, and ignore the user ID that is passed in as well, because a session ID is a unique 128-bits binary by itself.
-
-  However, not ignoring the user ID enables the usecase where all sessions for a user are fetched or deleted (the optional callbacks), for example, so there are benefits to storing sessions per user.
+  Implementations are expected to store sessions by ID, user ID and session type.
+  For the optional callbacks `get_all/3` and `delete_all/3`, sessions should be retrievable
+  by user ID and session type only.
   """
   alias Charon.Session
   alias Charon.Config

@@ -1,6 +1,7 @@
 defmodule Charon.Internal do
   @moduledoc false
   # module consists of shared functions internal to the package
+  # it CAN be relied on by child packages, so be careful when changing things
   use __MODULE__.Constants
   require Logger
 

@@ -1,7 +1,7 @@
 defmodule Charon.SessionStore.RedisStore do
   @moduledoc """
   A persistent session store based on Redis, which implements behaviour `Charon.SessionStore`.
-  In addition to the required callbacks, this store also provides `get_all/2` and `delete_all/2` (for a user) functions.
+  In addition to the required callbacks, this store also provides `get_all/3` and `delete_all/3` (for a user) functions.
 
   ## Config
 
@@ -51,19 +51,16 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   @impl true
-  def upsert(
-        session = %{id: session_id, user_id: user_id, refresh_expires_at: exp, type: type},
-        config
-      ) do
+  def upsert(session = %{id: sid, user_id: uid, refresh_expires_at: exp, type: type}, config) do
     config = get_mod_config(config)
     now = Internal.now()
-    session_key = session_key(session_id, user_id, type, config)
+    session_key = session_key(sid, uid, type, config)
 
     [
       # start transaction
       ~W(MULTI),
       # add session key to user's sorted set, with expiration timestamp as score (or update the score)
-      ["ZADD", user_sessions_key(user_id, type, config), Integer.to_string(exp), session_key],
+      ["ZADD", user_sessions_key(uid, type, config), Integer.to_string(exp), session_key],
       # add the actual session as a separate key-value pair with expiration ttl (or update the ttl)
       ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(exp - now)],
       ~W(EXEC)
@@ -128,6 +125,8 @@ defmodule Charon.SessionStore.RedisStore do
   ###########
 
   # key for a single session
+  # using the "old" format for :full sessions prevents old sessions from suddenly being logged-out
+  # so this code is "backwards compatible" with respect to old sessions being retrievable
   @doc false
   def session_key(session_id, user_id, :full, config) do
     key = [config.key_prefix, ".s.", to_string(user_id), ?., session_id]
@@ -141,8 +140,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
   @doc false
-  # using the "old" format for :full sessions prevents old sessions from suddenly being logged-out
-  # so this code is "backwards compatible" with respect to old sessions being retrievable
+
   def user_sessions_key(user_id, :full, config),
     do: [config.key_prefix, ".u.", to_string(user_id)]
 
