@@ -532,35 +532,6 @@ defmodule Charon.TokenPlugs do
   def verify_session_payload(_, _opts), do: raise("must be used after load_session/2")
 
   @doc """
-  Verify that a token claim that is a set of values (in the form of a list),
-  intersects with another set of values.
-
-  ## Doctests
-
-      iex> conn = conn() |> set_token_payload(%{"scope" => ["a", "a", "b", "c"]})
-      iex> ^conn = conn |> verify_token_claim_intersects({"scope", ["a"]})
-      iex> conn = conn() |> set_token_payload(%{"scope" => ["a"]})
-      iex> ^conn = conn |> verify_token_claim_intersects({"scope", ["a", "b", "c"]})
-
-      # invalid
-      iex> conn = conn() |> set_token_payload(%{"scope" => ["a", "b", "c"]})
-      iex> conn |> verify_token_claim_intersects({"scope", ["d"]}) |> Utils.get_auth_error()
-      "bearer token claim scope invalid"
-
-      # claim must be present
-      iex> conn = conn() |> set_token_payload(%{})
-      iex> conn |> verify_token_claim_intersects({"scope", ["a"]}) |> Utils.get_auth_error()
-      "bearer token claim scope not found"
-  """
-  @spec verify_token_claim_intersects(Conn.t(), {binary, [any()]}) :: Conn.t()
-  def verify_token_claim_intersects(conn, _claim_and_expected = {claim, set1}) do
-    verify_claim(conn, claim, fn conn, set2 ->
-      disjoint? = MapSet.disjoint?(MapSet.new(set1), MapSet.new(set2))
-      if not disjoint?, do: conn, else: "bearer token claim #{claim} invalid"
-    end)
-  end
-
-  @doc """
   Generically verify the bearer token payload.
   The validation function `func` must return the conn or an error message.
   Must be used after `verify_token_signature/2`.
