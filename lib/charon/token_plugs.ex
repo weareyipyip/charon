@@ -558,6 +558,53 @@ defmodule Charon.TokenPlugs do
 
   def verify_token_payload(_, _), do: raise("must be used after verify_token_signature/2")
 
+  @doc """
+  Verify that the bearer token payload contains `claim`, *which is assumed to be an `:ordset`*,
+  and that `ordset` (*which is also assumed to be either an ordset or a single element*)
+   is a subset of that ordset.
+
+  ## Doctests
+
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> ^conn = conn |> verify_token_ordset_claim_contains({"scope", "a"})
+      iex> ^conn = conn |> verify_token_ordset_claim_contains({"scope", ~w(a b)})
+
+      # invalid
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", "d"}) |> get_auth_error()
+      "bearer token claim scope does not contain [d]"
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(d e)}) |> get_auth_error()
+      "bearer token claim scope does not contain [d, e]"
+
+      # claim must be present
+      iex> conn = conn() |> set_token_payload(%{})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(a b c)}) |> get_auth_error()
+      "bearer token claim scope not found"
+
+      # WATCH OUT!
+      # things will go horribly wrong if either the claim or the comparison value is not an ordset
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(c b a)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", "a"}) |> get_auth_error()
+      "bearer token claim scope does not contain [a]"
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(b a)}) |> get_auth_error()
+      "bearer token claim scope does not contain [a]"
+  """
+  @spec verify_token_ordset_claim_contains(Plug.Conn.t(), {binary, any}) :: Plug.Conn.t()
+  def verify_token_ordset_claim_contains(conn, _claim_and_ordset = {claim, element_or_ordset}) do
+    verifier = fn conn, claim_value ->
+      element_or_ordset
+      |> List.wrap()
+      |> :ordsets.subtract(claim_value)
+      |> case do
+        [] -> conn
+        missing -> "bearer token claim #{claim} does not contain [#{Enum.join(missing, ", ")}]"
+      end
+    end
+
+    verify_token_claim(conn, {claim, verifier})
+  end
+
   ###########
   # Private #
   ###########
