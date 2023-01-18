@@ -20,7 +20,7 @@ jobs:
       # https://hexdocs.pm/elixir/1.14/compatibility-and-deprecations.html#compatibility-between-elixir-and-erlang-otp
       matrix:
         elixir: [1.12.x, 1.14.x]
-        otp: [23.x, 25.x]
+        otp: [24.x, 25.x]
         exclude:
           - elixir: 1.12.x
             otp: 25.x

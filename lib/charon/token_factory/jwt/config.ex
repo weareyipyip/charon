@@ -1,12 +1,17 @@
-defmodule Charon.SessionStore.RedisStore.Config do
+defmodule Charon.TokenFactory.Jwt.Config do
   @moduledoc """
-  Config module for `Charon.SessionStore.RedisStore`.
+  Config module for `Charon.TokenFactory.Jwt`.
   """
-  alias Charon.SessionStore.RedisStore
-  @enforce_keys [:redix_module]
-  defstruct [:redix_module, key_prefix: "charon_"]
+  alias Charon.TokenFactory.Jwt
 
-  @type t :: %__MODULE__{redix_module: module(), key_prefix: String.t()}
+  @enforce_keys []
+  defstruct get_keyset: &Jwt.default_keyset/1,
+            signing_key: "default"
+
+  @type t :: %__MODULE__{
+          get_keyset: (Charon.Config.t() -> Jwt.keyset()),
+          signing_key: binary
+        }
 
   @doc """
   Build config struct from enumerable (useful for passing in application environment).
@@ -19,6 +24,6 @@ defmodule Charon.SessionStore.RedisStore.Config do
   Get the config for this module from the parent `Charon.Config` struct.
   """
   @spec get_mod_config(Charon.Config.t()) :: t()
-  def get_mod_config(_charon_config = %{optional_modules: %{RedisStore => config}}), do: config
+  def get_mod_config(_charon_config = %{optional_modules: %{Jwt => config}}), do: config
   def get_mod_config(_), do: from_enum([])
 end

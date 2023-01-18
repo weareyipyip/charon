@@ -9,20 +9,12 @@ defmodule Charon.SessionPlugsTest do
   alias Charon.TestRedix
   import TestRedix, only: [command: 1]
 
-  @config Charon.Config.from_enum(
-            token_issuer: "my_test_app",
-            optional_modules: %{
-              Charon.TokenFactory.SymmetricJwt => %{get_secret: &__MODULE__.get_secret/0},
-              Charon.SessionStore.RedisStore => %{redix_module: TestRedix}
-            }
-          )
+  @config Charon.TestConfig.get()
 
   @sid "a"
   @uid 426
-  @user_session Session.new(@config, id: @sid, user_id: @uid)
+  @user_session test_session(id: @sid, user_id: @uid)
   @serialized Session.serialize(@user_session)
-
-  def get_secret(), do: "supersecret"
 
   setup_all do
     TestRedix.init()
@@ -43,7 +35,7 @@ defmodule Charon.SessionPlugsTest do
       command(["SET", session_key(@sid, @uid), @serialized])
 
       conn()
-      |> Conn.put_private(@bearer_token_payload, %{"sub" => @uid, "sid" => @sid})
+      |> Conn.put_private(@bearer_token_payload, %{"sub" => @uid, "sid" => @sid, "styp" => "full"})
       |> delete_session(@config)
 
       assert {:ok, []} = command(~w(KEYS *))

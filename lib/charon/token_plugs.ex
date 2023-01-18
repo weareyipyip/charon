@@ -61,6 +61,7 @@ defmodule Charon.TokenPlugs do
   alias Charon.{Config, TokenFactory, Internal, SessionStore}
   use Internal.Constants
   import Internal
+  import Charon.Utils
 
   @doc """
   Get a bearer token from the `authorization` header.
@@ -95,7 +96,7 @@ defmodule Charon.TokenPlugs do
     |> auth_header_to_token()
     |> case do
       not_found when not_found in [nil, ""] ->
-        auth_error(conn, "bearer token not found")
+        set_auth_error(conn, "bearer token not found")
 
       token ->
         put_private(conn, %{@bearer_token => token, @token_signature_transport => :bearer})
@@ -108,7 +109,7 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@bearer_token, "token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
+      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
       iex> conn = conn |> get_token_sig_from_cookie("c")
       iex> conn |> Utils.get_token_signature_transport()
       :cookie
@@ -116,12 +117,15 @@ defmodule Charon.TokenPlugs do
       "token.sig"
 
       # cookie is ignored if bearer token does not end with .
-      iex> conn = conn() |> put_private(@bearer_token, "token") |> put_req_cookie("c", "sig") |> fetch_cookies()
+      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
       iex> conn = conn |> get_token_sig_from_cookie("c")
       iex> conn |> Utils.get_token_signature_transport()
       nil
       iex> conn |> Internal.get_private(@bearer_token)
       "token"
+
+      iex> conn() |> get_token_sig_from_cookie("a")
+      ** (RuntimeError) must be used after get_token_from_auth_header/2
   """
   @spec get_token_sig_from_cookie(Conn.t(), String.t()) :: Conn.t()
   def get_token_sig_from_cookie(conn = %{private: %{@auth_error => _}}, _), do: conn
@@ -141,39 +145,54 @@ defmodule Charon.TokenPlugs do
     end
   end
 
-  def get_token_sig_from_cookie(_, _), do: raise("use after get_token_from_auth_header/2")
+  def get_token_sig_from_cookie(_, _),
+    do: raise("must be used after get_token_from_auth_header/2")
 
   @doc """
   Verify that the bearer token found by `get_token_from_auth_header/2` is signed correctly.
 
   ## Doctests
 
-      iex> token = sign("hurray!")
-      iex> conn = conn() |> put_private(@bearer_token, token) |> verify_token_signature(@config)
-      iex> Internal.get_private(conn, @bearer_token_payload)
-      "hurray!"
+      iex> token = sign(%{"msg" => "hurray!"})
+      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
+      iex> %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
+
+      # a default claim "styp" = "full" is added to the payload on verification
+      iex> token = sign(%{"msg" => "hurray!"})
+      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
+      iex> %{"styp" => "full"} = Internal.get_private(conn, @bearer_token_payload)
+      iex> token = sign(%{"styp" => "other"})
+      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
+      iex> %{"styp" => "other"} = Internal.get_private(conn, @bearer_token_payload)
 
       # signature must match
-      iex> token = sign("hurray!")
-      iex> conn = conn() |> put_private(@bearer_token, token <> "boom") |> verify_token_signature(@config)
+      iex> token = sign(%{"msg" => "hurray!"})
+      iex> conn = conn() |> set_token(token <> "boom") |> verify_token_signature(@config)
       iex> Internal.get_private(conn, @bearer_token_payload)
       nil
       iex> Utils.get_auth_error(conn)
       "bearer token signature invalid"
+
+      iex> conn() |> verify_token_signature(@config)
+      ** (RuntimeError) must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2
   """
   @spec verify_token_signature(Conn.t(), Config.t()) :: Conn.t()
   def verify_token_signature(conn = %{private: %{@auth_error => _}}, _), do: conn
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
+      payload = Map.put_new(payload, "styp", "full")
       put_private(conn, @bearer_token_payload, payload)
     else
-      _ -> auth_error(conn, "bearer token signature invalid")
+      _ -> set_auth_error(conn, "bearer token signature invalid")
     end
   end
 
   def verify_token_signature(_, _),
-    do: raise("use after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2")
+    do:
+      raise(
+        "must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2"
+      )
 
   @doc """
   Verify that the bearer token payload contains a valid `nbf` (not before) claim.
@@ -181,22 +200,22 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"nbf" => Internal.now()})
+      iex> conn = conn() |> set_token_payload(%{"nbf" => Internal.now()})
       iex> ^conn = conn |> verify_token_nbf_claim([])
 
       # some clock drift is allowed
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"nbf" => Internal.now() + 3})
+      iex> conn = conn() |> set_token_payload(%{"nbf" => Internal.now() + 3})
       iex> ^conn = conn |> verify_token_nbf_claim([])
 
       # not yet valid
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"nbf" => Internal.now() + 6})
+      iex> conn = conn() |> set_token_payload(%{"nbf" => Internal.now() + 6})
       iex> conn |> verify_token_nbf_claim([]) |> Utils.get_auth_error()
       "bearer token not yet valid"
 
       # claim must be present
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn = conn() |> set_token_payload(%{})
       iex> conn |> verify_token_nbf_claim([]) |> Utils.get_auth_error()
-      "claim nbf not found"
+      "bearer token claim nbf not found"
   """
   @spec verify_token_nbf_claim(Conn.t(), Plug.opts()) :: Conn.t()
   def verify_token_nbf_claim(conn, _opts) do
@@ -215,22 +234,22 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"exp" => Internal.now()})
+      iex> conn = conn() |> set_token_payload(%{"exp" => Internal.now()})
       iex> ^conn = conn |> verify_token_exp_claim([])
 
       # some clock drift is allowed
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"exp" => Internal.now() - 3})
+      iex> conn = conn() |> set_token_payload(%{"exp" => Internal.now() - 3})
       iex> ^conn = conn |> verify_token_exp_claim([])
 
       # expired
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"exp" => Internal.now() - 6})
+      iex> conn = conn() |> set_token_payload(%{"exp" => Internal.now() - 6})
       iex> conn |> verify_token_exp_claim([]) |> Utils.get_auth_error()
       "bearer token expired"
 
       # claim must be present
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn = conn() |> set_token_payload(%{})
       iex> conn |> verify_token_exp_claim([]) |> Utils.get_auth_error()
-      "claim exp not found"
+      "bearer token claim exp not found"
   """
   @spec verify_token_exp_claim(Conn.t(), Plug.opts()) :: Conn.t()
   def verify_token_exp_claim(conn, _opts) do
@@ -246,20 +265,20 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"type" => "access"})
+      iex> conn = conn() |> set_token_payload(%{"type" => "access"})
       iex> ^conn = conn |> verify_token_claim_in({"type", ~w(access)})
 
       # invalid
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"type" => "refresh"})
+      iex> conn = conn() |> set_token_payload(%{"type" => "refresh"})
       iex> conn |> verify_token_claim_in({"type", ~w(access)}) |> Utils.get_auth_error()
       "bearer token claim type invalid"
 
       # claim must be present
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn = conn() |> set_token_payload(%{})
       iex> conn |> verify_token_claim_in({"type", ~w(access)}) |> Utils.get_auth_error()
-      "claim type not found"
+      "bearer token claim type not found"
   """
-  @spec verify_token_claim_in(Conn.t(), {String.t(), [String.t()]}) :: Conn.t()
+  @spec verify_token_claim_in(Conn.t(), {String.t(), [any()]}) :: Conn.t()
   def verify_token_claim_in(conn, _claim_and_expected = {claim, expected}) do
     verify_claim(conn, claim, fn conn, v ->
       if v in expected, do: conn, else: "bearer token claim #{claim} invalid"
@@ -272,18 +291,18 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"type" => "access"})
+      iex> conn = conn() |> set_token_payload(%{"type" => "access"})
       iex> ^conn = conn |> verify_token_claim_equals({"type", "access"})
 
       # invalid
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"type" => "refresh"})
+      iex> conn = conn() |> set_token_payload(%{"type" => "refresh"})
       iex> conn |> verify_token_claim_equals({"type", "access"}) |> Utils.get_auth_error()
       "bearer token claim type invalid"
 
       # claim must be present
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn = conn() |> set_token_payload(%{})
       iex> conn |> verify_token_claim_equals({"type", "access"}) |> Utils.get_auth_error()
-      "claim type not found"
+      "bearer token claim type not found"
   """
   @spec verify_token_claim_equals(Conn.t(), {String.t(), String.t()}) :: Conn.t()
   def verify_token_claim_equals(conn, _claim_and_expected = {claim, expected}),
@@ -303,18 +322,18 @@ defmodule Charon.TokenPlugs do
         end
       end
 
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"scope" => "read,write"})
+      iex> conn = conn() |> set_token_payload(%{"scope" => "read,write"})
       iex> ^conn = conn |> verify_token_claim({"scope", &verify_read_scope/2})
 
       # invalid
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"scope" => "write"})
+      iex> conn = conn() |> set_token_payload(%{"scope" => "write"})
       iex> conn |> verify_token_claim({"scope", &verify_read_scope/2}) |> Utils.get_auth_error()
       "no read scope"
 
       # claim must be present
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{})
+      iex> conn = conn() |> set_token_payload(%{})
       iex> conn |> verify_token_claim({"scope", &verify_read_scope/2}) |> Utils.get_auth_error()
-      "claim scope not found"
+      "bearer token claim scope not found"
   """
   @spec verify_token_claim(Conn.t(), {String.t(), (Conn.t(), any() -> Conn.t() | binary())}) ::
           Conn.t()
@@ -323,7 +342,7 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Make sure that no previous plug of this module added an auth error.
-  In case of an error, `on_error` is called (it must halt the connection!).
+  In case of an error, `on_error` is called (it should probably halt the connection).
 
   ## Doctests
 
@@ -331,14 +350,14 @@ defmodule Charon.TokenPlugs do
       iex> ^conn = verify_no_auth_error(conn, fn _conn, _error -> "BOOM" end)
 
       # on error, send an error response
-      iex> conn = conn() |> Internal.auth_error("oops!")
+      iex> conn = conn() |> set_auth_error("oops!")
       iex> conn = verify_no_auth_error(conn, & &1 |> send_resp(401, &2) |> halt())
       iex> conn.halted
       true
       iex> conn.resp_body
       "oops!"
   """
-  @spec verify_no_auth_error(Plug.Conn.t(), (Conn.t(), [String.t()] -> Conn.t())) ::
+  @spec verify_no_auth_error(Plug.Conn.t(), (Conn.t(), String.t() -> Conn.t())) ::
           Plug.Conn.t()
   def verify_no_auth_error(conn = %{private: %{@auth_error => error}}, on_error) do
     on_error.(conn, error)
@@ -353,91 +372,256 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> command(["SET", session_key("a", 1), %Session{expires_at: 0} |> Session.serialize()])
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1})
+      iex> command(["SET", session_key("a", 1), test_session() |> Session.serialize()])
+      iex> conn = conn() |> set_token_payload(%{"sid" => "a", "sub" => 1, "styp" => "full"})
       iex> %Session{} = conn |> load_session(@config) |> Internal.get_private(@session)
 
-      # token payload must contain "sub" and "sid" claims
-      iex> conn = conn() |> put_private(@bearer_token_payload, 1)
+      # token payload must contain "sub", "sid" and "styp" claims
+      iex> conn = conn() |> set_token_payload(1)
       iex> conn |> load_session(@config) |> Utils.get_auth_error()
-      "claim sub or sid not found"
+      "bearer token claim sub, sid or styp not found"
 
       # session must be found
-      iex> conn = conn() |> put_private(@bearer_token_payload, %{"sid" => "a", "sub" => 1})
+      iex> conn = conn() |> set_token_payload(%{"sid" => "a", "sub" => 1, "styp" => "full"})
       iex> conn |> load_session(@config) |> Utils.get_auth_error()
       "session not found"
+
+      iex> conn() |> load_session(@config)
+      ** (RuntimeError) must be used after verify_token_signature/2
   """
   @spec load_session(Conn.t(), Config.t()) :: Conn.t()
   def load_session(conn = %{private: %{@auth_error => _}}, _), do: conn
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
-    with %{"sub" => uid, "sid" => sid} <- payload,
-         session = %{} <- SessionStore.get(sid, uid, config) do
+    with %{"sub" => uid, "sid" => sid, "styp" => type} <- payload,
+         session = %{} <- SessionStore.get(sid, uid, String.to_atom(type), config) do
       put_private(conn, @session, session)
     else
-      nil -> auth_error(conn, "session not found")
+      nil -> set_auth_error(conn, "session not found")
       {:error, error} -> raise "could not fetch session: #{inspect(error)}"
-      _error -> auth_error(conn, "claim sub or sid not found")
+      _error -> set_auth_error(conn, "bearer token claim sub, sid or styp not found")
     end
   end
 
   def load_session(_, _), do: raise("must be used after verify_token_signature/2")
 
   @doc """
-  Verify that the refresh token has not been used yet (= that it matches the token id stored in the session).
+  Verify that the refresh token is fresh.
+
+  A token is fresh if it belongs to the current or previous "refresh token generation".
+  A generation is a set of tokens that is created within a "grace period"
+  amount of seconds from when the generation is first created.
+  A new generation is created after the grace period expires,
+  or if the current generation contains 25 tokens (this shouldn't happen).
+
+  So a refresh token must be fresh, but because of refresh race conditions caused by
+  network issues or misbehaving clients, enforcing only a single fresh tokens causes too many problems in practice.
+
   Must be used after `load_session/2`. Verify the token type with `verify_token_claim_equals/2`.
+
+  ## Freshness example
+
+  Grace period is 5 seconds, and token ttl is 24h (so irrelevant in this example).
+
+  | When | New gen | Fresh tokens | Created token | Current gen (timestamp) | Previous gen | Comment                                                                            |
+  |------|---------|--------------|---------------|-------------------------|--------------|------------------------------------------------------------------------------------|
+  | 0    |         | -            | A             | A (0)                   | -            | Login                                                                              |
+  | 10   | y       | A            | B             | B (10)                  | A            | Refresh after grace period of A, [A] becomes prev gen                              |
+  | 11   |         | A, B         | C             | B, C (10)               | A            | Refresh race within grace period of B                                              |
+  | 12   |         | A, B, C      | D             | B, C, D (10)            | A            | Refresh race within grace period of B                                              |
+  | 20   | y       | B, C, D      | E             | E (20)                  | B, C, D      | Refresh after grace period of B, so [A] is now stale, and [B,C,D] becomes prev gen |
+  | 30   | y       | E            | F             | F (30)                  | E            | Refresh after grace period of E, so [B,C,D] is now stale, [E] becomes prev gen     |
+
 
   ## Doctests
 
-      iex> conn = conn() |> put_private(@session, %{refresh_token_id: "a"}) |> put_private(@bearer_token_payload, %{"jti" => "a"})
-      iex> ^conn = conn |> verify_refresh_token_fresh([])
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
+      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
+      nil
 
       # token's jti claim does not match session's refresh_token_id
-      iex> conn = conn() |> put_private(@session, %{refresh_token_id: "a"}) |> put_private(@bearer_token_payload, %{"jti" => "b"})
-      iex> conn |> verify_refresh_token_fresh([]) |> Utils.get_auth_error()
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
+      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
       "refresh token stale"
 
       # token's jti claim missing
-      iex> conn = conn() |> put_private(@session, %{refresh_token_id: "a"}) |> put_private(@bearer_token_payload, %{})
-      iex> conn |> verify_refresh_token_fresh([]) |> Utils.get_auth_error()
-      "claim jti not found"
-  """
-  @spec verify_refresh_token_fresh(Conn.t(), Plug.opts()) :: Conn.t()
-  def verify_refresh_token_fresh(conn = %{private: %{@auth_error => _}}, _opts), do: conn
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
+      iex> conn |> set_token_payload(%{}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
+      "bearer token claim jti not found"
 
-  def verify_refresh_token_fresh(
-        conn = %{private: %{@session => %{refresh_token_id: expected}}},
-        _opts
-      ) do
-    verify_claim(conn, "jti", fn
-      conn, ^expected -> conn
-      _, _ -> "refresh token stale"
+      # if current gen is still within the grace period, tokens from both it and previous gen are "fresh"
+      iex> now = System.os_time(:second)
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
+      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
+      nil
+      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
+      nil
+
+      # if current gen is too old, a generation cycle happens, and previous gen tokens are no longer valid
+      iex> now = System.os_time(:second)
+      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
+      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
+      "refresh token stale"
+      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
+      nil
+      iex> %{refresh_tokens: [], refresh_tokens_at: _, prev_refresh_tokens: ~w(a)} = conn |> set_token_payload(%{"jti" => "whatevs"}) |> verify_refresh_token_fresh(3) |> Utils.get_session()
+
+      # a cycle also triggers if there are too many tokens in the current gen (25)
+      iex> now = System.os_time(:second)
+      iex> current = Enum.map(1..25, &to_string/1)
+      iex> conn = conn() |> set_session(%{refresh_tokens: current, refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
+      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
+      "refresh token stale"
+  """
+  @spec verify_refresh_token_fresh(Conn.t(), non_neg_integer()) :: Conn.t()
+  def verify_refresh_token_fresh(conn, grace_period \\ 10) do
+    verify_session_payload(conn, fn conn, session ->
+      %{refresh_tokens_at: rt_ids_at, refresh_tokens: rt_ids} = session
+      now = now()
+
+      if rt_ids_at < now - grace_period || Enum.count(rt_ids) >= 25 do
+        session = %{
+          session
+          | refresh_tokens_at: now,
+            refresh_tokens: [],
+            prev_refresh_tokens: rt_ids
+        }
+
+        conn = put_private(conn, @session, session)
+        {conn, [], rt_ids}
+      else
+        {conn, rt_ids, session.prev_refresh_tokens}
+      end
+      |> then(fn {conn, rt_ids, prev_rt_ids} ->
+        verify_claim(conn, "jti", fn conn, jti ->
+          if :ordsets.is_element(jti, rt_ids) or :ordsets.is_element(jti, prev_rt_ids) do
+            conn
+          else
+            "refresh token stale"
+          end
+        end)
+      end)
     end)
   end
 
-  def verify_refresh_token_fresh(_, _opts), do: raise("must be used after load_session/2")
+  @doc """
+  Generically verify the bearer token payload.
+  The validation function `func` must return the conn or an error message.
+  Must be used after `load_session/2`.
+
+  ## Doctests
+
+      iex> conn = conn() |> set_session(%{the: "session"})
+      iex> ^conn = conn |> verify_session_payload(fn conn, %{the: "session"} -> conn end)
+
+      # invalid
+      iex> conn = conn() |> set_session(%{the: "session"})
+      iex> conn |> verify_session_payload(fn _conn, s -> s[:missing] || "invalid" end) |> Utils.get_auth_error()
+      "invalid"
+
+      iex> conn() |> verify_session_payload(fn conn, _ -> conn end)
+      ** (RuntimeError) must be used after load_session/2
+  """
+  @spec verify_session_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
+  def verify_session_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+
+  def verify_session_payload(conn = %{private: %{@session => session}}, func) do
+    func.(conn, session) |> maybe_add_error(conn)
+  end
+
+  def verify_session_payload(_, _opts), do: raise("must be used after load_session/2")
+
+  @doc """
+  Generically verify the bearer token payload.
+  The validation function `func` must return the conn or an error message.
+  Must be used after `verify_token_signature/2`.
+
+  ## Doctests
+
+      iex> conn = conn() |> set_token_payload(%{})
+      iex> ^conn = conn |> verify_token_payload(fn conn, _pl -> conn end)
+
+      # invalid
+      iex> conn = conn() |> set_token_payload(%{"scope" => "write"})
+      iex> conn |> verify_token_payload(fn _conn, _pl -> "no read scope" end) |> Utils.get_auth_error()
+      "no read scope"
+
+      iex> conn() |> verify_token_payload(fn conn, _pl -> conn end)
+      ** (RuntimeError) must be used after verify_token_signature/2
+  """
+  @spec verify_token_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
+  def verify_token_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+
+  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, func) do
+    func.(conn, payload) |> maybe_add_error(conn)
+  end
+
+  def verify_token_payload(_, _), do: raise("must be used after verify_token_signature/2")
+
+  @doc """
+  Verify that the bearer token payload contains `claim`, *which is assumed to be an `:ordset`*,
+  and that `ordset` (*which is also assumed to be either an ordset or a single element*)
+   is a subset of that ordset.
+
+  ## Doctests
+
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> ^conn = conn |> verify_token_ordset_claim_contains({"scope", "a"})
+      iex> ^conn = conn |> verify_token_ordset_claim_contains({"scope", ~w(a b)})
+
+      # invalid
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", "d"}) |> get_auth_error()
+      "bearer token claim scope does not contain [d]"
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(d e)}) |> get_auth_error()
+      "bearer token claim scope does not contain [d, e]"
+
+      # claim must be present
+      iex> conn = conn() |> set_token_payload(%{})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(a b c)}) |> get_auth_error()
+      "bearer token claim scope not found"
+
+      # WATCH OUT!
+      # things will go horribly wrong if either the claim or the comparison value is not an ordset
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(c b a)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", "a"}) |> get_auth_error()
+      "bearer token claim scope does not contain [a]"
+      iex> conn = conn() |> set_token_payload(%{"scope" => ~w(a b c)})
+      iex> conn |> verify_token_ordset_claim_contains({"scope", ~w(b a)}) |> get_auth_error()
+      "bearer token claim scope does not contain [a]"
+  """
+  @spec verify_token_ordset_claim_contains(Plug.Conn.t(), {binary, any}) :: Plug.Conn.t()
+  def verify_token_ordset_claim_contains(conn, _claim_and_ordset = {claim, element_or_ordset}) do
+    verifier = fn conn, claim_value ->
+      element_or_ordset
+      |> List.wrap()
+      |> :ordsets.subtract(claim_value)
+      |> case do
+        [] -> conn
+        missing -> "bearer token claim #{claim} does not contain [#{Enum.join(missing, ", ")}]"
+      end
+    end
+
+    verify_token_claim(conn, {claim, verifier})
+  end
 
   ###########
   # Private #
   ###########
 
-  defp auth_header_to_token([<<"Bearer "::binary, token::binary>> | _]), do: token
-  defp auth_header_to_token([<<"Bearer: "::binary, token::binary>> | _]), do: token
+  defp auth_header_to_token(["Bearer " <> token | _]), do: token
+  defp auth_header_to_token(["Bearer: " <> token | _]), do: token
   defp auth_header_to_token(_), do: nil
 
-  defp verify_claim(conn = %{private: %{@auth_error => _}}, _, _), do: conn
-
-  defp verify_claim(conn = %{private: %{@bearer_token_payload => payload}}, claim, func) do
-    with %{^claim => value} <- payload do
-      func.(conn, value)
-    else
-      _ -> "claim #{claim} not found"
-    end
-    |> case do
-      <<error::binary>> -> auth_error(conn, error)
-      conn -> conn
-    end
+  defp verify_claim(conn, claim, func) do
+    verify_token_payload(conn, fn _conn, payload ->
+      case payload do
+        %{^claim => value} -> func.(conn, value)
+        _ -> "bearer token claim #{claim} not found"
+      end
+    end)
   end
 
-  defp verify_claim(_, _, _), do: raise("must be used after verify_token_signature/2")
+  defp maybe_add_error(<<err::binary>>, conn), do: set_auth_error(conn, err)
+  defp maybe_add_error(conn, _conn), do: conn
 end

@@ -42,7 +42,8 @@ defmodule Charon.MixProject do
       {:plug, "~> 1.11"},
       {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
       {:redix, "~> 1.1", only: [:test], runtime: false},
-      {:jose, "~> 1.11", only: [:test], runtime: false}
+      {:jose, "~> 1.11", only: [:test], runtime: false},
+      {:fastglobal, "~> 1.0"}
     ]
   end
 
