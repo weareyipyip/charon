@@ -34,6 +34,9 @@ jobs:
 
       - name: Compile code
         run: mix compile
+      - name: Set GitHub ref for doc linking
+        run: |
+          sed -i "s\source_ref: \"main\"\source_ref: \"$GITHUB_REF_NAME\"\\" mix.exs
       - name: Create docs
         run: mix docs
       - name: Publish release
