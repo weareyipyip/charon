@@ -69,8 +69,8 @@ defmodule Charon.SessionStore.RedisStore do
     ]
     |> config.redix_module.pipeline()
     |> case do
-      {:ok, _} -> :ok
-      error -> error
+      {:ok, [_, _, _, [n, "OK"]]} when is_integer(n) -> :ok
+      error -> redis_result_to_error(error)
     end
   end
 
@@ -81,8 +81,8 @@ defmodule Charon.SessionStore.RedisStore do
     ["DEL", session_key(session_id, user_id, type, config)]
     |> config.redix_module.command()
     |> case do
-      {:ok, _} -> :ok
-      error -> error
+      {:ok, n} when is_integer(n) -> :ok
+      error -> redis_result_to_error(error)
     end
   end
 
@@ -106,8 +106,10 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys} <- all_keys(user_id, type, config),
          to_delete = [user_sessions_key(user_id, type, config) | keys],
-         ["DEL" | to_delete] |> config.redix_module.command() do
+         {:ok, n} when is_integer(n) <- ["DEL" | to_delete] |> config.redix_module.command() do
       :ok
+    else
+      error -> redis_result_to_error(error)
     end
   end
 
@@ -189,4 +191,7 @@ defmodule Charon.SessionStore.RedisStore do
         end)
     end)
   end
+
+  defp redis_result_to_error({:ok, error}), do: {:error, inspect(error)}
+  defp redis_result_to_error(error), do: error
 end
