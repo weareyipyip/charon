@@ -15,7 +15,6 @@ Charon is an extensible auth framework for Elixir, mostly for API's. The base pa
     - [Installation](#installation)
     - [Configuration](#configuration)
     - [Setting up a session store](#setting-up-a-session-store)
-      - [RedisStore session cleanup](#redisstore-session-cleanup)
     - [Protecting routes](#protecting-routes)
     - [Logging in, logging out and refreshing](#logging-in-logging-out-and-refreshing)
 
@@ -85,10 +84,6 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 ### Setting up a session store
 
 A session store can be created using multiple state stores, be it a database or a GenServer. All you have to do is implement a simple behaviour which you can find in `Charon.SessionStore.Behaviour`. A default implementation using Redis is provided by `Charon.SessionStore.RedisStore`, as is a dummy store (`Charon.SessionStore.DummyStore`) in case you don't want to use server-side sessions and prefer fully stateless tokens.
-
-#### RedisStore session cleanup
-
-The default `Charon.SessionStore.RedisStore` has a `cleanup/1` function that should run periodically, for example using [Quantum](https://hexdocs.pm/quantum).
 
 ### Setting up a token factory
 
