@@ -104,6 +104,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert_in_delta new_ttl, ttl, 5
       assert new_exp != exp
     end
+
+    test "can handle negative session ttl" do
+      assert :ok =
+               @user_session
+               |> Map.put(:refresh_expires_at, now() - 5)
+               |> RedisStore.upsert(@config)
+    end
   end
 
   describe "delete/4" do

@@ -55,6 +55,8 @@ defmodule Charon.SessionStore.RedisStore do
     config = get_mod_config(config)
     now = Internal.now()
     session_key = session_key(sid, uid, type, config)
+    # redis returns error on <0 ttl
+    ttl = max(exp - now, 1)
 
     [
       # start transaction
@@ -62,7 +64,7 @@ defmodule Charon.SessionStore.RedisStore do
       # add session key to user's sorted set, with expiration timestamp as score (or update the score)
       ["ZADD", user_sessions_key(uid, type, config), Integer.to_string(exp), session_key],
       # add the actual session as a separate key-value pair with expiration ttl (or update the ttl)
-      ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(exp - now)],
+      ["SET", session_key, Session.serialize(session), "EX", Integer.to_string(ttl)],
       ~W(EXEC)
     ]
     |> config.redix_module.pipeline()
