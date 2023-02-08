@@ -60,14 +60,18 @@ defmodule Charon.SessionStore.RedisStore do
       ["ZADD", user_key, exp, session_key],
       # add the actual session as a separate key-value pair that expires when the refresh token expires
       ["SET", session_key, Session.serialize(session), "EXAT", exp],
+      find_highest_session_exp_cmd(user_key),
       ~W(EXEC)
     ]
     |> mod_conf.redix_module.pipeline()
     |> case do
-      {:ok, [_, _, _, [n, "OK"]]} when is_integer(n) -> :ok
-      error -> redis_result_to_error(error)
+      {:ok, [_, _, _, _, [n, "OK", highest_exp_session]]} when is_integer(n) ->
+        maintain_session_set(user_key, highest_exp_session, mod_conf)
+        :ok
+
+      error ->
+        redis_result_to_error(error)
     end
-    |> passthrough_maintain_session_set(user_key, mod_conf)
   end
 
   @impl true
@@ -78,16 +82,22 @@ defmodule Charon.SessionStore.RedisStore do
 
     [
       ~W(MULTI),
+      # delete the session
       ["DEL", session_key],
+      # delete the session's key in the user's set of sessions
       ["ZREM", user_key, session_key],
+      find_highest_session_exp_cmd(user_key),
       ~W(EXEC)
     ]
     |> mod_conf.redix_module.pipeline()
     |> case do
-      {:ok, [_, _, _, [n, m]]} when is_integer(n) and is_integer(m) -> :ok
-      error -> redis_result_to_error(error)
+      {:ok, [_, _, _, _, [n, m, highest_exp_session]]} when is_integer(n) and is_integer(m) ->
+        maintain_session_set(user_key, highest_exp_session, mod_conf)
+        :ok
+
+      error ->
+        redis_result_to_error(error)
     end
-    |> passthrough_maintain_session_set(user_key, mod_conf)
   end
 
   @impl true
@@ -172,13 +182,12 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   # make sure the user's session set expires at some point, and prune expired sessions from it
-  defp maintain_session_set(user_key, mod_conf) do
+  defp maintain_session_set(_user_key, _no_more_sessions = [], _mod_conf), do: :ok
+
+  defp maintain_session_set(user_key, [_session_key, highest_exp], mod_conf) do
     now = Internal.now() |> Integer.to_string()
 
-    with {:ok, [_session_key, highest_exp]} <-
-           ["ZRANGE", user_key, "+inf", "-inf", "REV", "BYSCORE", "LIMIT", "0", "1", "WITHSCORES"]
-           |> mod_conf.redix_module.command(),
-         {:ok, [n, m]} when is_integer(n) and is_integer(m) <-
+    with {:ok, [n, m]} when is_integer(n) and is_integer(m) <-
            [
              ["EXPIREAT", user_key, highest_exp],
              ["ZREMRANGEBYSCORE", user_key, "-inf", now]
@@ -186,14 +195,13 @@ defmodule Charon.SessionStore.RedisStore do
            |> mod_conf.redix_module.pipeline() do
       :ok
     else
-      {:ok, []} -> :ok
-      error -> Logger.error("Unexpected error #{inspect(error)}")
+      error -> Logger.error("Error during user session set maintenance: #{inspect(error)}")
     end
   end
 
-  defp passthrough_maintain_session_set(result, user_key, mod_conf) do
-    maintain_session_set(user_key, mod_conf)
-    result
+  # grab the highest exp timestamp of the user's sessions
+  defp find_highest_session_exp_cmd(user_key) do
+    ["ZRANGE", user_key, "+inf", "-inf", "REV", "BYSCORE", "LIMIT", "0", "1", "WITHSCORES"]
   end
 
   defp redis_result_to_error({:ok, error}), do: {:error, inspect(error)}
