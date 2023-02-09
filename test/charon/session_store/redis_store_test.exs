@@ -110,14 +110,11 @@ defmodule Charon.SessionStore.RedisStoreTest do
       # expired, somehow present
       command(["ZADD", user_key, 0, "c"])
 
-      assert :ok =
-               @user_session
-               |> Map.merge(%{refresh_expires_at: @exp + 10})
-               |> RedisStore.upsert(@config)
+      assert :ok = RedisStore.upsert(@user_session, @config)
 
       assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
       assert "a" in keys
-      refute "c" in keys
+      assert "c" not in keys
     end
 
     test "updates user's sessions set ttl" do
@@ -126,13 +123,46 @@ defmodule Charon.SessionStore.RedisStoreTest do
       command(["ZADD", user_key, @exp, "a"])
       command(["EXPIRE", user_key, "10000"])
 
-      assert :ok =
-               @user_session
-               |> Map.merge(%{refresh_expires_at: @exp + 10})
-               |> RedisStore.upsert(@config)
+      assert {:ok, ttl} = command(["TTL", user_key])
+      refute_in_delta ttl, @ttl, 3
+
+      assert :ok = RedisStore.upsert(@user_session, @config)
 
       assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 10, 3
+      assert_in_delta ttl, @ttl, 3
+    end
+
+    test "prunes expired sessions with reduced refresh exp" do
+      user_key = user_sessions_key(@uid)
+      # unexpired, present
+      command(["ZADD", user_key, @exp, "a"])
+      # expired, somehow present
+      command(["ZADD", user_key, 0, "c"])
+
+      assert :ok = RedisStore.upsert(%{@user_session | expires_at: @exp}, @config)
+
+      assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
+      assert "a" in keys
+      assert "c" not in keys
+    end
+
+    test "updates user's sessions set ttl with reduced refresh exp" do
+      user_key = user_sessions_key(@uid)
+      # unexpired, present
+      command(["ZADD", user_key, @exp, "a"])
+      command(["EXPIRE", user_key, "10000"])
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      refute_in_delta ttl, @ttl, 3
+
+      assert :ok =
+               RedisStore.upsert(
+                 %{@user_session | expires_at: @exp + 30, refresh_expires_at: @exp + 30},
+                 @config
+               )
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      assert_in_delta ttl, @ttl + 30, 3
     end
 
     test "can handle negative session ttl" do
@@ -176,15 +206,18 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
       assert "a" in keys
-      refute "c" in keys
+      assert "c" not in keys
     end
 
     test "updates user's sessions set ttl" do
       user_key = user_sessions_key(@uid)
       # unexpired, present
       command(["ZADD", user_key, @exp, "a"])
-      command(["ZADD", user_key, @exp + 1000, session_key(@sid, @uid)])
+      command(["ZADD", user_key, @exp + 5, session_key(@sid, @uid)])
       command(["EXPIRE", user_key, "10000"])
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      refute_in_delta ttl, @ttl, 3
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
