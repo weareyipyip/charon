@@ -6,7 +6,7 @@ defmodule Charon.TestUtils do
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
   def user_sessions_key(user_id, type \\ :full, prefix \\ "charon_"),
-    do: RedisStore.user_sessions_key(user_id, type, %{key_prefix: prefix})
+    do: RedisStore.set_key(user_id, type, %{key_prefix: prefix})
 
   def conn(), do: Plug.Test.conn(:get, "/")
 

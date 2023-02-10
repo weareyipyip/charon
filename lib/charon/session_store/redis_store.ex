@@ -36,6 +36,9 @@ defmodule Charon.SessionStore.RedisStore do
   import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
   require Logger
 
+  @multi ~W(MULTI)
+  @exec ~W(EXEC)
+
   @impl true
   def get(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
@@ -51,67 +54,61 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   @impl true
-  def upsert(session = %{expires_at: s_exp, refresh_expires_at: exp}, config) when s_exp != exp do
-    # s_exp != exp; this session's refresh TTL has *not* been reduced so that it doesn't outlive the session
-    # so we can rely on this session having the highest refresh exp of all of the user's sessions
+  def upsert(
+        session = %{
+          id: sid,
+          user_id: uid,
+          type: type,
+          refreshed_at: now,
+          expires_at: s_exp,
+          refresh_expires_at: exp
+        },
+        config
+      ) do
     mod_conf = get_mod_config(config)
-    %{id: sid, user_id: uid, type: type, refreshed_at: now} = session
     session_key = session_key(sid, uid, type, mod_conf)
-    user_key = user_sessions_key(uid, type, mod_conf)
+    set_key = set_key(uid, type, mod_conf)
     exp_str = Integer.to_string(exp)
     now = Integer.to_string(now)
 
-    [
-      ~W(MULTI),
-      # add the actual session as a separate key-value pair that expires when the refresh token expires
-      ["SET", session_key, Session.serialize(session), "EXAT", exp_str],
-      # add session key to user's sorted set, with expiration timestamp as score (or update the score)
-      ["ZADD", user_key, exp_str, session_key],
-      # let the user's session set expire when this session expires
-      ["EXPIREAT", user_key, exp_str],
-      # clean up the user's old sessions
-      ["ZREMRANGEBYSCORE", user_key, "-inf", now],
-      ~W(EXEC)
-    ]
-    |> mod_conf.redix_module.pipeline()
-    |> case do
-      {:ok, [_, _, _, _, _, ["OK", r2, 1, r4]]} when is_integer(r2) and is_integer(r4) -> :ok
-      error -> redis_result_to_error(error)
-    end
-  end
+    # upsert the actual session as a separate key-value pair that expires when the refresh token expires
+    upsert_session_c = ["SET", session_key, Session.serialize(session), "EXAT", exp_str]
+    # add session key to user's session set, with exp timestamp as score (or update score)
+    upsert_set_c = ["ZADD", set_key, exp_str, session_key]
+    get_max_exp_session_c = get_max_exp_session_cmd(set_key)
+    prune_set_c = prune_session_set_cmd(set_key, now)
 
-  def upsert(session = %{refresh_expires_at: exp}, config) do
-    # when s_exp == exp, this session's refresh TTL is reduced so that it doesn't outlive the session
-    # so we can't rely on this session having the highest refresh exp
-    mod_conf = get_mod_config(config)
-    %{id: sid, user_id: uid, type: type, refreshed_at: now} = session
-    session_key = session_key(sid, uid, type, mod_conf)
-    user_key = user_sessions_key(uid, type, mod_conf)
-    exp_str = Integer.to_string(exp)
-    now = Integer.to_string(now)
+    if s_exp == exp do
+      # s_exp == exp, this session's refresh TTL is reduced so that it doesn't outlive the session
+      # so we can't rely on this session having the highest refresh exp
 
-    [
-      ~W(MULTI),
-      # add the actual session as a separate key-value pair that expires when the refresh token expires
-      ["SET", session_key, Session.serialize(session), "EXAT", exp_str],
-      # grab the highest exp timestamp of the user's sessions
-      ["ZRANGE", user_key, "+inf", "-inf", "REV", "BYSCORE", "LIMIT", "0", "1", "WITHSCORES"],
-      # add session key to user's sorted set, with expiration timestamp as score (or update the score)
-      ["ZADD", user_key, exp_str, session_key],
-      # clean up the user's old sessions
-      ["ZREMRANGEBYSCORE", user_key, "-inf", now],
-      ~W(EXEC)
-    ]
-    |> mod_conf.redix_module.pipeline()
-    |> case do
-      {:ok, [_, _, _, _, _, ["OK", max_exp_session, r3, r4]]}
-      when is_integer(r3) and is_integer(r4) ->
-        # update user session set ttl if there is no other session OR the new session's exp is the highest
-        max_exp = parse_session_exp(max_exp_session)
-        maybe_update_user_set_exp(is_nil(max_exp) or exp > max_exp, user_key, exp, mod_conf)
+      [@multi, upsert_session_c, get_max_exp_session_c, upsert_set_c, prune_set_c, @exec]
+      |> mod_conf.redix_module.pipeline()
+      |> case do
+        {:ok, [_, _, _, _, _, ["OK", max_exp_session, r3, r4]]}
+        when is_integer(r3) and is_integer(r4) ->
+          # max_exp_session had the highest exp *before* this session was upserted
+          # update user session set ttl if there is no other session OR the new session's exp is the highest
+          {exists?, max_exp_str} = parse_zrange_withscores(max_exp_session)
+          max_exp = String.to_integer(max_exp_str)
+          if not exists? or exp > max_exp, do: set_session_set_exp(set_key, exp_str, mod_conf)
+          :ok
 
-      error ->
-        redis_result_to_error(error)
+        error ->
+          redis_result_to_error(error)
+      end
+    else
+      # s_exp != exp; this session's refresh TTL has *not* been reduced so that it doesn't outlive the session
+      # so we can rely on this session having the highest refresh exp of all of the user's sessions
+
+      set_exp_c = set_session_set_exp_cmd(set_key, exp_str)
+
+      [@multi, upsert_session_c, upsert_set_c, set_exp_c, prune_set_c, @exec]
+      |> mod_conf.redix_module.pipeline()
+      |> case do
+        {:ok, [_, _, _, _, _, ["OK", r2, 1, r4]]} when is_integer(r2) and is_integer(r4) -> :ok
+        error -> redis_result_to_error(error)
+      end
     end
   end
 
@@ -119,28 +116,24 @@ defmodule Charon.SessionStore.RedisStore do
   def delete(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
     session_key = session_key(session_id, user_id, type, mod_conf)
-    user_key = user_sessions_key(user_id, type, mod_conf)
+    set_key = set_key(user_id, type, mod_conf)
     now = Internal.now() |> Integer.to_string()
 
-    [
-      ~W(MULTI),
-      # delete the session
-      ["DEL", session_key],
-      # delete the session's key in the user's session set
-      ["ZREM", user_key, session_key],
-      # clean up the user's old sessions
-      ["ZREMRANGEBYSCORE", user_key, "-inf", now],
-      # grab the highest exp timestamp of the user's remaining sessions
-      ["ZRANGE", user_key, "+inf", "-inf", "REV", "BYSCORE", "LIMIT", "0", "1", "WITHSCORES"],
-      ~W(EXEC)
-    ]
+    delete_session_c = ["DEL", session_key]
+    delete_from_set_c = ["ZREM", set_key, session_key]
+    get_max_exp_session_c = get_max_exp_session_cmd(set_key)
+    prune_set_c = prune_session_set_cmd(set_key, now)
+
+    [@multi, delete_session_c, delete_from_set_c, prune_set_c, get_max_exp_session_c, @exec]
     |> mod_conf.redix_module.pipeline()
     |> case do
       {:ok, [_, _, _, _, _, [r1, r2, _, max_exp_session]]}
-      when is_integer(r1) and is_integer(r2) and is_list(max_exp_session) ->
+      when is_integer(r1) and is_integer(r2) ->
+        # max_exp_session has the highest exp *after* this session was deleted
         # update user session set ttl if the deleted session wasn't the last session
-        max_exp = parse_session_exp(max_exp_session)
-        maybe_update_user_set_exp(not is_nil(max_exp), user_key, max_exp, mod_conf)
+        {exists?, max_exp_str} = parse_zrange_withscores(max_exp_session)
+        if exists?, do: set_session_set_exp(set_key, max_exp_str, mod_conf)
+        :ok
 
       error ->
         redis_result_to_error(error)
@@ -151,8 +144,7 @@ defmodule Charon.SessionStore.RedisStore do
   def get_all(user_id, type, config) do
     mod_conf = get_mod_config(config)
 
-    with {:ok, keys = [_ | _]} <- all_unexpired_keys(user_id, type, mod_conf),
-         # get all keys with a single round trip
+    with {:ok, keys = [_ | _]} <- get_valid_session_keys(user_id, type, mod_conf),
          {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
       values |> Stream.reject(&is_nil/1) |> Enum.map(&Session.deserialize(&1, config))
     else
@@ -165,8 +157,8 @@ defmodule Charon.SessionStore.RedisStore do
   def delete_all(user_id, type, config) do
     mod_conf = get_mod_config(config)
 
-    with {:ok, keys} <- all_keys(user_id, type, mod_conf),
-         to_delete = [user_sessions_key(user_id, type, mod_conf) | keys],
+    with {:ok, keys} <- get_session_keys(user_id, type, mod_conf),
+         to_delete = [set_key(user_id, type, mod_conf) | keys],
          {:ok, n} when is_integer(n) <- ["DEL" | to_delete] |> mod_conf.redix_module.command() do
       :ok
     else
@@ -205,37 +197,45 @@ defmodule Charon.SessionStore.RedisStore do
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
   @doc false
-  def user_sessions_key(user_id, :full, config),
-    do: [config.key_prefix, ".u.", to_string(user_id)]
+  def set_key(user_id, :full, config), do: [config.key_prefix, ".u.", to_string(user_id)]
 
-  def user_sessions_key(user_id, type, config),
+  def set_key(user_id, type, config),
     do: [config.key_prefix, ".u.", to_string(user_id), ?., Atom.to_string(type)]
 
   # get all keys, including expired ones, for a user
-  defp all_keys(user_id, type, config) do
+  defp get_session_keys(user_id, type, config) do
     # get all of the user's session keys (index 0 = first, -1 = last)
-    ["ZRANGE", user_sessions_key(user_id, type, config), "0", "-1"]
+    ["ZRANGE", set_key(user_id, type, config), "0", "-1"]
     |> config.redix_module.command()
   end
 
   # get all valid keys for a user
-  defp all_unexpired_keys(user_id, type, config) do
+  defp get_valid_session_keys(user_id, type, config) do
     now = Internal.now() |> Integer.to_string()
 
     # get all of the user's valid session keys (with score/timestamp >= now)
-    ["ZRANGE", user_sessions_key(user_id, type, config), now, "+inf", "BYSCORE"]
+    ["ZRANGE", set_key(user_id, type, config), now, "+inf", "BYSCORE"]
     |> config.redix_module.command()
   end
 
-  defp parse_session_exp(single_zrange_withscores_result)
-  defp parse_session_exp([_session_key, exp]), do: String.to_integer(exp)
-  defp parse_session_exp(_), do: nil
+  # returns {session_exists?, exp_str}
+  defp parse_zrange_withscores(single_zrange_withscores_result)
+  defp parse_zrange_withscores([_session_key, exp_str]), do: {true, exp_str}
+  defp parse_zrange_withscores(_), do: {false, "0"}
 
-  defp maybe_update_user_set_exp(condition, user_key, exp, mod_conf)
-  defp maybe_update_user_set_exp(false, _, _, _), do: :ok
+  # clean up the user's old sessions
+  defp prune_session_set_cmd(set_key, now_str), do: ["ZREMRANGEBYSCORE", set_key, "-inf", now_str]
 
-  defp maybe_update_user_set_exp(true, user_key, exp, mod_conf) do
-    ["EXPIREAT", user_key, exp]
+  # grab the session key and score (= exp timestamp) of the highest-exp session of the user
+  defp get_max_exp_session_cmd(set_key) do
+    ["ZRANGE", set_key, "+inf", "-inf", "REV", "BYSCORE", "LIMIT", "0", "1", "WITHSCORES"]
+  end
+
+  # set the expiration time of the user's session set
+  defp set_session_set_exp_cmd(set_key, exp_str), do: ["EXPIREAT", set_key, exp_str]
+
+  defp set_session_set_exp(set_key, exp_str, mod_conf) do
+    set_session_set_exp_cmd(set_key, exp_str)
     |> mod_conf.redix_module.command()
     |> case do
       {:ok, n} when is_integer(n) -> :ok
