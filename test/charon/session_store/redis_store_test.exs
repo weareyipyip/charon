@@ -119,17 +119,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
     test "updates user's sessions set ttl" do
       user_key = user_sessions_key(@uid)
-      # unexpired, present
       command(["ZADD", user_key, @exp, "a"])
-      command(["EXPIRE", user_key, "10000"])
+      command(["EXPIRE", user_key, "#{@ttl}"])
+
+      assert :ok = RedisStore.upsert(%{@user_session | refresh_expires_at: @exp + 10}, @config)
 
       assert {:ok, ttl} = command(["TTL", user_key])
-      refute_in_delta ttl, @ttl, 3
-
-      assert :ok = RedisStore.upsert(@user_session, @config)
-
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl, 3
+      assert_in_delta ttl, @ttl + 10, 3
     end
 
     test "prunes expired sessions with reduced refresh exp" do
@@ -146,23 +142,41 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert "c" not in keys
     end
 
-    test "updates user's sessions set ttl with reduced refresh exp" do
+    test "user's session set ttl correct after reduced but highest refresh exp session upsert" do
       user_key = user_sessions_key(@uid)
-      # unexpired, present
       command(["ZADD", user_key, @exp, "a"])
-      command(["EXPIRE", user_key, "10000"])
-
-      assert {:ok, ttl} = command(["TTL", user_key])
-      refute_in_delta ttl, @ttl, 3
+      command(["EXPIRE", user_key, "#{@ttl}"])
 
       assert :ok =
-               RedisStore.upsert(
-                 %{@user_session | expires_at: @exp + 30, refresh_expires_at: @exp + 30},
-                 @config
-               )
+               %{@user_session | expires_at: @exp + 10, refresh_expires_at: @exp + 10}
+               |> RedisStore.upsert(@config)
 
       assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 30, 3
+      assert_in_delta ttl, @ttl + 10, 3
+    end
+
+    test "user's session set ttl correct after reduced and NOT highest refresh exp session upsert" do
+      user_key = user_sessions_key(@uid)
+      command(["ZADD", user_key, @exp + 10, "a"])
+      command(["EXPIRE", user_key, "#{@ttl + 10}"])
+
+      assert :ok =
+               %{@user_session | expires_at: @exp, refresh_expires_at: @exp}
+               |> RedisStore.upsert(@config)
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      assert_in_delta ttl, @ttl + 10, 3
+    end
+
+    test "user's session set ttl correct after reduced first-for-user session upsert" do
+      user_key = user_sessions_key(@uid)
+
+      assert :ok =
+               %{@user_session | expires_at: @exp, refresh_expires_at: @exp}
+               |> RedisStore.upsert(@config)
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      assert_in_delta ttl, @ttl, 3
     end
 
     test "can handle negative session ttl" do
@@ -209,20 +223,49 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert "c" not in keys
     end
 
-    test "updates user's sessions set ttl" do
+    test "user's session set ttl correct if deleted session was highest exp session" do
       user_key = user_sessions_key(@uid)
-      # unexpired, present
       command(["ZADD", user_key, @exp, "a"])
-      command(["ZADD", user_key, @exp + 5, session_key(@sid, @uid)])
-      command(["EXPIRE", user_key, "10000"])
-
-      assert {:ok, ttl} = command(["TTL", user_key])
-      refute_in_delta ttl, @ttl, 3
+      command(["ZADD", user_key, @exp + 5, _to_delete = session_key(@sid, @uid)])
+      command(["EXPIRE", user_key, "#{@ttl + 5}"])
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
       assert {:ok, ttl} = command(["TTL", user_key])
       assert_in_delta ttl, @ttl, 3
+    end
+
+    test "user's session set ttl correct if deleted session not found" do
+      user_key = user_sessions_key(@uid)
+      command(["ZADD", user_key, @exp, "a"])
+      command(["EXPIRE", user_key, "#{@ttl}"])
+
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      assert_in_delta ttl, @ttl, 3
+    end
+
+    test "user's session set ttl correct if deleted session was NOT highest exp session" do
+      user_key = user_sessions_key(@uid)
+      command(["ZADD", user_key, @exp + 5, "a"])
+      command(["ZADD", user_key, @exp, _to_delete = session_key(@sid, @uid)])
+      command(["EXPIRE", user_key, "#{@ttl + 5}"])
+
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
+
+      assert {:ok, ttl} = command(["TTL", user_key])
+      assert_in_delta ttl, @ttl + 5, 3
+    end
+
+    test "user's session set removed if deleted session was last session" do
+      user_key = user_sessions_key(@uid)
+      command(["ZADD", user_key, @exp, _to_delete = session_key(@sid, @uid)])
+      command(["EXPIRE", user_key, "#{@ttl}"])
+
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
+
+      assert {:ok, 0} = command(["EXISTS", user_key])
     end
   end
 
