@@ -407,99 +407,43 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Verify that the refresh token is fresh.
-
-  A token is fresh if it belongs to the current or previous "refresh token generation".
-  A generation is a set of tokens that is created within a "grace period"
-  amount of seconds from when the generation is first created.
-  A new generation is created after the grace period expires,
-  or if the current generation contains 25 tokens (this shouldn't happen).
-
-  So a refresh token must be fresh, but because of refresh race conditions caused by
-  network issues or misbehaving clients, enforcing only a single fresh tokens causes too many problems in practice.
-
-  Must be used after `load_session/2`. Verify the token type with `verify_token_claim_equals/2`.
-
-  ## Freshness example
-
-  Grace period is 5 seconds, and token ttl is 24h (so irrelevant in this example).
-
-  | When | New gen | Fresh tokens | Created token | Current gen (timestamp) | Previous gen | Comment                                                                            |
-  |------|---------|--------------|---------------|-------------------------|--------------|------------------------------------------------------------------------------------|
-  | 0    |         | -            | A             | A (0)                   | -            | Login                                                                              |
-  | 10   | y       | A            | B             | B (10)                  | A            | Refresh after grace period of A, [A] becomes prev gen                              |
-  | 11   |         | A, B         | C             | B, C (10)               | A            | Refresh race within grace period of B                                              |
-  | 12   |         | A, B, C      | D             | B, C, D (10)            | A            | Refresh race within grace period of B                                              |
-  | 20   | y       | B, C, D      | E             | E (20)                  | B, C, D      | Refresh after grace period of B, so [A] is now stale, and [B,C,D] becomes prev gen |
-  | 30   | y       | E            | F             | F (30)                  | E            | Refresh after grace period of E, so [B,C,D] is now stale, [E] becomes prev gen     |
-
-
-  ## Doctests
-
-      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
-      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
-      nil
-
-      # token's jti claim does not match session's refresh_token_id
-      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
-      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
-      "refresh token stale"
-
-      # token's jti claim missing
-      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: 0, prev_refresh_tokens: []})
-      iex> conn |> set_token_payload(%{}) |> verify_refresh_token_fresh() |> Utils.get_auth_error()
-      "bearer token claim jti not found"
-
-      # if current gen is still within the grace period, tokens from both it and previous gen are "fresh"
-      iex> now = System.os_time(:second)
-      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
-      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
-      nil
-      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
-      nil
-
-      # if current gen is too old, a generation cycle happens, and previous gen tokens are no longer valid
-      iex> now = System.os_time(:second)
-      iex> conn = conn() |> set_session(%{refresh_tokens: ~w(a), refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
-      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
-      "refresh token stale"
-      iex> conn |> set_token_payload(%{"jti" => "a"}) |> verify_refresh_token_fresh(3) |> Utils.get_auth_error()
-      nil
-      iex> %{refresh_tokens: [], refresh_tokens_at: _, prev_refresh_tokens: ~w(a)} = conn |> set_token_payload(%{"jti" => "whatevs"}) |> verify_refresh_token_fresh(3) |> Utils.get_session()
-
-      # a cycle also triggers if there are too many tokens in the current gen (25)
-      iex> now = System.os_time(:second)
-      iex> current = Enum.map(1..25, &to_string/1)
-      iex> conn = conn() |> set_session(%{refresh_tokens: current, refresh_tokens_at: now - 5, prev_refresh_tokens: ~w(b)})
-      iex> conn |> set_token_payload(%{"jti" => "b"}) |> verify_refresh_token_fresh(10) |> Utils.get_auth_error()
-      "refresh token stale"
   """
-  @spec verify_refresh_token_fresh(Conn.t(), non_neg_integer()) :: Conn.t()
-  def verify_refresh_token_fresh(conn, grace_period \\ 10) do
-    verify_session_payload(conn, fn conn, session ->
-      %{refresh_tokens_at: rt_ids_at, refresh_tokens: rt_ids} = session
-      now = now()
+  @deprecated "Use verify_token_fresh/2 instead."
+  @spec verify_refresh_token_fresh(Plug.Conn.t(), pos_integer) :: Plug.Conn.t()
+  def verify_refresh_token_fresh(conn, grace_period \\ 10),
+    do: verify_token_fresh(conn, grace_period)
 
-      if rt_ids_at < now - grace_period || Enum.count(rt_ids) >= 25 do
-        session = %{
-          session
-          | refresh_tokens_at: now,
-            refresh_tokens: [],
-            prev_refresh_tokens: rt_ids
-        }
+  @doc """
+  Verify that the token (either access or refresh) is fresh
+  by comparing its `iat` claim with the session's `refreshed_at` timestamp.
+  The token must be created at the same time or later.
+  By default, a 5 second grace period is observed.
 
-        conn = put_private(conn, @session, session)
-        {conn, [], rt_ids}
-      else
-        {conn, rt_ids, session.prev_refresh_tokens}
-      end
-      |> then(fn {conn, rt_ids, prev_rt_ids} ->
-        verify_claim(conn, "jti", fn conn, jti ->
-          if :ordsets.is_element(jti, rt_ids) or :ordsets.is_element(jti, prev_rt_ids) do
-            conn
-          else
-            "refresh token stale"
-          end
-        end)
+      iex> now = Internal.now()
+      iex> conn = conn() |> set_session(%{refreshed_at: now}) |> set_token_payload(%{"iat" => now})
+      iex> ^conn = conn |> verify_token_fresh(5)
+
+      # some clock drift is allowed
+      iex> now = Internal.now()
+      iex> conn = conn() |> set_session(%{refreshed_at: now + 3}) |> set_token_payload(%{"iat" => now})
+      iex> ^conn = conn |> verify_token_fresh(5)
+
+      # no longer valid
+      iex> now = Internal.now()
+      iex> conn = conn() |> set_session(%{refreshed_at: now + 6}) |> set_token_payload(%{"iat" => now})
+      iex> conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      "token stale"
+
+      # claim must be present
+      iex> conn = conn() |> set_session(%{refreshed_at: 0}) |> set_token_payload(%{})
+      iex> conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      "bearer token claim iat not found"
+  """
+  @spec verify_token_fresh(Conn.t(), pos_integer()) :: Conn.t()
+  def verify_token_fresh(conn, grace_period \\ 5) do
+    verify_session_payload(conn, fn conn, _session = %{refreshed_at: refreshed_at} ->
+      verify_claim(conn, "iat", fn conn, iat ->
+        if iat >= refreshed_at - grace_period, do: conn, else: "token stale"
       end)
     end)
   end

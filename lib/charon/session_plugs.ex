@@ -76,7 +76,7 @@ defmodule Charon.SessionPlugs do
       iex> old_session = Map.from_struct(old_session)
       iex> Enum.find(~w(id user_id created_at expires_at)a, & session[&1] != old_session[&1])
       nil
-      iex> Enum.find(~w(refresh_tokens refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
+      iex> Enum.find(~w(refresh_token_id refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
       nil
 
       # returns signatures in cookies if requested, which removes signatures from tokens
@@ -151,8 +151,7 @@ defmodule Charon.SessionPlugs do
           existing_session
           | extra_payload: extra_session_payload,
             refresh_expires_at: now + max_refresh_ttl,
-            refresh_tokens:
-              :ordsets.add_element(refresh_token_id, existing_session.refresh_tokens),
+            refresh_token_id: refresh_token_id,
             refreshed_at: now,
             type: session_type
         }
@@ -164,8 +163,7 @@ defmodule Charon.SessionPlugs do
           extra_payload: extra_session_payload,
           id: Internal.random_url_encoded(16),
           refresh_expires_at: now + max_refresh_ttl,
-          refresh_tokens_at: now,
-          refresh_tokens: [refresh_token_id],
+          refresh_token_id: refresh_token_id,
           refreshed_at: now,
           type: session_type,
           user_id: get_user_id!(conn)

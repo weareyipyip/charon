@@ -35,7 +35,7 @@ defmodule Charon.SessionIntegrationTest do
   describe "pipeline" do
     test "successfully validates a SessionPlugs token" do
       {tokens, cookies, session} = create_session(426, :cookie)
-      %{id: sid, refresh_tokens: refresh_tokens} = session
+      %{id: sid, refresh_token_id: rtid} = session
 
       conn =
         conn()
@@ -45,8 +45,6 @@ defmodule Charon.SessionIntegrationTest do
 
       assert nil == Utils.get_auth_error(conn)
 
-      [rtid] = refresh_tokens
-
       assert %{
                # renamed from user_id
                current_user_id: 426,
@@ -55,7 +53,7 @@ defmodule Charon.SessionIntegrationTest do
                  expires_at: _,
                  extra_payload: %{},
                  id: ^sid,
-                 refresh_tokens: ^refresh_tokens,
+                 refresh_token_id: ^rtid,
                  refreshed_at: _,
                  user_id: 426
                },
@@ -73,7 +71,7 @@ defmodule Charon.SessionIntegrationTest do
              } = conn.assigns
     end
 
-    test "rejects stale refresh token in generations per grace period" do
+    test "rejects stale refresh token by iat claim" do
       {%{refresh_token: r1}, _cookies, session} = create_session(1, :bearer)
 
       refresher = fn token ->
@@ -86,33 +84,37 @@ defmodule Charon.SessionIntegrationTest do
         end
       end
 
-      # "wait" for the grace period to pass, causing the current refresh token(s) to be considered "previous gen"
-      retire_token_gen = fn ->
+      # to "wait"
+      set_refreshed_at = fn refreshed_at ->
         SessionStore.get(session.id, session.user_id, session.type, @config)
-        |> then(fn s -> %{s | refresh_tokens_at: 0} end)
+        |> then(fn s -> %{s | refreshed_at: refreshed_at} end)
         |> SessionStore.upsert(@config)
       end
 
-      # let's wait
-      retire_token_gen.()
-
-      # token r1, now "previous gen" should still be usable, multiple times
+      # token r1 can be used multiple times
       assert %{private: %{@tokens => %{refresh_token: r2}}} = refresher.(r1)
       assert %{private: %{@tokens => %{refresh_token: r3}}} = refresher.(r1)
       assert %{private: %{@tokens => %{refresh_token: _r4}}} = refresher.(r1)
 
-      # "wait" for the grace period to pass again, causing the "previous gen" to be discarded
-      retire_token_gen.()
+      # tokens r2 and r3 can be used as well
+      assert %{private: %{@tokens => %{refresh_token: _r5}}} = refresher.(r2)
+      assert %{private: %{@tokens => %{refresh_token: _r6}}} = refresher.(r3)
 
-      # token r1, now discarded, is no longer usable
-      assert "refresh token stale" == refresher.(r1)
-      # tokens r2 and r3, now "previous gen", are still usable
-      assert %{private: %{@tokens => %{refresh_token: r5}}} = refresher.(r2)
-      assert %{private: %{@tokens => %{refresh_token: _r6}}} = refresher.(r2)
-      assert %{private: %{@tokens => %{refresh_token: _r7}}} = refresher.(r3)
-      assert %{private: %{@tokens => %{refresh_token: _r8}}} = refresher.(r3)
-      # token r5, "current gen", is usable too
-      assert %{private: %{@tokens => %{refresh_token: _r9}}} = refresher.(r5)
+      # let's wait, but not exceed the grace period
+      set_refreshed_at.(now() + 3)
+
+      # the old refresh tokens are still usable
+      assert %{private: %{@tokens => %{refresh_token: _r7}}} = refresher.(r1)
+      assert %{private: %{@tokens => %{refresh_token: _r8}}} = refresher.(r2)
+      assert %{private: %{@tokens => %{refresh_token: _r9}}} = refresher.(r3)
+
+      # let's wait "too long"
+      set_refreshed_at.(now() + 60)
+
+      # old tokens no longer work
+      assert "token stale" == refresher.(r1)
+      assert "token stale" == refresher.(r2)
+      assert "token stale" == refresher.(r3)
     end
 
     test "rejects wrong claims" do
