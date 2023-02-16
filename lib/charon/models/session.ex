@@ -2,15 +2,14 @@ defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
-  @latest_version 3
+  @latest_version 4
 
   @enforce_keys [
     :created_at,
     :expires_at,
     :id,
     :refresh_expires_at,
-    :refresh_tokens_at,
-    :refresh_tokens,
+    :refresh_token_id,
     :refreshed_at,
     :user_id
   ]
@@ -19,12 +18,10 @@ defmodule Charon.Models.Session do
     :expires_at,
     :id,
     :refresh_expires_at,
-    :refresh_tokens_at,
-    :refresh_tokens,
+    :refresh_token_id,
     :refreshed_at,
     :user_id,
     extra_payload: %{},
-    prev_refresh_tokens: [],
     type: :full,
     version: @latest_version
   ]
@@ -34,10 +31,8 @@ defmodule Charon.Models.Session do
           expires_at: integer | :infinite,
           extra_payload: map(),
           id: String.t(),
-          prev_refresh_tokens: binary(),
           refresh_expires_at: integer,
-          refresh_tokens_at: integer(),
-          refresh_tokens: [binary()],
+          refresh_token_id: binary(),
           refreshed_at: integer,
           type: atom(),
           user_id: pos_integer | binary(),
@@ -64,9 +59,8 @@ defmodule Charon.Models.Session do
       # serialization is reversible
       iex> %Session{} = test_session() |> serialize() |> deserialize(@charon_config)
 
-      # old version without the :version, :refesh_expires_at, :refresh_tokens, :refresh_tokens_at, :prev_refresh_tokens fields
-      # but with :__struct__ and :refresh_token_id set
-      # is deserialized without error, and updated to latest version (2)
+      # old version without the :version, :refesh_expires_at fields but with :__struct__ set
+      # is deserialized without error, and updated to latest version (#{@latest_version})
       iex> session = %{
       ...>   __struct__: Session,
       ...>   created_at: 0,
@@ -85,14 +79,12 @@ defmodule Charon.Models.Session do
       ...>   expires_at: 1,
       ...>   extra_payload: %{},
       ...>   id: "ab",
-      ...>   prev_refresh_tokens: [],
       ...>   refresh_expires_at: 1,
-      ...>   refresh_tokens_at: 15,
-      ...>   refresh_tokens: ["cd"],
+      ...>   refresh_token_id: "cd",
       ...>   refreshed_at: 15,
       ...>   type: :full,
       ...>   user_id: 9,
-      ...>   version: 3
+      ...>   version: #{@latest_version}
       ...> } = session
 
       # old version - with :expires_at = nil - is deserialized without error
@@ -114,14 +106,12 @@ defmodule Charon.Models.Session do
       ...>   expires_at: :infinite,
       ...>   extra_payload: %{},
       ...>   id: "ab",
-      ...>   prev_refresh_tokens: [],
       ...>   refresh_expires_at: refresh_exp,
-      ...>   refresh_tokens_at: 15,
-      ...>   refresh_tokens: ["cd"],
+      ...>   refresh_token_id: "cd",
       ...>   refreshed_at: 15,
       ...>   type: :full,
       ...>   user_id: 9,
-      ...>   version: 3
+      ...>   version: #{@latest_version}
       ...> } = session
       iex> refresh_exp > 100000
       true
@@ -143,15 +133,16 @@ defmodule Charon.Models.Session do
 
   defp update(session = %{version: @latest_version}, _), do: session
 
-  # v2: session still has :refresh_token_id and does not have :refresh_tokens or :refresh_tokens_at
-  defp update(session = %{version: 2}, config) do
-    %{refresh_token_id: rt_id, refreshed_at: ts} = session
-
+  # v3: session still has :refresh_tokens, :refresh_tokens_at and :prev_refresh_tokens
+  defp update(session = %{version: 3, refresh_tokens: rt_ids}, config) do
     session
-    |> Map.drop([:refresh_token_id])
-    |> Map.merge(%{version: 3, refresh_tokens: [rt_id], refresh_tokens_at: ts})
+    |> Map.drop([:refresh_tokens, :refresh_tokens_at, :prev_refresh_tokens])
+    |> Map.merge(%{version: 4, refresh_token_id: List.first(rt_ids, "unknown")})
     |> update(config)
   end
+
+  # v2: we're back to v2 :)
+  defp update(session = %{version: 2}, config), do: %{session | version: 4} |> update(config)
 
   # v1: session has no :refresh_expires_at
   defp update(session = %{version: 1}, config) do

@@ -19,8 +19,7 @@ defmodule Charon.TestUtils do
       expires_at: 0,
       id: "a",
       refresh_expires_at: 0,
-      refresh_tokens_at: 0,
-      refresh_tokens: [],
+      refresh_token_id: "b",
       refreshed_at: 0,
       user_id: 1
     }
