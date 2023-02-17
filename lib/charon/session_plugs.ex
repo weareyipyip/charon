@@ -162,6 +162,7 @@ defmodule Charon.SessionPlugs do
           expires_at: if(session_ttl == :infinite, do: :infinite, else: session_ttl + now),
           extra_payload: extra_session_payload,
           id: Internal.random_url_encoded(16),
+          prev_t_gen_fresh_at: now,
           refresh_expires_at: now + max_refresh_ttl,
           refresh_token_id: refresh_token_id,
           refreshed_at: now,
