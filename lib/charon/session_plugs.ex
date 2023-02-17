@@ -165,6 +165,7 @@ defmodule Charon.SessionPlugs do
           refresh_expires_at: now + max_refresh_ttl,
           refresh_token_id: refresh_token_id,
           refreshed_at: now,
+          t_gen_fresh_at: now,
           type: session_type,
           user_id: get_user_id!(conn)
         }
