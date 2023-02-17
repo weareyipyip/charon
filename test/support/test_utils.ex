@@ -18,9 +18,11 @@ defmodule Charon.TestUtils do
       created_at: 0,
       expires_at: 0,
       id: "a",
+      prev_t_gen_fresh_at: 0,
       refresh_expires_at: 0,
       refresh_token_id: "b",
       refreshed_at: 0,
+      t_gen_fresh_at: 0,
       user_id: 1
     }
     |> Map.merge(Map.new(overrides))
