@@ -1,10 +1,11 @@
 defmodule Charon.SessionIntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   use Charon.Internal.Constants
   alias Charon.{TestRedix, TestPipeline, SessionPlugs, Utils, Internal, TestUtils}
   import TestUtils
   import Plug.Conn
   import Internal
+  import Mock
 
   @moduletag :capture_log
   @config Charon.TestConfig.get()
@@ -84,26 +85,30 @@ defmodule Charon.SessionIntegrationTest do
         end
       end
 
-      # let's wait
-      Process.sleep(6001)
+      now = Internal.now()
 
-      # token r1, now "previous gen" should still be usable, multiple times
-      assert %{private: %{@tokens => %{refresh_token: r2}}} = refresher.(r1)
-      assert %{private: %{@tokens => %{refresh_token: r3}}} = refresher.(r1)
-      assert %{private: %{@tokens => %{refresh_token: _r4}}} = refresher.(r1)
+      # let's wait for the cycle TTL to pass (5s cycle ttl + 5s clock drift allowance)
+      {r2, r3} =
+        with_mock Internal, [:passthrough], now: fn -> now + 10 end do
+          # token r1, now "previous gen" should still be usable, multiple times
+          assert %{private: %{@tokens => %{refresh_token: r2}}} = refresher.(r1)
+          assert %{private: %{@tokens => %{refresh_token: r3}}} = refresher.(r1)
+          assert %{private: %{@tokens => %{refresh_token: _r4}}} = refresher.(r1)
+          {r2, r3}
+        end
 
-      # "wait" for the grace period to pass again, causing the "previous gen" to become invalid
-      Process.sleep(6001)
-
-      # token r1, now discarded, is no longer usable
-      assert "token stale" == refresher.(r1)
-      # tokens r2 and r3, now "previous gen", are still usable
-      assert %{private: %{@tokens => %{refresh_token: r5}}} = refresher.(r2)
-      assert %{private: %{@tokens => %{refresh_token: _r6}}} = refresher.(r2)
-      assert %{private: %{@tokens => %{refresh_token: _r7}}} = refresher.(r3)
-      assert %{private: %{@tokens => %{refresh_token: _r8}}} = refresher.(r3)
-      # token r5, "current gen", is usable too
-      assert %{private: %{@tokens => %{refresh_token: _r9}}} = refresher.(r5)
+      # "wait" for the cycle TTL to pass again, causing the "previous gen" to become invalid
+      with_mock Internal, [:passthrough], now: fn -> now + 20 end do
+        # token r1, now discarded, is no longer usable
+        assert "token stale" == refresher.(r1)
+        # tokens r2 and r3, now "previous gen", are still usable
+        assert %{private: %{@tokens => %{refresh_token: r5}}} = refresher.(r2)
+        assert %{private: %{@tokens => %{refresh_token: _r6}}} = refresher.(r2)
+        assert %{private: %{@tokens => %{refresh_token: _r7}}} = refresher.(r3)
+        assert %{private: %{@tokens => %{refresh_token: _r8}}} = refresher.(r3)
+        # token r5, "current gen", is usable too
+        assert %{private: %{@tokens => %{refresh_token: _r9}}} = refresher.(r5)
+      end
     end
 
     test "rejects wrong claims" do
