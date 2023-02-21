@@ -44,7 +44,8 @@ defmodule Charon.MixProject do
       {:redix, "~> 1.1", only: [:test], runtime: false},
       {:jose, "~> 1.11", only: [:test], runtime: false},
       {:fastglobal, "~> 1.0"},
-      {:mock, "~> 0.3", only: [:test]}
+      {:mock, "~> 0.3", only: [:test]},
+      {:blake3, "~> 1.0", optional: true}
     ]
   end
 

@@ -132,13 +132,15 @@ defmodule Charon.TokenFactory.Jwt do
     hmac_sha384: "HS384",
     hmac_sha512: "HS512",
     eddsa_ed25519: "EdDSA",
-    eddsa_ed448: "EdDSA"
+    eddsa_ed448: "EdDSA",
+    blake3_256: "Bl3_256"
   }
 
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
+  @type mac_alg :: :blake3_256
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
-  @type symmetric_key :: {hmac_alg(), binary()}
+  @type symmetric_key :: {hmac_alg() | mac_alg(), binary()}
   @type key :: symmetric_key() | eddsa_keypair()
   @type keyset :: %{required(String.t()) => key()}
 
@@ -226,6 +228,7 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_sign(data, {:hmac_sha256, key}), do: calc_hmac(data, key, :sha256)
   defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
   defp do_sign(data, {:hmac_sha512, key}), do: calc_hmac(data, key, :sha512)
+  defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
 
   defp do_sign(data, {:eddsa_ed25519, {_, privkey}}),
     do: :crypto.sign(:eddsa, nil, data, [privkey, :ed25519])
@@ -242,6 +245,9 @@ defmodule Charon.TokenFactory.Jwt do
 
   defp do_verify(data, {:hmac_sha512, key}, signature),
     do: data |> calc_hmac(key, :sha512) |> secure_compare(signature)
+
+  defp do_verify(data, {:blake3_256, key}, sig),
+    do: __MODULE__.Blake3.keyed_hash(key, data) |> secure_compare(sig)
 
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed25519])
