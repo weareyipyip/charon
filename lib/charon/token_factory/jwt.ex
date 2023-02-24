@@ -46,8 +46,10 @@ defmodule Charon.TokenFactory.Jwt do
   Symmetric signatures are message authentication codes or MACs,
   either HMACs based on SHA256, 384 or 512,
   or a MAC generated using Blake3's [keyed-hashing mode](https://docs.rs/blake3/latest/blake3/fn.keyed_hash.html),
-  which can be used directly without using a HMAC construction.
-  Using Blake3 required the optional dependency [Blake3](https://hex.pm/packages/blake3).
+  which can be used directly without using a HMAC wrapper.
+  Using Blake3 requires the optional dependency [Blake3](https://hex.pm/packages/blake3)
+  and a key of exactly 256 bits.
+
   By default, a SHA256-based HMAC is used.
 
   ## Asymmetric signatures
