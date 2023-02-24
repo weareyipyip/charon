@@ -1,7 +1,7 @@
 defmodule Charon.TokenFactory.Jwt do
   @moduledoc """
   JWT's with either symmetric (HMAC) or asymmetric (EDDSA) signatures.
-  The default, simplest and most performant option is symmetric signatures,
+  The default, simplest and most performant option is symmetric signatures (MAC),
   with the key derived from the Charon base secret.
 
   Asymmetric tokens can be used when it is desirable for an external party
@@ -40,6 +40,15 @@ defmodule Charon.TokenFactory.Jwt do
   Such tokens can still be verified by adding
   a `"kid_not_set.<alg>"` (for example "kid_not_set.HS256")
   key to the keyset.
+
+  ## Symmetric signatures
+
+  Symmetric signatures are message authentication codes or MACs,
+  either HMACs based on SHA256, 384 or 512,
+  or a MAC generated using Blake3's [keyed-hashing mode](https://docs.rs/blake3/latest/blake3/fn.keyed_hash.html),
+  which can be used directly without using a HMAC construction.
+  Using Blake3 required the optional dependency [Blake3](https://hex.pm/packages/blake3).
+  By default, a SHA256-based HMAC is used.
 
   ## Asymmetric signatures
 
