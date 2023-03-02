@@ -3,13 +3,19 @@ defmodule Charon.SessionStore.LocalStore do
   An in-memory persistent session store, implements behaviour `Charon.SessionStore`.
   In addition to the required callbacks, this store also provides `get_all/3` and `delete_all/3` (for a user) functions.
 
+  ## Usage
+
   Add this store to your supervision tree to use it.
+
+      children = [
+        Charon.SessionStore.LocalStore
+      ]
+
   """
   use Agent
 
   @behaviour Charon.SessionStore.Behaviour
   alias Charon.Internal
-  alias Charon.Models.Session
   require Logger
 
   def start_link(_) do
@@ -21,7 +27,7 @@ defmodule Charon.SessionStore.LocalStore do
     Agent.get(__MODULE__, fn state ->
       session = Map.get(state, {session_id, user_id, type}, nil)
 
-      if session == nil || Internal.now() > session.refresh_expires_at do
+      if session == nil || expired?(Internal.now(), session) do
         nil
       else
         session
@@ -56,10 +62,8 @@ defmodule Charon.SessionStore.LocalStore do
 
     Agent.get(__MODULE__, fn state ->
       state
-      |> Stream.filter(fn
-        {{_, ^user_id, ^type}, %{refresh_expires_at: exp}} when exp > now -> true
-        _ -> false
-      end)
+      |> Stream.filter(&match?({{_, ^user_id, ^type}, _}, &1))
+      |> Stream.reject(&expired?(now, &1))
       |> Stream.map(fn {_, v} -> v end)
       |> Enum.to_list()
     end)
@@ -68,43 +72,22 @@ defmodule Charon.SessionStore.LocalStore do
   @impl true
   def delete_all(user_id, type, _config) do
     Agent.update(__MODULE__, fn state ->
-      user_session_keys =
-        state
-        |> Map.keys()
-        |> Enum.filter(fn {_, state_uid, state_type} ->
-          {user_id, type} == {state_uid, state_type}
-        end)
-
-      Map.drop(state, user_session_keys)
+      Map.reject(state, fn
+        {{_, ^user_id, ^type}} -> true
+        _ -> false
+      end)
     end)
   end
 
   def cleanup() do
     now = Internal.now()
+
     Agent.update(__MODULE__, fn state ->
-      Map.filter(state, fn {_, session} ->
-        session.refresh_expires_at > now
-      end)
+      Map.reject(state, &expired?(now, &1))
     end)
   end
 
-  # helpers
-  def insert_ses(sid, uid, expiration \\ 100_000) do
-    %Session{
-      created_at: Internal.now(),
-      expires_at: 0,
-      id: sid,
-      user_id: uid,
-      refresh_expires_at: Internal.now() + expiration,
-      refresh_token_id: <<0>>,
-      t_gen_fresh_at: 0,
-      refreshed_at: 0
-    }
-    |> upsert(%{})
+  defp expired?(now, session) do
+    now > session.refresh_expires_at
   end
-
-  def get_full() do
-    Agent.get(__MODULE__, fn state -> state end)
-  end
-
 end
