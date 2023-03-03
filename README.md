@@ -125,7 +125,7 @@ defmodule MyApp.RefreshTokenPipeline do
    - must not be expired (and already valid)
    - must have a "type" claim with value "refresh"
    - must have a corresponding session
-   - must be fresh (see `Charon.TokenPlugs.verify_refresh_token_fresh/2` docs)
+   - must be fresh (see `Charon.TokenPlugs.verify_token_fresh/2` docs)
   """
   use Plug.Builder
 
@@ -138,7 +138,7 @@ defmodule MyApp.RefreshTokenPipeline do
   plug :verify_token_exp_claim
   plug :verify_token_claim_equals, {"type", "refresh"}
   plug :load_session, @config
-  plug :verify_refresh_token_fresh, 10
+  plug :verify_token_fresh, 10
   plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
   plug Charon.TokenPlugs.PutAssigns
 end

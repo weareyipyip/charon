@@ -50,7 +50,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_exp_claim
         plug :verify_token_claim_equals, {"type", "refresh"}
         plug :load_session, @config
-        plug :verify_refresh_token_fresh
+        plug :verify_token_fresh, 10
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
       end
