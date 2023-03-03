@@ -28,7 +28,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
     :ok
   end
 
-  describe "get/3" do
+  describe "get/4" do
     test "returns nil if not found (or expired)" do
       assert nil == RedisStore.get(@sid, @uid, :full, @config)
     end
@@ -293,7 +293,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   end
 
   describe "delete_all/3" do
-    test "removes all session of requested type and the user's session set" do
+    test "removes all sessions of requested type and the user's session set" do
       # unexpired, present
       command(["ZADD", user_sessions_key(@uid), @exp, "a"])
       command(["SET", "a", @serialized])

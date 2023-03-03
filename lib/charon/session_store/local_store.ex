@@ -63,7 +63,7 @@ defmodule Charon.SessionStore.LocalStore do
     Agent.get(__MODULE__, fn state ->
       state
       |> Stream.filter(&match?({{_, ^user_id, ^type}, _}, &1))
-      |> Stream.reject(&expired?(now, &1))
+      |> Stream.reject(fn {_, v} -> expired?(now, v) end)
       |> Stream.map(fn {_, v} -> v end)
       |> Enum.to_list()
     end)
@@ -72,18 +72,23 @@ defmodule Charon.SessionStore.LocalStore do
   @impl true
   def delete_all(user_id, type, _config) do
     Agent.update(__MODULE__, fn state ->
-      Map.reject(state, fn
+      Map.filter(state, fn
         {{_, ^user_id, ^type}} -> true
         _ -> false
       end)
     end)
   end
 
+  @doc """
+  Deletes expired tokens from the agent.
+  This should run periodically, for example once per day at a quiet moment.
+  """
+  @spec cleanup :: :ok
   def cleanup() do
     now = Internal.now()
 
     Agent.update(__MODULE__, fn state ->
-      Map.reject(state, &expired?(now, &1))
+      Map.reject(state, fn {_, v} -> expired?(now, v) end)
     end)
   end
 
