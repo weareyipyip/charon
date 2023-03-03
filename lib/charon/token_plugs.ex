@@ -428,7 +428,8 @@ defmodule Charon.TokenPlugs do
 
   ## Freshness example
 
-  Grace period is 5 seconds, and token ttl is 24h (so irrelevant in this example).
+  New cycle is created 5 seconds after the generation's first token is created,
+  and token ttl is 24h (so irrelevant in this example).
 
   | When | New gen | Fresh tokens | Created token | Current gen (timestamp) | Previous gen | Comment                                                                            |
   |------|---------|--------------|---------------|-------------------------|--------------|------------------------------------------------------------------------------------|
@@ -444,12 +445,12 @@ defmodule Charon.TokenPlugs do
 
       # some clock drift is allowed
       iex> now = Internal.now()
-      iex> conn = conn() |> set_session(%{t_gen_fresh_at: now, prev_t_gen_fresh_at: now - 10}) |> set_token_payload(%{"iat" => now - 11})
-      iex> ^conn = conn |> verify_token_fresh(5)
+      iex> conn = conn() |> set_session(%{tokens_fresh_from: now, prev_tokens_fresh_from: now - 10}) |> set_token_payload(%{"iat" => now - 11})
+      iex> nil = conn |> verify_token_fresh(5) |> Utils.get_auth_error()
 
       # if current gen is still within the cycle TTL, tokens from both it and previous gen are "fresh"
       iex> now = Internal.now()
-      iex> conn = conn() |> set_session(%{t_gen_fresh_at: now - 3, prev_t_gen_fresh_at: now - 10})
+      iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
       iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       # tokens are invalid from: iat < now - 10 (*previous* gen age) - 5 (max clock drift)
       # younger-than-previous-gen-and-clock-drift token is valid
@@ -457,46 +458,44 @@ defmodule Charon.TokenPlugs do
       # older-than-previous-gen-and-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
-      # no generation cycle took place
-      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_session()
-      %{t_gen_fresh_at: now - 3, prev_t_gen_fresh_at: now - 10}
+      # no generation cycle will take place
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Internal.get_private(@cycle_token_generation)
+      false
 
       # if current gen is too old, a generation cycle happens, and previous gen tokens are no longer valid
       # tokens are invalid from: iat < now - 10 (*current* gen age) - 5 (max clock drift)
       iex> now = Internal.now()
-      iex> conn = conn() |> set_session(%{t_gen_fresh_at: now - 10, prev_t_gen_fresh_at: now - 20})
+      iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
       iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       # younger-than-current-gen-and-clock-drift token is valid
       iex> nil = conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       # older-than-current-gen-and-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
-      # a generation cycle took place
-      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_session()
-      %{t_gen_fresh_at: now, prev_t_gen_fresh_at: now - 10}
+      # a generation cycle will occur
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Internal.get_private(@cycle_token_generation)
+      true
 
       # claim must be present
-      iex> conn = conn() |> set_session(%{t_gen_fresh_at: 0, prev_t_gen_fresh_at: 0}) |> set_token_payload(%{})
+      iex> conn = conn() |> set_session(%{tokens_fresh_from: 0, prev_tokens_fresh_from: 0}) |> set_token_payload(%{})
       iex> conn |> verify_token_fresh(5) |> Utils.get_auth_error()
       "bearer token claim iat not found"
   """
   @spec verify_token_fresh(Conn.t(), pos_integer()) :: Conn.t()
-  def verify_token_fresh(conn, cycle_ttl \\ 5) do
+  def verify_token_fresh(conn, new_cycle_after \\ 5) do
     verify_session_payload(conn, fn conn, session ->
-      %{t_gen_fresh_at: t_gen_fresh_at, prev_t_gen_fresh_at: prev_t_gen_fresh_at} = session
+      current_gen_fresh_from = session.tokens_fresh_from
+      prev_gen_fresh_from = session.prev_tokens_fresh_from
       now = now()
 
-      if t_gen_fresh_at < now - cycle_ttl do
-        session = %{session | t_gen_fresh_at: now, prev_t_gen_fresh_at: t_gen_fresh_at}
-        conn = put_private(conn, @session, session)
-        {conn, t_gen_fresh_at}
-      else
-        {conn, prev_t_gen_fresh_at}
-      end
-      |> then(fn {conn, t_gen_fresh_at} ->
-        verify_claim(conn, "iat", fn conn, iat ->
-          if iat >= t_gen_fresh_at - 5, do: conn, else: "token stale"
-        end)
+      new_cycle? = current_gen_fresh_from + new_cycle_after < now
+      # on a new cycle, the comparison value becomes the most recent cycle's
+      fresh_from = if(new_cycle?, do: current_gen_fresh_from, else: prev_gen_fresh_from)
+
+      conn
+      |> put_private(@cycle_token_generation, new_cycle?)
+      |> verify_claim("iat", fn conn, iat ->
+        if iat >= fresh_from - 5, do: conn, else: "token stale"
       end)
     end)
   end

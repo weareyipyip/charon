@@ -6,13 +6,14 @@ defmodule Charon.Internal.Constants do
       @auth_error :charon_auth_error
       @bearer_token :charon_bearer_token
       @bearer_token_payload :charon_bearer_token_payload
+      @cycle_token_generation :charon_cycle_token_generation
       @refresh_token_payload :charon_refresh_token_payload
+      @resp_cookies :charon_resp_cookies
       @session :charon_session
       @session_id :charon_session_id
       @token_signature_transport :charon_token_signature_transport
       @tokens :charon_tokens
       @user_id :charon_user_id
-      @resp_cookies :charon_resp_cookies
     end
   end
 end

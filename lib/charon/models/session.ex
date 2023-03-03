@@ -2,7 +2,7 @@ defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
-  @latest_version 5
+  @latest_version 6
 
   @enforce_keys [
     :created_at,
@@ -11,7 +11,7 @@ defmodule Charon.Models.Session do
     :refresh_expires_at,
     :refresh_token_id,
     :refreshed_at,
-    :t_gen_fresh_at,
+    :tokens_fresh_from,
     :user_id
   ]
   defstruct [
@@ -21,10 +21,10 @@ defmodule Charon.Models.Session do
     :refresh_expires_at,
     :refresh_token_id,
     :refreshed_at,
-    :t_gen_fresh_at,
+    :tokens_fresh_from,
     :user_id,
     extra_payload: %{},
-    prev_t_gen_fresh_at: 0,
+    prev_tokens_fresh_from: 0,
     type: :full,
     version: @latest_version
   ]
@@ -34,11 +34,11 @@ defmodule Charon.Models.Session do
           expires_at: integer | :infinite,
           extra_payload: map(),
           id: String.t(),
-          prev_t_gen_fresh_at: integer,
+          prev_tokens_fresh_from: integer,
           refresh_expires_at: integer,
           refresh_token_id: binary(),
           refreshed_at: integer,
-          t_gen_fresh_at: integer,
+          tokens_fresh_from: integer,
           type: atom(),
           user_id: pos_integer | binary(),
           version: pos_integer
@@ -84,11 +84,11 @@ defmodule Charon.Models.Session do
       ...>   expires_at: 1,
       ...>   extra_payload: %{},
       ...>   id: "ab",
-      ...>   prev_t_gen_fresh_at: 0,
+      ...>   prev_tokens_fresh_from: 0,
       ...>   refresh_expires_at: 1,
       ...>   refresh_token_id: "cd",
       ...>   refreshed_at: 15,
-      ...>   t_gen_fresh_at: 15,
+      ...>   tokens_fresh_from: 15,
       ...>   type: :full,
       ...>   user_id: 9,
       ...>   version: #{@latest_version}
@@ -113,11 +113,11 @@ defmodule Charon.Models.Session do
       ...>   expires_at: :infinite,
       ...>   extra_payload: %{},
       ...>   id: "ab",
-      ...>   prev_t_gen_fresh_at: 0,
+      ...>   prev_tokens_fresh_from: 0,
       ...>   refresh_expires_at: refresh_exp,
       ...>   refresh_token_id: "cd",
       ...>   refreshed_at: 15,
-      ...>   t_gen_fresh_at: 15,
+      ...>   tokens_fresh_from: 15,
       ...>   type: :full,
       ...>   user_id: 9,
       ...>   version: #{@latest_version}
@@ -142,6 +142,14 @@ defmodule Charon.Models.Session do
 
   defp update(session = %{version: @latest_version}, _), do: session
 
+  # v5: tokens_fresh_from was still called t_gen_fresh_at, which is less descriptive
+  defp update(session = %{version: 5, prev_t_gen_fresh_at: p, t_gen_fresh_at: c}, config) do
+    session
+    |> Map.drop([:prev_t_gen_fresh_at, :t_gen_fresh_at])
+    |> Map.merge(%{version: 6, prev_tokens_fresh_from: p, tokens_fresh_from: c})
+    |> update(config)
+  end
+
   # v4: session has no :t_gen_fresh_at or :prev_t_gen_fresh_at
   defp update(session = %{version: 4, refreshed_at: refreshed_at}, config) do
     session
@@ -157,7 +165,7 @@ defmodule Charon.Models.Session do
     |> update(config)
   end
 
-  # v2: we're back to v2 :)
+  # v2: we're back to v2 in v4, so we can jump to it immediately
   defp update(session = %{version: 2}, config), do: %{session | version: 4} |> update(config)
 
   # v1: session has no :refresh_expires_at
