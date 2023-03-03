@@ -1,7 +1,8 @@
 name: CI / Automated testing
 on:
   push:
-    branches: ["**"]
+    branches: ["main"]
+  pull_request:
 
 jobs:
   test:
