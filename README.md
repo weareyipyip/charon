@@ -262,7 +262,7 @@ end
 
 And that's it :) Optionally, you can add get-all, logout-all and logout-other session endpoints, if your session store supports it (the default Redis one does).
 
-# Copyright and License
+## Copyright and License
 
 Copyright (c) 2023, YipYip B.V.
 
