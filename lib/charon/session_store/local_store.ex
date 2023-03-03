@@ -72,10 +72,11 @@ defmodule Charon.SessionStore.LocalStore do
   @impl true
   def delete_all(user_id, type, _config) do
     Agent.update(__MODULE__, fn state ->
-      Map.reject(state, fn
-        {{_, ^user_id, ^type}, _} -> true
-        _ -> false
+      Enum.filter(state, fn
+        {{_, ^user_id, ^type}, _} -> false
+        _ -> true
       end)
+      |> Map.new()
     end)
   end
 
@@ -88,7 +89,8 @@ defmodule Charon.SessionStore.LocalStore do
     now = Internal.now()
 
     Agent.update(__MODULE__, fn state ->
-      Map.reject(state, fn {_, v} -> expired?(now, v) end)
+      Enum.filter(state, fn {_, v} -> !expired?(now, v) end)
+      |> Map.new()
     end)
   end
 
