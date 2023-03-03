@@ -1,7 +1,6 @@
 defmodule Charon.SessionStore.LocalStoreTest do
   use ExUnit.Case
   alias Charon.SessionStore.LocalStore
-  alias Charon.Models.Session
   import Charon.{TestUtils, Internal}
 
   @ttl 10

@@ -13,70 +13,47 @@ defmodule Charon.SessionStore.LocalStore do
 
   """
   use Agent
-
   @behaviour Charon.SessionStore.Behaviour
-  alias Charon.Internal
+
+  import Charon.Internal
   require Logger
 
-  def start_link(_) do
-    Agent.start_link(fn -> %{} end, name: __MODULE__)
-  end
+  @agent_name __MODULE__
+
+  def start_link(_opts \\ []), do: Agent.start_link(fn -> %{} end, name: @agent_name)
 
   @impl true
   def get(session_id, user_id, type, _config) do
-    Agent.get(__MODULE__, fn state ->
-      session = Map.get(state, {session_id, user_id, type}, nil)
-
-      if session == nil || expired?(Internal.now(), session) do
-        nil
-      else
-        session
-      end
+    Agent.get(@agent_name, fn state ->
+      session = Map.get(state, to_key(session_id, user_id, type))
+      if is_nil(session) or expired?(session, now()), do: nil, else: session
     end)
   end
 
   @impl true
-  def upsert(
-        session = %{
-          id: session_id,
-          user_id: user_id,
-          type: type
-        },
-        _config
-      ) do
-    Agent.update(__MODULE__, fn state ->
-      Map.put(state, {session_id, user_id, type}, session)
-    end)
+  def upsert(session, _config) do
+    Agent.update(@agent_name, fn state -> Map.put(state, to_key(session), session) end)
   end
 
   @impl true
   def delete(session_id, user_id, type, _config) do
-    Agent.update(__MODULE__, fn state ->
-      Map.drop(state, [{session_id, user_id, type}])
-    end)
+    Agent.update(@agent_name, fn state -> Map.delete(state, to_key(session_id, user_id, type)) end)
   end
 
   @impl true
   def get_all(user_id, type, _config) do
-    now = Internal.now()
-
-    Agent.get(__MODULE__, fn state ->
+    Agent.get(@agent_name, fn state ->
       state
-      |> Stream.filter(&match?({{_, ^user_id, ^type}, _}, &1))
-      |> Stream.reject(fn {_, v} -> expired?(now, v) end)
-      |> Stream.map(fn {_, v} -> v end)
-      |> Enum.to_list()
+      |> Stream.filter(match_user_and_type(user_id, type))
+      |> Stream.reject(match_expired(now()))
+      |> Enum.map(_extract_session = fn {_key, session} -> session end)
     end)
   end
 
   @impl true
   def delete_all(user_id, type, _config) do
-    Agent.update(__MODULE__, fn state ->
-      Enum.filter(state, fn
-        {{_, ^user_id, ^type}, _} -> false
-        _ -> true
-      end)
-      |> Map.new()
+    Agent.update(@agent_name, fn state ->
+      state |> Stream.reject(match_user_and_type(user_id, type)) |> Map.new()
     end)
   end
 
@@ -86,15 +63,21 @@ defmodule Charon.SessionStore.LocalStore do
   """
   @spec cleanup :: :ok
   def cleanup() do
-    now = Internal.now()
-
-    Agent.update(__MODULE__, fn state ->
-      Enum.filter(state, fn {_, v} -> !expired?(now, v) end)
-      |> Map.new()
+    Agent.update(@agent_name, fn state ->
+      state |> Stream.reject(match_expired(now())) |> Map.new()
     end)
   end
 
-  defp expired?(now, session) do
-    now > session.refresh_expires_at
-  end
+  ###########
+  # Private #
+  ###########
+
+  defp expired?(session, now), do: now > session.refresh_expires_at
+
+  defp to_key(%{id: sid, user_id: uid, type: type}), do: to_key(sid, uid, type)
+  defp to_key(sid, uid, type), do: {sid, uid, type}
+
+  defp match_user_and_type(uid, type), do: &match?({_key = {_, ^uid, ^type}, _session}, &1)
+
+  defp match_expired(now), do: fn {_key, session} -> expired?(session, now) end
 end
