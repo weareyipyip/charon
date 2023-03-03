@@ -13,6 +13,15 @@ jobs:
         run: printenv
       - name: Checkout code
         uses: actions/checkout@v3
+      - name: Cache deps
+        uses: actions/cache@v3
+        with:
+          path: |
+            deps
+            _build
+          key: deps-cache-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            deps-cache-
 
       - name: Set version in readme
         uses: weareyipyip/set-version-action@v2
