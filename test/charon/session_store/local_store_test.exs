@@ -109,16 +109,21 @@ defmodule Charon.SessionStore.LocalStoreTest do
     test "removes all of user's sessions with requested type" do
       second_session = %{@user_session | id: "b"}
       second_key = {"b", @uid, @stype}
+      second_user_session = %{@user_session | user_id: @uid + 1}
+      second_user_key = {@sid, @uid + 1, @stype}
 
       Agent.update(LocalStore, fn _ ->
         %{
           @user_key => @user_session,
-          second_key => second_session
+          second_key => second_session,
+          second_user_key => second_user_session
         }
       end)
 
       assert :ok = LocalStore.delete_all(@uid, @stype, @config)
-      assert %{} == Agent.get(LocalStore, fn state -> state end)
+
+      assert %{second_user_key => second_user_session} ==
+               Agent.get(LocalStore, fn state -> state end)
     end
   end
 
