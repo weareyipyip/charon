@@ -598,7 +598,7 @@ defmodule Charon.TokenPlugs do
       end
     end
 
-    verify_token_claim(conn, {claim, verifier})
+    verify_claim(conn, claim, verifier)
   end
 
   ###########
