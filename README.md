@@ -83,7 +83,7 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 
 ### Setting up a session store
 
-A session store can be created using multiple state stores, be it a database or a GenServer. All you have to do is implement a simple behaviour which you can find in `Charon.SessionStore.Behaviour`. A default implementation using Redis is provided by `Charon.SessionStore.RedisStore`, as is a dummy store (`Charon.SessionStore.DummyStore`) in case you don't want to use server-side sessions and prefer fully stateless tokens.
+A session store can be created using multiple state stores, be it a database or a GenServer. All you have to do is implement a simple behaviour which you can find in `Charon.SessionStore.Behaviour`. Two default implementations are provided, `Charon.SessionStore.RedisStore` uses a Redis database, `Charon.SessionStore.LocalStore` uses a GenServer. Use `Charon.SessionStore.DummyStore` in case you don't want to use server-side sessions and prefer fully stateless tokens.
 
 ### Setting up a token factory
 
