@@ -20,51 +20,44 @@ defmodule Charon.SessionStore.LocalStore do
 
   @agent_name __MODULE__
 
-  def start_link(_opts \\ []), do: Agent.start_link(fn -> %{} end, name: @agent_name)
+  def start_link(_opts \\ []), do: Agent.start_link(fn -> {0, %{}} end, name: @agent_name)
 
   @impl true
   def get(session_id, user_id, type, _config) do
-    Agent.get(@agent_name, fn state ->
-      session = Map.get(state, to_key(session_id, user_id, type))
+    Agent.get(@agent_name, fn _state = {_count, store} ->
+      session = Map.get(store, to_key(session_id, user_id, type))
       if is_nil(session) or expired?(session, now()), do: nil, else: session
     end)
   end
 
   @impl true
   def upsert(session, _config) do
-    Agent.update(@agent_name, fn state -> Map.put(state, to_key(session), session) end)
+    Agent.update(@agent_name, fn _state = {count, store} ->
+      {count + 1, Map.put(store, to_key(session), session)} |> maybe_prune_expired()
+    end)
   end
 
   @impl true
   def delete(session_id, user_id, type, _config) do
-    Agent.update(@agent_name, fn state -> Map.delete(state, to_key(session_id, user_id, type)) end)
+    Agent.update(@agent_name, fn _state = {count, store} ->
+      {count - 1, Map.delete(store, to_key(session_id, user_id, type))}
+    end)
   end
 
   @impl true
   def get_all(user_id, type, _config) do
-    Agent.get(@agent_name, fn state ->
-      state
+    Agent.get(@agent_name, fn _state = {_count, store} ->
+      store
       |> Stream.filter(match_user_and_type(user_id, type))
       |> Stream.reject(match_expired(now()))
-      |> Enum.map(_extract_session = fn {_key, session} -> session end)
+      |> Enum.map(&value_only/1)
     end)
   end
 
   @impl true
   def delete_all(user_id, type, _config) do
     Agent.update(@agent_name, fn state ->
-      state |> Stream.reject(match_user_and_type(user_id, type)) |> Map.new()
-    end)
-  end
-
-  @doc """
-  Deletes expired tokens from the agent.
-  This should run periodically, for example once per day at a quiet moment.
-  """
-  @spec cleanup :: :ok
-  def cleanup() do
-    Agent.update(@agent_name, fn state ->
-      state |> Stream.reject(match_expired(now())) |> Map.new()
+      delete_matching(state, match_user_and_type(user_id, type))
     end)
   end
 
@@ -80,4 +73,18 @@ defmodule Charon.SessionStore.LocalStore do
   defp match_user_and_type(uid, type), do: &match?({_key = {_, ^uid, ^type}, _session}, &1)
 
   defp match_expired(now), do: fn {_key, session} -> expired?(session, now) end
+
+  defp key_only({k, _v}), do: k
+  defp value_only({_k, v}), do: v
+
+  defp delete_matching({count, store}, matcher) do
+    keys = store |> Stream.filter(matcher) |> Enum.map(&key_only/1)
+    {count - Enum.count(keys), Map.drop(store, keys)}
+  end
+
+  defp maybe_prune_expired(state = {count, _store}) when rem(count, 1000) == 0 do
+    delete_matching(state, match_expired(now()))
+  end
+
+  defp maybe_prune_expired(state), do: state
 end

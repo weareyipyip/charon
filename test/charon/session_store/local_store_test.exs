@@ -24,17 +24,17 @@ defmodule Charon.SessionStore.LocalStoreTest do
 
     test "returns nil if session expired" do
       expired_session = %{@user_session | refresh_expires_at: 0}
-      Agent.update(LocalStore, fn _ -> %{@user_key => expired_session} end)
+      Agent.update(LocalStore, fn _ -> {1, %{@user_key => expired_session}} end)
       assert nil == LocalStore.get(@sid, @uid, @stype, @config)
     end
 
     test "returns nil if other type" do
-      Agent.update(LocalStore, fn _ -> %{@user_key => @user_session} end)
+      Agent.update(LocalStore, fn _ -> {1, %{@user_key => @user_session}} end)
       assert nil == LocalStore.get(@sid, @uid, :invalid_type, @config)
     end
 
     test "returns session" do
-      Agent.update(LocalStore, fn _ -> %{@user_key => @user_session} end)
+      Agent.update(LocalStore, fn _ -> {1, %{@user_key => @user_session}} end)
       assert @user_session == LocalStore.get(@sid, @uid, @stype, @config)
     end
   end
@@ -42,7 +42,7 @@ defmodule Charon.SessionStore.LocalStoreTest do
   describe "upsert/3" do
     test "stores session by session id, user id and type" do
       assert :ok = LocalStore.upsert(@user_session, @config)
-      assert %{@user_key => @user_session} == Agent.get(LocalStore, fn state -> state end)
+      assert {1, %{@user_key => @user_session}} == Agent.get(LocalStore, & &1)
     end
 
     test "seperates sessions by type" do
@@ -50,18 +50,34 @@ defmodule Charon.SessionStore.LocalStoreTest do
       assert :ok = LocalStore.upsert(@user_session, @config)
       assert :ok = LocalStore.upsert(other_type_session, @config)
 
-      assert %{
-               @user_key => @user_session,
-               {@sid, @uid, :other_type} => other_type_session
-             } == Agent.get(LocalStore, fn state -> state end)
+      assert {2,
+              %{
+                @user_key => @user_session,
+                {@sid, @uid, :other_type} => other_type_session
+              }} == Agent.get(LocalStore, & &1)
     end
 
     test "updates existing session" do
       assert :ok = LocalStore.upsert(@user_session, @config)
-      assert %{@user_key => @user_session} == Agent.get(LocalStore, fn state -> state end)
+      assert {1, %{@user_key => @user_session}} == Agent.get(LocalStore, & &1)
       new_user_session = %{@user_session | refresh_expires_at: @exp + 1}
       assert :ok = LocalStore.upsert(new_user_session, @config)
-      assert %{@user_key => new_user_session} == Agent.get(LocalStore, fn state -> state end)
+      assert {2, %{@user_key => new_user_session}} == Agent.get(LocalStore, & &1)
+    end
+
+    test "cleans up expired sessions when session count is multiple of 1000" do
+      exp = now() - 10
+
+      for n <- 1..999 do
+        assert :ok = LocalStore.upsert(%{@user_session | id: n, refresh_expires_at: exp}, @config)
+      end
+
+      assert {999, store} = Agent.get(LocalStore, & &1)
+      assert 999 = Enum.count(store)
+
+      only_valid_session = %{@user_session | id: 1000}
+      assert :ok = LocalStore.upsert(only_valid_session, @config)
+      assert {1, %{{1000, 426, :full} => ^only_valid_session}} = Agent.get(LocalStore, & &1)
     end
   end
 
@@ -71,9 +87,9 @@ defmodule Charon.SessionStore.LocalStoreTest do
     end
 
     test "deletes session" do
-      Agent.update(LocalStore, fn _ -> %{@user_key => @user_session} end)
+      Agent.update(LocalStore, fn _ -> {1, %{@user_key => @user_session}} end)
       assert :ok = LocalStore.delete(@sid, @uid, @stype, @config)
-      assert %{} == Agent.get(LocalStore, fn state -> state end)
+      assert {0, %{}} == Agent.get(LocalStore, & &1)
     end
   end
 
@@ -89,11 +105,12 @@ defmodule Charon.SessionStore.LocalStoreTest do
       expired_key = {"c", @uid, @stype}
 
       Agent.update(LocalStore, fn _ ->
-        %{
-          @user_key => @user_session,
-          second_key => second_session,
-          expired_key => expired_session
-        }
+        {2,
+         %{
+           @user_key => @user_session,
+           second_key => second_session,
+           expired_key => expired_session
+         }}
       end)
 
       assert [@user_session, second_session] == LocalStore.get_all(@uid, @stype, @config)
@@ -112,44 +129,17 @@ defmodule Charon.SessionStore.LocalStoreTest do
       second_user_key = {@sid, @uid + 1, @stype}
 
       Agent.update(LocalStore, fn _ ->
-        %{
-          @user_key => @user_session,
-          second_key => second_session,
-          second_user_key => second_user_session
-        }
+        {3,
+         %{
+           @user_key => @user_session,
+           second_key => second_session,
+           second_user_key => second_user_session
+         }}
       end)
 
       assert :ok = LocalStore.delete_all(@uid, @stype, @config)
 
-      assert %{second_user_key => second_user_session} ==
-               Agent.get(LocalStore, fn state -> state end)
-    end
-  end
-
-  describe "cleanup/0" do
-    test "removes all expired sessions" do
-      expired_session = %{@user_session | refresh_expires_at: 0, id: "b"}
-      expired_key = {"b", @uid, @stype}
-
-      second_expired_session = %{
-        @user_session
-        | refresh_expires_at: 0,
-          user_id: @uid + 1,
-          id: "c"
-      }
-
-      second_expired_key = {"c", @uid + 1, @stype}
-
-      Agent.update(LocalStore, fn _ ->
-        %{
-          @user_key => @user_session,
-          expired_key => expired_session,
-          second_expired_key => second_expired_session
-        }
-      end)
-
-      LocalStore.cleanup()
-      assert %{@user_key => @user_session} == Agent.get(LocalStore, fn state -> state end)
+      assert {1, %{second_user_key => second_user_session}} == Agent.get(LocalStore, & &1)
     end
   end
 end
