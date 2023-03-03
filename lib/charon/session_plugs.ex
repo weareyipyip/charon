@@ -155,6 +155,7 @@ defmodule Charon.SessionPlugs do
             refreshed_at: now,
             type: session_type
         }
+        |> maybe_cycle_token_generation(conn, now)
         |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
       else
         %Session{
@@ -162,11 +163,11 @@ defmodule Charon.SessionPlugs do
           expires_at: if(session_ttl == :infinite, do: :infinite, else: session_ttl + now),
           extra_payload: extra_session_payload,
           id: Internal.random_url_encoded(16),
-          prev_t_gen_fresh_at: now,
+          prev_tokens_fresh_from: now,
           refresh_expires_at: now + max_refresh_ttl,
           refresh_token_id: refresh_token_id,
           refreshed_at: now,
-          t_gen_fresh_at: now,
+          tokens_fresh_from: now,
           type: session_type,
           user_id: get_user_id!(conn)
         }
@@ -335,4 +336,10 @@ defmodule Charon.SessionPlugs do
 
   defp truncate_refresh_expires_at(s = %{expires_at: s_exp, refresh_expires_at: rt_exp}),
     do: %{s | refresh_expires_at: min(s_exp, rt_exp)}
+
+  defp maybe_cycle_token_generation(session, %{private: %{@cycle_token_generation => true}}, now) do
+    %{session | tokens_fresh_from: now, prev_tokens_fresh_from: session.tokens_fresh_from}
+  end
+
+  defp maybe_cycle_token_generation(session, _conn, _now), do: session
 end
