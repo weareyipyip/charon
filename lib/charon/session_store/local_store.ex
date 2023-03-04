@@ -40,7 +40,8 @@ defmodule Charon.SessionStore.LocalStore do
   @impl true
   def delete(session_id, user_id, type, _config) do
     Agent.update(@agent_name, fn _state = {count, store} ->
-      {count - 1, Map.delete(store, to_key(session_id, user_id, type))}
+      {found_session, store} = Map.pop(store, to_key(session_id, user_id, type))
+      {if(found_session, do: count - 1, else: count), store}
     end)
   end
 
