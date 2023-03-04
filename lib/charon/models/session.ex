@@ -49,9 +49,10 @@ defmodule Charon.Models.Session do
   @doc """
   Serialize a session.
   """
+  @deprecated "Use :erlang.term_to_binary/1"
   @spec serialize(struct) :: binary
   def serialize(session) do
-    session |> Map.from_struct() |> :erlang.term_to_binary()
+    session |> :erlang.term_to_binary()
   end
 
   @doc """
@@ -63,9 +64,22 @@ defmodule Charon.Models.Session do
 
       # serialization is reversible
       iex> %Session{} = test_session() |> serialize() |> deserialize(@charon_config)
+  """
+  @spec deserialize(binary, Config.t()) :: struct
+  @deprecated "Use :erlang.binary_to_term/1"
+  def deserialize(binary, config) do
+    binary |> :erlang.binary_to_term() |> upgrade_version(config)
+  end
+
+  @doc """
+  Upgrade a session (or map created from a session struct) to the latest struct version (#{@latest_version}).
+
+  ## DocTests
+
+      @charon_config Charon.Config.from_enum(token_issuer: "local")
 
       # old version without the :version, :refesh_expires_at fields but with :__struct__ set
-      # is deserialized without error, and updated to latest version (#{@latest_version})
+      # is updated to latest version (#{@latest_version})
       iex> session = %{
       ...>   __struct__: Session,
       ...>   created_at: 0,
@@ -77,8 +91,7 @@ defmodule Charon.Models.Session do
       ...>   type: :full,
       ...>   user_id: 9
       ...> }
-      ...> |> :erlang.term_to_binary()
-      ...> |> deserialize(@charon_config)
+      ...> |> upgrade_version(@charon_config)
       iex> %Session{
       ...>   created_at: 0,
       ...>   expires_at: 1,
@@ -94,7 +107,7 @@ defmodule Charon.Models.Session do
       ...>   version: #{@latest_version}
       ...> } = session
 
-      # old version - with :expires_at = nil - is deserialized without error
+      # old version - with :expires_at = nil - is updated without error
       iex> session = %{
       ...>   __struct__: Session,
       ...>   created_at: 0,
@@ -106,8 +119,7 @@ defmodule Charon.Models.Session do
       ...>   type: :full,
       ...>   user_id: 9
       ...> }
-      ...> |> :erlang.term_to_binary()
-      ...> |> deserialize(@charon_config)
+      ...> |> upgrade_version(@charon_config)
       iex> %Session{
       ...>   created_at: 0,
       ...>   expires_at: :infinite,
@@ -125,15 +137,10 @@ defmodule Charon.Models.Session do
       iex> refresh_exp > 100000
       true
   """
-  @spec deserialize(binary, Config.t()) :: struct
-  def deserialize(binary, config) do
-    binary
-    |> :erlang.binary_to_term()
-    |> Map.drop([:__struct__])
-    |> update(config)
-    |> case do
-      map -> struct!(__MODULE__, map)
-    end
+  @spec upgrade_version(map, Config.t()) :: map
+  def upgrade_version(session, config) do
+    session = session |> Map.delete(:__struct__) |> update(config)
+    struct!(__MODULE__, session)
   end
 
   ###########
@@ -170,16 +177,15 @@ defmodule Charon.Models.Session do
 
   # v1: session has no :refresh_expires_at
   defp update(session = %{version: 1}, config) do
-    exp = config.refresh_token_ttl + Internal.now()
+    base_refresh_exp = config.refresh_token_ttl + Internal.now()
 
-    exp =
-      if (session_exp = session.expires_at) == :infinite do
-        exp
-      else
-        min(exp, session_exp)
+    refresh_exp =
+      case session.expires_at do
+        :infinite -> base_refresh_exp
+        finite -> min(base_refresh_exp, finite)
       end
 
-    session |> Map.merge(%{version: 2, refresh_expires_at: exp}) |> update(config)
+    session |> Map.merge(%{version: 2, refresh_expires_at: refresh_exp}) |> update(config)
   end
 
   # v0: session has no :version and may have :expires_at = nil

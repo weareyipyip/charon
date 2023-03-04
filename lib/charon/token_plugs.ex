@@ -372,7 +372,7 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> command(["SET", session_key("a", 1), test_session() |> Session.serialize()])
+      iex> command(["SET", session_key("a", 1), test_session() |> :erlang.term_to_binary()])
       iex> conn = conn() |> set_token_payload(%{"sid" => "a", "sub" => 1, "styp" => "full"})
       iex> %Session{} = conn |> load_session(@config) |> Internal.get_private(@session)
 
