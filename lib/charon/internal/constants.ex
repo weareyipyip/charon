@@ -7,6 +7,7 @@ defmodule Charon.Internal.Constants do
       @bearer_token :charon_bearer_token
       @bearer_token_payload :charon_bearer_token_payload
       @cycle_token_generation :charon_cycle_token_generation
+      @now :charon_request_at
       @refresh_token_payload :charon_refresh_token_payload
       @resp_cookies :charon_resp_cookies
       @session :charon_session

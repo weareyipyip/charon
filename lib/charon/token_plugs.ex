@@ -182,17 +182,16 @@ defmodule Charon.TokenPlugs do
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
       payload = Map.put_new(payload, "styp", "full")
-      put_private(conn, @bearer_token_payload, payload)
+      put_private(conn, %{@now => now(), @bearer_token_payload => payload})
     else
       _ -> set_auth_error(conn, "bearer token signature invalid")
     end
   end
 
-  def verify_token_signature(_, _),
-    do:
-      raise(
-        "must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2"
-      )
+  def verify_token_signature(_, _) do
+    "must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2"
+    |> raise()
+  end
 
   @doc """
   Verify that the bearer token payload contains a valid `nbf` (not before) claim.
@@ -221,7 +220,7 @@ defmodule Charon.TokenPlugs do
   def verify_token_nbf_claim(conn, _opts) do
     verify_claim(conn, "nbf", fn conn, nbf ->
       # allow some clock drift
-      if now() >= nbf - 5, do: conn, else: "bearer token not yet valid"
+      if now(conn) >= nbf - 5, do: conn, else: "bearer token not yet valid"
     end)
   end
 
@@ -255,7 +254,7 @@ defmodule Charon.TokenPlugs do
   def verify_token_exp_claim(conn, _opts) do
     verify_claim(conn, "exp", fn conn, exp ->
       # allow some clock drift
-      if now() < exp + 5, do: conn, else: "bearer token expired"
+      if now(conn) < exp + 5, do: conn, else: "bearer token expired"
     end)
   end
 
@@ -486,7 +485,7 @@ defmodule Charon.TokenPlugs do
     verify_session_payload(conn, fn conn, session ->
       current_gen_fresh_from = session.tokens_fresh_from
       prev_gen_fresh_from = session.prev_tokens_fresh_from
-      now = now()
+      now = now(conn)
 
       new_cycle? = current_gen_fresh_from + new_cycle_after < now
       # on a new cycle, the comparison value becomes the most recent cycle's
