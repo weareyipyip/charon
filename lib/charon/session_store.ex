@@ -26,7 +26,10 @@ defmodule Charon.SessionStore do
   @impl true
   def get_all(user_id, type, config) do
     config.session_store_module.get_all(user_id, type, config)
-    |> Enum.map(&Session.upgrade_version(&1, config))
+    |> case do
+      sessions when is_list(sessions) -> Enum.map(sessions, &Session.upgrade_version(&1, config))
+      other -> other
+    end
   end
 
   @impl true
