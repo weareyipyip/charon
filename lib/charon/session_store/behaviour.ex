@@ -1,11 +1,18 @@
 defmodule Charon.SessionStore.Behaviour do
   @moduledoc """
   Behaviour definition of a persistent session store.
-  The implementation is expected to handle cleanup of expired entries.
+  Clients should not use the implementation directly, but should use `Charon.SessionStore`.
 
   Implementations are expected to store sessions by ID, user ID and session type.
   For the optional callbacks `get_all/3` and `delete_all/3`, sessions should be retrievable
   by user ID and session type only.
+
+  Implementations should return the session exactly as it went in
+  (they don't have to take care of struct version upgrades).
+
+  Implementations should handle cleanup of expired entries,
+  but may define additional functions and instructions to take care of such things
+  (like a `cleanup/0` that should run periodically).
   """
   alias Charon.Session
   alias Charon.Config

@@ -86,7 +86,7 @@ defmodule Charon.TokenFactory.Jwt do
       )
 
   The following options are supported:
-    - `:get_keyset` (optional, default `default_keyset/0`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
+    - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
 
   ## Examples / doctests

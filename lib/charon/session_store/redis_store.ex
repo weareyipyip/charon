@@ -32,7 +32,6 @@ defmodule Charon.SessionStore.RedisStore do
   @behaviour Charon.SessionStore.Behaviour
   alias Charon.Config
   alias Charon.Internal
-  alias Charon.Models.Session
   import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
   require Logger
 
@@ -48,7 +47,7 @@ defmodule Charon.SessionStore.RedisStore do
     |> mod_conf.redix_module.command()
     |> case do
       {:ok, nil} -> nil
-      {:ok, serialized} -> Session.deserialize(serialized, config)
+      {:ok, serialized} -> :erlang.binary_to_term(serialized)
       error -> error
     end
   end
@@ -72,7 +71,7 @@ defmodule Charon.SessionStore.RedisStore do
     now = Integer.to_string(now)
 
     # upsert the actual session as a separate key-value pair that expires when the refresh token expires
-    upsert_session_c = ["SET", session_key, Session.serialize(session), "EXAT", exp_str]
+    upsert_session_c = ["SET", session_key, :erlang.term_to_binary(session), "EXAT", exp_str]
     # add session key to user's session set, with exp timestamp as score (or update score)
     upsert_set_c = ["ZADD", set_key, exp_str, session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
@@ -148,7 +147,7 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys = [_ | _]} <- get_valid_session_keys(user_id, type, mod_conf),
          {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
-      values |> Stream.reject(&is_nil/1) |> Enum.map(&Session.deserialize(&1, config))
+      values |> Stream.reject(&is_nil/1) |> Enum.map(&:erlang.binary_to_term/1)
     else
       {:ok, []} -> []
       other -> other

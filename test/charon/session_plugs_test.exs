@@ -14,7 +14,7 @@ defmodule Charon.SessionPlugsTest do
   @sid "a"
   @uid 426
   @user_session test_session(id: @sid, user_id: @uid)
-  @serialized Session.serialize(@user_session)
+  @serialized :erlang.term_to_binary(@user_session)
 
   setup_all do
     TestRedix.init()
