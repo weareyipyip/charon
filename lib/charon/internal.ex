@@ -10,7 +10,15 @@ defmodule Charon.Internal do
   @doc """
   Get a `now` unix timestamp
   """
+  @spec now :: integer
   def now(), do: System.os_time(:second)
+
+  @doc """
+  Get the requests' `now` unix timestamp from conn or default to `now/0` result.
+  """
+  @spec now(Plug.Conn.t()) :: integer
+  def now(_conn = %{private: %{@now => now}}), do: now
+  def now(_conn), do: now()
 
   @doc """
   Get a value from the conn/resolution's private map

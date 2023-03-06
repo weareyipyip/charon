@@ -135,7 +135,7 @@ defmodule Charon.SessionPlugs do
         },
         opts \\ []
       ) do
-    now = Internal.now()
+    now = Internal.now(conn)
     access_claim_overrides = opts[:access_claim_overrides] || %{}
     refresh_claim_overrides = opts[:refresh_claim_overrides] || %{}
     extra_session_payload = opts[:extra_session_payload] || %{}
