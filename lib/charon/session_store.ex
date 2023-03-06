@@ -18,8 +18,8 @@ defmodule Charon.SessionStore do
   def get(session_id, user_id, type, config) do
     config.session_store_module.get(session_id, user_id, type, config)
     |> case do
-      nil -> nil
-      session -> Session.upgrade_version(session, config)
+      session = %{} -> Session.upgrade_version(session, config)
+      other -> other
     end
   end
 
