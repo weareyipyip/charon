@@ -198,11 +198,11 @@ defmodule Charon.SessionStore.RedisStore do
     key = mod_conf.get_signing_key.(config)
     serialized = :erlang.term_to_binary(session)
     mac = hmac(serialized, key)
-    IO.iodata_to_binary(["signed.", mac, ?., serialized])
+    <<"signed.", mac::binary, ".", serialized::binary>>
   end
 
   # deserialize session and verify its signature
-  defp deserialize("signed." <> <<mac::binary-size(32)>> <> "." <> serialized, mod_conf, config) do
+  defp deserialize(<<"signed.", mac::binary-size(32), ".", serialized::binary>>, mod_conf, config) do
     serialized
     |> hmac(mod_conf.get_signing_key.(config))
     |> constant_time_compare(mac)
@@ -215,9 +215,8 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   defp deserialize(unsigned, %{allow_unsigned?: allow_unsigned?}, _config) do
-    session = :erlang.binary_to_term(unsigned)
-
     if allow_unsigned? do
+      session = :erlang.binary_to_term(unsigned)
       Logger.warning("Unsigned session #{session.id} fetched from Redis.")
       session
     else
