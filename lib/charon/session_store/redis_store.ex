@@ -46,13 +46,17 @@ defmodule Charon.SessionStore.RedisStore do
   @impl true
   def get(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
-    session_key = session_key(session_id, user_id, type, mod_conf)
+    {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
+    old_session_key = old_session_key(session_id, user_id_str, type_str, key_prefix)
+    session_key = session_key(session_id, user_id_str, type_str, key_prefix)
 
-    ["GET", session_key]
+    # all of this can be replaced by GET single key after a while
+    ["MGET", session_key, old_session_key]
     |> mod_conf.redix_module.command()
     |> case do
-      {:ok, nil} -> nil
-      {:ok, serialized} -> deserialize(serialized, mod_conf, config)
+      {:ok, [<<serialized::binary>>, _]} -> deserialize(serialized, mod_conf, config)
+      {:ok, [_, <<serialized::binary>>]} -> deserialize(serialized, mod_conf, config)
+      {:ok, _} -> nil
       error -> error
     end
   end
@@ -70,8 +74,9 @@ defmodule Charon.SessionStore.RedisStore do
         config
       ) do
     mod_conf = get_mod_config(config)
-    session_key = session_key(sid, uid, type, mod_conf)
-    set_key = set_key(uid, type, mod_conf)
+    {uid_str, type_str, key_prefix} = key_data(uid, type, mod_conf)
+    session_key = session_key(sid, uid_str, type_str, key_prefix)
+    set_key = set_key(uid_str, type_str, key_prefix)
     exp_str = Integer.to_string(exp)
     now = Integer.to_string(now)
 
@@ -117,12 +122,15 @@ defmodule Charon.SessionStore.RedisStore do
   @impl true
   def delete(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
-    session_key = session_key(session_id, user_id, type, mod_conf)
-    set_key = set_key(user_id, type, mod_conf)
+    {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
+    old_session_key = old_session_key(session_id, user_id_str, type_str, key_prefix)
+    session_key = session_key(session_id, user_id_str, type_str, key_prefix)
+    set_key = set_key(user_id_str, type_str, key_prefix)
     now = Internal.now() |> Integer.to_string()
 
-    delete_c = ["DEL", session_key]
-    delete_key_c = ["ZREM", set_key, session_key]
+    # all of this can be replaced by DEL single key after a while
+    delete_c = ["DEL", session_key, old_session_key]
+    delete_key_c = ["ZREM", set_key, session_key, old_session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
     prune_set_c = prune_session_set_cmd(set_key, now)
 
@@ -149,8 +157,10 @@ defmodule Charon.SessionStore.RedisStore do
   @impl true
   def get_all(user_id, type, config) do
     mod_conf = get_mod_config(config)
+    {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
 
-    with {:ok, keys = [_ | _]} <- get_valid_session_keys(user_id, type, mod_conf),
+    with {:ok, keys = [_ | _]} <-
+           get_valid_session_keys(user_id_str, type_str, key_prefix, mod_conf),
          {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
       values |> Stream.reject(&is_nil/1) |> Enum.map(&deserialize(&1, mod_conf, config))
     else
@@ -162,9 +172,10 @@ defmodule Charon.SessionStore.RedisStore do
   @impl true
   def delete_all(user_id, type, config) do
     mod_conf = get_mod_config(config)
+    {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
 
-    with {:ok, keys} <- get_session_keys(user_id, type, mod_conf),
-         to_delete = [set_key(user_id, type, mod_conf) | keys],
+    with {:ok, keys} <- get_session_keys(user_id_str, type_str, key_prefix, mod_conf),
+         to_delete = [set_key(user_id_str, type_str, key_prefix) | keys],
          {:ok, n} when is_integer(n) <- ["DEL" | to_delete] |> mod_conf.redix_module.command() do
       :ok
     else
@@ -192,6 +203,9 @@ defmodule Charon.SessionStore.RedisStore do
   ###########
   # Private #
   ###########
+
+  defp key_data(uid, type, mod_conf),
+    do: {to_string(uid), Atom.to_string(type), mod_conf.key_prefix}
 
   # serialize and sign a session
   defp serialize(session, mod_conf, config) do
@@ -225,40 +239,39 @@ defmodule Charon.SessionStore.RedisStore do
     end
   end
 
-  # key for a single session
+  # old key for a single session
   # using the "old" format for :full sessions prevents old sessions from suddenly being logged-out
   # so this code is "backwards compatible" with respect to old sessions being retrievable
   @doc false
-  def session_key(session_id, user_id, :full, config) do
-    key = [config.key_prefix, ".s.", to_string(user_id), ?., session_id]
-    :crypto.hash(:blake2s, key)
-  end
+  def old_session_key(session_id, user_id, "full", key_prefix),
+    do: :crypto.hash(:blake2s, [key_prefix, ".s.", user_id, ?., session_id])
 
-  def session_key(session_id, user_id, type, config) do
-    key = [config.key_prefix, ".s.", to_string(user_id), ?., Atom.to_string(type), ?., session_id]
-    :crypto.hash(:blake2s, key)
-  end
+  def old_session_key(session_id, user_id, type, key_prefix),
+    do: :crypto.hash(:blake2s, [key_prefix, ".s.", user_id, ?., type, ?., session_id])
+
+  # session key. The session ID is assumed to be a unique value.
+  @doc false
+  def session_key(session_id, user_id, type, key_prefix),
+    do: [key_prefix, ".s.", user_id, ?., type, ?., session_id]
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
   @doc false
-  def set_key(user_id, :full, config), do: [config.key_prefix, ".u.", to_string(user_id)]
-
-  def set_key(user_id, type, config),
-    do: [config.key_prefix, ".u.", to_string(user_id), ?., Atom.to_string(type)]
+  def set_key(user_id, "full", key_prefix), do: [key_prefix, ".u.", user_id]
+  def set_key(user_id, type, key_prefix), do: [key_prefix, ".u.", user_id, ?., type]
 
   # get all keys, including expired ones, for a user
-  defp get_session_keys(user_id, type, config) do
+  defp get_session_keys(user_id, type, key_prefix, config) do
     # get all of the user's session keys (index 0 = first, -1 = last)
-    ["ZRANGE", set_key(user_id, type, config), "0", "-1"]
+    ["ZRANGE", set_key(user_id, type, key_prefix), "0", "-1"]
     |> config.redix_module.command()
   end
 
   # get all valid keys for a user
-  defp get_valid_session_keys(user_id, type, config) do
+  defp get_valid_session_keys(user_id, type, key_prefix, config) do
     now = Internal.now() |> Integer.to_string()
 
     # get all of the user's valid session keys (with score/timestamp >= now)
-    ["ZRANGE", set_key(user_id, type, config), now, "+inf", "BYSCORE"]
+    ["ZRANGE", set_key(user_id, type, key_prefix), now, "+inf", "BYSCORE"]
     |> config.redix_module.command()
   end
 

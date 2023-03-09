@@ -9,11 +9,12 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   @ttl 10
   @exp now() + @ttl
+  @mod_conf RedisStore.Config.from_enum(redix_module: TestRedix)
   @config %{
     TestConfig.get()
     | session_ttl: :infinite,
       refresh_token_ttl: @ttl,
-      optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
+      optional_modules: %{RedisStore => @mod_conf}
   }
   @sid "a"
   @uid 426
@@ -76,6 +77,16 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert capture_log(fn ->
                refute RedisStore.get(@sid, @uid, :full, @config)
              end) =~ "Ignored Redis session"
+    end
+
+    test "gets session with old key format" do
+      command([
+        "SET",
+        RedisStore.old_session_key(@sid, to_string(@uid), "full", "charon_"),
+        @signed_serialized
+      ])
+
+      assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
     end
   end
 
@@ -303,6 +314,17 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
       assert {:ok, 0} = command(["EXISTS", user_key])
+    end
+
+    test "deletes session with old key format" do
+      command([
+        "SET",
+        RedisStore.old_session_key(@sid, to_string(@uid), "full", "charon_"),
+        @signed_serialized
+      ])
+
+      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
+      assert {:ok, []} = command(~w(keys *))
     end
   end
 
