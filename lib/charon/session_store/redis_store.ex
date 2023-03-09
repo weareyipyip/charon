@@ -47,15 +47,12 @@ defmodule Charon.SessionStore.RedisStore do
   def get(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
     {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
-    old_session_key = old_session_key(session_id, user_id_str, type_str, key_prefix)
     session_key = session_key(session_id, user_id_str, type_str, key_prefix)
 
-    # TODO: all of this can be replaced by GET single key after a while
-    ["MGET", session_key, old_session_key]
+    ["GET", session_key]
     |> mod_conf.redix_module.command()
     |> case do
-      {:ok, [<<serialized::binary>>, _]} -> deserialize(serialized, mod_conf, config)
-      {:ok, [_, <<serialized::binary>>]} -> deserialize(serialized, mod_conf, config)
+      {:ok, <<serialized::binary>>} -> deserialize(serialized, mod_conf, config)
       {:ok, _} -> nil
       error -> error
     end
@@ -123,14 +120,12 @@ defmodule Charon.SessionStore.RedisStore do
   def delete(session_id, user_id, type, config) do
     mod_conf = get_mod_config(config)
     {user_id_str, type_str, key_prefix} = key_data(user_id, type, mod_conf)
-    old_session_key = old_session_key(session_id, user_id_str, type_str, key_prefix)
     session_key = session_key(session_id, user_id_str, type_str, key_prefix)
     set_key = set_key(user_id_str, type_str, key_prefix)
     now = Internal.now() |> Integer.to_string()
 
-    # TODO: all of this can be replaced by DEL single key after a while
-    delete_c = ["DEL", session_key, old_session_key]
-    delete_key_c = ["ZREM", set_key, session_key, old_session_key]
+    delete_c = ["DEL", session_key]
+    delete_key_c = ["ZREM", set_key, session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
     prune_set_c = prune_session_set_cmd(set_key, now)
 
@@ -278,17 +273,7 @@ defmodule Charon.SessionStore.RedisStore do
     end
   end
 
-  # old key for a single session
-  # using the "old" format for :full sessions prevents old sessions from suddenly being logged-out
-  # so this code is "backwards compatible" with respect to old sessions being retrievable
-  @doc false
-  def old_session_key(session_id, user_id, "full", key_prefix),
-    do: :crypto.hash(:blake2s, [key_prefix, ".s.", user_id, ?., session_id])
-
-  def old_session_key(session_id, user_id, type, key_prefix),
-    do: :crypto.hash(:blake2s, [key_prefix, ".s.", user_id, ?., type, ?., session_id])
-
-  # session key. The session ID is assumed to be a unique value.
+  # key under which the actual session is stored
   @doc false
   def session_key(session_id, user_id, type, key_prefix),
     do: [key_prefix, ".s.", user_id, ?., type, ?., session_id]
