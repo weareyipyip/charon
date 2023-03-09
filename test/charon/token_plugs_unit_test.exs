@@ -1,14 +1,11 @@
 defmodule Charon.TokenPlugsTest do
   use ExUnit.Case
   use Charon.Internal.Constants
-  alias Charon.{Utils, Internal}
-  alias Charon.TestRedix
-  alias Charon.TokenPlugs
+  alias Charon.{Utils, Internal, TokenPlugs, SessionStore}
   import Charon.TestUtils
   import Utils
   import Plug.Conn
   import Plug.Test
-  import TestRedix, only: [command: 1]
   import TokenPlugs
   alias TokenPlugs.PutAssigns
   alias Charon.Models.Session
@@ -25,13 +22,8 @@ defmodule Charon.TokenPlugsTest do
     end
   end
 
-  setup_all do
-    TestRedix.init()
-    :ok
-  end
-
   setup do
-    TestRedix.before_each()
+    start_supervised!(Charon.SessionStore.LocalStore)
     :ok
   end
 

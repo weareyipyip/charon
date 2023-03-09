@@ -40,9 +40,8 @@ defmodule Charon.Internal do
   @doc """
   Generate a random URL-encoded string of `byte_size` bits.
   """
-  def random_url_encoded(byte_size) do
-    byte_size |> :crypto.strong_rand_bytes() |> url_encode()
-  end
+  @deprecated "Use `Charon.Utils.Crypto.random_url_encoded/1`"
+  def random_url_encoded(byte_size), do: Charon.Utils.Crypto.random_url_encoded(byte_size)
 
   @doc """
   Determine if the token's signature transport mechanism is `:cookie` or `:bearer`.

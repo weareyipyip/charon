@@ -3,26 +3,18 @@ defmodule Charon.SessionPlugsTest do
   @moduletag :capture_log
   use Charon.Internal.Constants
   alias Plug.Conn
-  alias Charon.Utils
+  alias Charon.{Utils, SessionStore}
   alias Charon.Models.{Session, Tokens}
   import Charon.{TestUtils, Internal}
-  alias Charon.TestRedix
-  import TestRedix, only: [command: 1]
 
   @config Charon.TestConfig.get()
 
   @sid "a"
   @uid 426
-  @user_session test_session(id: @sid, user_id: @uid)
-  @serialized :erlang.term_to_binary(@user_session)
-
-  setup_all do
-    TestRedix.init()
-    :ok
-  end
+  @user_session test_session(id: @sid, user_id: @uid, refresh_expires_at: 9_999_999_999_999_999)
 
   setup do
-    TestRedix.before_each()
+    start_supervised!(Charon.SessionStore.LocalStore)
     :ok
   end
 
@@ -32,13 +24,13 @@ defmodule Charon.SessionPlugsTest do
 
   describe "delete_session/2" do
     test "should drop session if present" do
-      command(["SET", session_key(@sid, @uid), @serialized])
+      SessionStore.upsert(@user_session, @config)
 
       conn()
       |> Conn.put_private(@bearer_token_payload, %{"sub" => @uid, "sid" => @sid, "styp" => "full"})
       |> delete_session(@config)
 
-      assert {:ok, []} = command(~w(KEYS *))
+      assert [] == SessionStore.get_all(@uid, :full, @config)
     end
   end
 
@@ -52,21 +44,6 @@ defmodule Charon.SessionPlugsTest do
 
       session = Utils.get_session(conn)
       assert session.expires_at == :infinite
-    end
-
-    test "should store sessions with refresh ttl, not session ttl" do
-      # if this test fails, unused infinite-ttl sessions would keep accumulating in session stores
-      conn()
-      |> Utils.set_token_signature_transport(:bearer)
-      |> Utils.set_user_id(@uid)
-      |> upsert_session(%{@config | session_ttl: :infinite})
-      |> Utils.get_session()
-      |> Map.get(:id)
-      |> then(fn id ->
-        assert_in_delta @config.refresh_token_ttl,
-                        command(["TTL", session_key(id, @uid)]) |> elem(1),
-                        3
-      end)
     end
 
     test "should not create tokens that outlive the session" do

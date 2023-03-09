@@ -1,7 +1,7 @@
 defmodule Charon.SessionIntegrationTest do
   use ExUnit.Case, async: false
   use Charon.Internal.Constants
-  alias Charon.{TestRedix, TestPipeline, SessionPlugs, Utils, Internal, TestUtils}
+  alias Charon.{TestPipeline, SessionPlugs, Utils, Internal, TestUtils}
   import TestUtils
   import Plug.Conn
   import Internal
@@ -10,13 +10,8 @@ defmodule Charon.SessionIntegrationTest do
   @moduletag :capture_log
   @config Charon.TestConfig.get()
 
-  setup_all do
-    TestRedix.init()
-    :ok
-  end
-
   setup do
-    TestRedix.before_each()
+    start_supervised!(Charon.SessionStore.LocalStore)
     :ok
   end
 
