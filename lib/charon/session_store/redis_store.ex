@@ -50,7 +50,7 @@ defmodule Charon.SessionStore.RedisStore do
     old_session_key = old_session_key(session_id, user_id_str, type_str, key_prefix)
     session_key = session_key(session_id, user_id_str, type_str, key_prefix)
 
-    # all of this can be replaced by GET single key after a while
+    # TODO: all of this can be replaced by GET single key after a while
     ["MGET", session_key, old_session_key]
     |> mod_conf.redix_module.command()
     |> case do
@@ -128,7 +128,7 @@ defmodule Charon.SessionStore.RedisStore do
     set_key = set_key(user_id_str, type_str, key_prefix)
     now = Internal.now() |> Integer.to_string()
 
-    # all of this can be replaced by DEL single key after a while
+    # TODO: all of this can be replaced by DEL single key after a while
     delete_c = ["DEL", session_key, old_session_key]
     delete_key_c = ["ZREM", set_key, session_key, old_session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
@@ -199,6 +199,39 @@ defmodule Charon.SessionStore.RedisStore do
   """
   @spec default_signing_key(Config.t()) :: binary
   def default_signing_key(config), do: derive_key(config.get_base_secret.(), "RedisStore HMAC")
+
+  @doc """
+  Migrate sessions to new storage format:
+   - keys no longer hashed
+   - sessions are signed
+  """
+  @spec migrate_sessions(Config.t()) :: :ok
+  def migrate_sessions(config) do
+    mod_conf = get_mod_config(config)
+    redix = mod_conf.redix_module
+
+    find_session_sets(config, mod_conf, [], nil)
+    |> Stream.chunk_every(50)
+    # [u1_set, u2_set]
+    |> Enum.each(fn session_sets ->
+      session_sets
+      |> Enum.map(&["ZRANGE", &1, "-inf", "+inf", "BYSCORE"])
+      |> redix.pipeline()
+      # [[u1.a, u1.b], [u2.c]]
+      |> then(fn {:ok, session_keys_set} ->
+        session_keys = Enum.flat_map(session_keys_set, & &1)
+
+        {:ok, sessions} = redix.command(["MGET" | session_keys])
+        redix.command(["DEL" | session_keys ++ session_sets])
+
+        sessions
+        |> Stream.reject(&is_nil/1)
+        |> Stream.map(&deserialize(&1, mod_conf, config))
+        # on upsert, every session is signed and inserted with the new key format
+        |> Enum.each(&upsert(&1, config))
+      end)
+    end)
+  end
 
   ###########
   # Private #
@@ -302,4 +335,14 @@ defmodule Charon.SessionStore.RedisStore do
 
   defp redis_result_to_error({:ok, error}), do: {:error, inspect(error)}
   defp redis_result_to_error(error), do: error
+
+  defp find_session_sets(_config, _mod_conf, set_keys, "0"), do: set_keys
+
+  defp find_session_sets(config, mod_conf, set_keys, cursor) do
+    ["SCAN", cursor, "MATCH", [mod_conf.key_prefix, ".u.*"]]
+    |> mod_conf.redix_module.command()
+    |> then(fn {:ok, [new_cursor | [partial_results]]} ->
+      find_session_sets(config, mod_conf, set_keys ++ partial_results, new_cursor)
+    end)
+  end
 end
