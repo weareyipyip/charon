@@ -1,21 +1,26 @@
 defmodule Charon.SessionStore.RedisStoreTest do
   use ExUnit.Case
+  import ExUnit.CaptureLog
   alias Charon.SessionStore.RedisStore
-  import Charon.{TestUtils, Internal}
-  alias Charon.TestRedix
+  import Charon.{TestUtils, Internal, TestHelpers}
+  import Charon.Utils.Crypto
+  alias Charon.{TestRedix, TestConfig}
   import TestRedix, only: [command: 1]
 
   @ttl 10
   @exp now() + @ttl
   @config %{
-    session_ttl: :infinite,
-    refresh_token_ttl: @ttl,
-    optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
+    TestConfig.get()
+    | session_ttl: :infinite,
+      refresh_token_ttl: @ttl,
+      optional_modules: %{RedisStore => RedisStore.Config.from_enum(redix_module: TestRedix)}
   }
   @sid "a"
   @uid 426
   @user_session test_session(id: @sid, user_id: @uid, refresh_expires_at: @exp)
   @serialized :erlang.term_to_binary(@user_session)
+  @mac hmac(@serialized, RedisStore.default_signing_key(@config))
+  @signed_serialized "signed." <> @mac <> "." <> @serialized
 
   setup_all do
     TestRedix.init()
@@ -33,20 +38,51 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "returns nil if other type" do
-      command(["SET", session_key(@sid, @uid, :oauth2), @serialized])
+      command(["SET", session_key(@sid, @uid, :oauth2), @signed_serialized])
       assert nil == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "returns deserialized session" do
-      command(["SET", session_key(@sid, @uid), @serialized])
+      command(["SET", session_key(@sid, @uid), @signed_serialized])
       assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
+    end
+
+    test "returns unsigned session if allow_unsigned? = true" do
+      command(["SET", session_key(@sid, @uid), @serialized])
+
+      assert capture_log(fn ->
+               assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
+             end) =~ "Unsigned session a fetched"
+    end
+
+    test "ignores unsigned session if allow_unsigned? = false" do
+      command(["SET", session_key(@sid, @uid), @serialized])
+
+      config = override_opt_mod_conf(@config, RedisStore, allow_unsigned?: false)
+
+      assert capture_log(fn ->
+               refute RedisStore.get(@sid, @uid, :full, config)
+             end) =~ "Ignored Redis session"
+    end
+
+    test "ignores signed session with invalid signature" do
+      command([
+        "SET",
+        session_key(@sid, @uid),
+        "signed." <> :crypto.strong_rand_bytes(32) <> "." <> @serialized
+      ])
+
+      # even if allow_unsigned? = true, sessions with an invalid signature are ignored
+      assert capture_log(fn ->
+               refute RedisStore.get(@sid, @uid, :full, @config)
+             end) =~ "Ignored Redis session"
     end
   end
 
   describe "upsert/3" do
     test "stores session and adds key to user's set of sessions" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-      assert {:ok, @serialized} == command(["get", session_key(@sid, @uid)])
+      assert {:ok, @signed_serialized} == command(["get", session_key(@sid, @uid)])
 
       assert {:ok, [session_key(@sid, @uid)]} ==
                command(["ZRANGE", user_sessions_key(@uid), 0, -1])
@@ -66,7 +102,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
       other_type = %{@user_session | type: :oauth2}
       assert :ok = RedisStore.upsert(@user_session, @config)
       assert :ok = RedisStore.upsert(other_type, @config)
-      assert {:ok, @serialized} == command(["get", session_key(@sid, @uid)])
+      assert {:ok, @signed_serialized} == command(["get", session_key(@sid, @uid)])
       assert {:ok, <<_::binary>>} = command(["get", session_key(@sid, @uid, :oauth2)])
 
       assert {:ok, [session_key(@sid, @uid)]} ==
@@ -90,7 +126,9 @@ defmodule Charon.SessionStore.RedisStoreTest do
                |> Map.merge(%{extra_payload: %{new: "key"}, refresh_expires_at: @exp + 10})
                |> RedisStore.upsert(@config)
 
-      assert {:ok, new_session} = command(["GET", session_key(@sid, @uid)])
+      assert {:ok, "signed." <> <<_::256>> <> "." <> new_session} =
+               command(["GET", session_key(@sid, @uid)])
+
       assert {:ok, new_ttl} = command(["TTL", session_key(@sid, @uid)])
 
       assert {:ok, [_, new_exp]} =
@@ -192,7 +230,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "deletes session" do
-      command(["SET", session_key(@sid, @uid), @serialized])
+      command(["SET", session_key(@sid, @uid), @signed_serialized])
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
       assert {:ok, nil} = command(["GET", session_key(@sid, @uid)])
     end
@@ -272,20 +310,20 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "returns the user's unexpired, deserialized sessions of requested type" do
       # unexpired, present
       command(["ZADD", user_sessions_key(@uid), @exp, "a"])
-      command(["SET", "a", @serialized])
+      command(["SET", "a", @signed_serialized])
       # unexpired, missing
       command(["ZADD", user_sessions_key(@uid), @exp, "b"])
       # expired, somehow present
       command(["ZADD", user_sessions_key(@uid), 0, "c"])
-      command(["SET", "c", @serialized])
+      command(["SET", "c", @signed_serialized])
       # expired and missing as it should be
       command(["ZADD", user_sessions_key(@uid), 0, "d"])
       # another user's session
       command(["ZADD", "user2", @exp, "e"])
-      command(["SET", "e", @serialized])
+      command(["SET", "e", @signed_serialized])
       # unexpired, present, other type
       command(["ZADD", user_sessions_key(@uid, :oauth2), @exp, "f"])
-      command(["SET", "f", @serialized])
+      command(["SET", "f", @signed_serialized])
 
       assert [@user_session] == RedisStore.get_all(@uid, :full, @config)
     end
@@ -295,12 +333,12 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "removes all sessions of requested type and the user's session set" do
       # unexpired, present
       command(["ZADD", user_sessions_key(@uid), @exp, "a"])
-      command(["SET", "a", @serialized])
+      command(["SET", "a", @signed_serialized])
       # unexpired, missing
       command(["ZADD", user_sessions_key(@uid), @exp, "b"])
       # expired, somehow present
       command(["ZADD", user_sessions_key(@uid), 0, "c"])
-      command(["SET", "c", @serialized])
+      command(["SET", "c", @signed_serialized])
       # expired and missing as it should be
       command(["ZADD", user_sessions_key(@uid), 0, "d"])
       # another user's session
@@ -308,7 +346,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
       command(["SET", "e", "session_e"])
       # unexpired, present, other type
       command(["ZADD", user_sessions_key(@uid, :oauth2), @exp, "f"])
-      command(["SET", "f", @serialized])
+      command(["SET", "f", @signed_serialized])
 
       assert :ok == RedisStore.delete_all(@uid, :full, @config)
       assert {:ok, keys} = command(~w(KEYS *))

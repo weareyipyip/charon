@@ -16,7 +16,9 @@ defmodule Charon.SessionStore.RedisStore do
         optional_modules: %{
           Charon.SessionStore.RedisStore => %{
             redix_module: MyApp.Redix,
-            key_prefix: "charon_"
+            key_prefix: "charon_",
+            get_signing_key: &RedisStore.default_signing_key/1,
+            allow_unsigned?: true
           }
         }
       )
@@ -24,6 +26,8 @@ defmodule Charon.SessionStore.RedisStore do
   The following options are supported:
     - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
+    - `:get_signing_key` (optional). A getter/1 that returns the key that is used to sign and verify serialized session binaries.
+    - `:allow_unsigned?` (optional). Allow unsigned sessions for legacy reasons. This option will be removed and no unsigned session will be allowed anymore in a future major release.
 
   ## Redix
 
@@ -33,6 +37,7 @@ defmodule Charon.SessionStore.RedisStore do
   alias Charon.Config
   alias Charon.Internal
   import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
+  import Charon.Utils.{KeyGenerator, Crypto}
   require Logger
 
   @multi ~W(MULTI)
@@ -47,7 +52,7 @@ defmodule Charon.SessionStore.RedisStore do
     |> mod_conf.redix_module.command()
     |> case do
       {:ok, nil} -> nil
-      {:ok, serialized} -> :erlang.binary_to_term(serialized)
+      {:ok, serialized} -> deserialize(serialized, mod_conf, config)
       error -> error
     end
   end
@@ -71,7 +76,7 @@ defmodule Charon.SessionStore.RedisStore do
     now = Integer.to_string(now)
 
     # upsert the actual session as a separate key-value pair that expires when the refresh token expires
-    upsert_session_c = ["SET", session_key, :erlang.term_to_binary(session), "EXAT", exp_str]
+    upsert_session_c = ["SET", session_key, serialize(session, mod_conf, config), "EXAT", exp_str]
     # add session key to user's session set, with exp timestamp as score (or update score)
     upsert_set_c = ["ZADD", set_key, exp_str, session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
@@ -147,7 +152,7 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys = [_ | _]} <- get_valid_session_keys(user_id, type, mod_conf),
          {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
-      values |> Stream.reject(&is_nil/1) |> Enum.map(&:erlang.binary_to_term/1)
+      values |> Stream.reject(&is_nil/1) |> Enum.map(&deserialize(&1, mod_conf, config))
     else
       {:ok, []} -> []
       other -> other
@@ -178,9 +183,48 @@ defmodule Charon.SessionStore.RedisStore do
   @doc false
   def init_config(enum), do: __MODULE__.Config.from_enum(enum)
 
+  @doc """
+  Get the default session signing key that is used if config option `:get_signing_key` is not set explicitly.
+  """
+  @spec default_signing_key(Config.t()) :: binary
+  def default_signing_key(config), do: derive_key(config.get_base_secret.(), "RedisStore HMAC")
+
   ###########
   # Private #
   ###########
+
+  # serialize and sign a session
+  defp serialize(session, mod_conf, config) do
+    key = mod_conf.get_signing_key.(config)
+    serialized = :erlang.term_to_binary(session)
+    mac = hmac(serialized, key)
+    IO.iodata_to_binary(["signed.", mac, ?., serialized])
+  end
+
+  # deserialize session and verify its signature
+  defp deserialize("signed." <> <<mac::binary-size(32)>> <> "." <> serialized, mod_conf, config) do
+    serialized
+    |> hmac(mod_conf.get_signing_key.(config))
+    |> constant_time_compare(mac)
+    |> if do
+      :erlang.binary_to_term(serialized)
+    else
+      Logger.warning("Ignored Redis session with invalid signature.")
+      nil
+    end
+  end
+
+  defp deserialize(unsigned, %{allow_unsigned?: allow_unsigned?}, _config) do
+    session = :erlang.binary_to_term(unsigned)
+
+    if allow_unsigned? do
+      Logger.warning("Unsigned session #{session.id} fetched from Redis.")
+      session
+    else
+      Logger.warning("Ignored Redis session with invalid signature.")
+      nil
+    end
+  end
 
   # key for a single session
   # using the "old" format for :full sessions prevents old sessions from suddenly being logged-out

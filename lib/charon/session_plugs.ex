@@ -6,6 +6,7 @@ defmodule Charon.SessionPlugs do
   alias Plug.Conn
   require Logger
   alias Charon.{Config, Internal, TokenFactory, SessionStore}
+  alias Charon.Utils.Crypto
   use Internal.Constants
   alias Charon.Models.{Session, Tokens}
 
@@ -142,7 +143,7 @@ defmodule Charon.SessionPlugs do
     session_type = opts[:session_type] || :full
 
     # the refresh token id is renewed every time so that refresh tokens can be single-use only
-    refresh_token_id = Internal.random_url_encoded(16)
+    refresh_token_id = Crypto.random_url_encoded(16)
 
     # update the existing session or create a new one
     session =
@@ -162,7 +163,7 @@ defmodule Charon.SessionPlugs do
           created_at: now,
           expires_at: if(session_ttl == :infinite, do: :infinite, else: session_ttl + now),
           extra_payload: extra_session_payload,
-          id: Internal.random_url_encoded(16),
+          id: Crypto.random_url_encoded(16),
           prev_tokens_fresh_from: now,
           refresh_expires_at: now + max_refresh_ttl,
           refresh_token_id: refresh_token_id,
@@ -193,7 +194,7 @@ defmodule Charon.SessionPlugs do
     a_payload =
       shared_payload
       |> Map.merge(%{
-        "jti" => Internal.random_url_encoded(16),
+        "jti" => Crypto.random_url_encoded(16),
         "exp" => access_exp,
         "type" => "access"
       })

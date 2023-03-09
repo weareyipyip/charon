@@ -4,9 +4,19 @@ defmodule Charon.SessionStore.RedisStore.Config do
   """
   alias Charon.SessionStore.RedisStore
   @enforce_keys [:redix_module]
-  defstruct [:redix_module, key_prefix: "charon_"]
+  defstruct [
+    :redix_module,
+    key_prefix: "charon_",
+    get_signing_key: &RedisStore.default_signing_key/1,
+    allow_unsigned?: true
+  ]
 
-  @type t :: %__MODULE__{redix_module: module(), key_prefix: String.t()}
+  @type t :: %__MODULE__{
+          redix_module: module(),
+          key_prefix: String.t(),
+          get_signing_key: (Charon.Config.t() -> binary()),
+          allow_unsigned?: boolean()
+        }
 
   @doc """
   Build config struct from enumerable (useful for passing in application environment).

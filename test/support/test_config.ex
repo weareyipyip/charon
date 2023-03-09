@@ -4,9 +4,7 @@ defmodule Charon.TestConfig do
   @config Charon.Config.from_enum(
             token_issuer: "my_test_app",
             get_base_secret: &__MODULE__.secret/0,
-            optional_modules: %{
-              Charon.SessionStore.RedisStore => %{redix_module: Charon.TestRedix}
-            }
+            session_store_module: Charon.SessionStore.LocalStore
           )
 
   def get(), do: @config
