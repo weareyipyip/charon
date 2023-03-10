@@ -19,9 +19,9 @@ jobs:
           path: |
             deps
             _build
-          key: deps-cache-${{ hashFiles('**/mix.lock') }}
+          key: deploy-deps-cache-${{ hashFiles('**/mix.lock') }}
           restore-keys: |
-            deps-cache-
+            deploy-deps-cache-
 
       - name: Set version in mix.exs
         uses: weareyipyip/set-version-action@v2
