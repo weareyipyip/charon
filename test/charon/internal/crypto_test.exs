@@ -1,6 +1,6 @@
-defmodule Charon.Utils.CryptoTest do
+defmodule Charon.Internal.CryptoTest do
   use ExUnit.Case, async: true
-  alias Charon.Utils.Crypto
+  alias Charon.Internal.Crypto
   import Crypto
 
   @key <<43, 174, 120, 110, 62, 41, 62, 164, 202, 99, 83, 37, 249, 220, 141, 107, 100, 134, 117,
@@ -18,16 +18,6 @@ defmodule Charon.Utils.CryptoTest do
                <<159, 70, 130, 39, 86, 28, 250, 2, 68, 155, 255, 136, 37, 108, 191, 229, 119, 115,
                  50, 159, 53, 42, 107, 147, 176, 82, 33, 38>>
                |> decrypt(@wrong_key)
-    end
-  end
-
-  describe "constant_time_compare/2" do
-    if function_exported?(:crypto, :hash_equals, 2) do
-      test "raises ArgumentError on different size binaries" do
-        assert_raise ArgumentError, fn ->
-          constant_time_compare(<<0>>, <<1, 2>>)
-        end
-      end
     end
   end
 

@@ -266,4 +266,4 @@ And that's it :) Optionally, you can add get-all, logout-all and logout-other se
 
 Copyright (c) 2023, YipYip B.V.
 
-Charon source code is licensed under the [Apache-2.0 License](LICENSE.md)
+Charon source code is licensed under the [Apache-2.0 License](./LICENSE.md)

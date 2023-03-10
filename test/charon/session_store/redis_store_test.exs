@@ -3,7 +3,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   import ExUnit.CaptureLog
   alias Charon.SessionStore.RedisStore
   import Charon.{TestUtils, Internal}
-  import Charon.Utils.Crypto
+  import Charon.Internal.Crypto
   alias Charon.{TestRedix, TestConfig}
   import TestRedix, only: [command: 1]
 
