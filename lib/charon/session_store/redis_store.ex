@@ -208,6 +208,7 @@ defmodule Charon.SessionStore.RedisStore do
   @spec migrate_sessions(Config.t()) :: :ok
   def migrate_sessions(config) do
     mod_conf = get_mod_config(config)
+    mod_conf = %{mod_conf | allow_unsigned?: true}
     redix = mod_conf.redix_module
 
     find_session_sets(config, mod_conf, [], nil)
@@ -227,6 +228,8 @@ defmodule Charon.SessionStore.RedisStore do
         sessions
         |> Stream.reject(&is_nil/1)
         |> Stream.map(&deserialize(&1, mod_conf, config))
+        |> Stream.reject(&is_nil/1)
+        |> Stream.map(&Charon.Models.Session.upgrade_version(&1, config))
         # on upsert, every session is signed and inserted with the new key format
         |> Enum.each(&upsert(&1, config))
       end)
