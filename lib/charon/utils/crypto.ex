@@ -4,6 +4,9 @@ defmodule Charon.Utils.Crypto do
   """
   import Charon.Internal
 
+  # this ensures function_exported/3 works for this module
+  Code.ensure_loaded(:crypto)
+
   @encr_alg :chacha20
   @hmac_alg :sha256
   @iv_size 16
@@ -36,7 +39,15 @@ defmodule Charon.Utils.Crypto do
   @doc """
   Constant time memory comparison for fixed length binaries, such as results of HMAC computations.
 
-  Returns true if the binaries are identical, false if they are of the same length but not identical. The function raises an error:badarg exception if the binaries are of different size.
+  Returns true if the binaries are identical, false if they are of the same length but not identical.
+  The function raises an `ArgumentError` if the binaries are of different size.
+
+  ## Doctests
+
+      iex> constant_time_compare(<<0>>, <<0>>)
+      true
+      iex> constant_time_compare(<<0>>, <<1>>)
+      false
   """
   @spec constant_time_compare(binary, binary) :: boolean()
   if function_exported?(:crypto, :hash_equals, 2) do
@@ -47,6 +58,11 @@ defmodule Charon.Utils.Crypto do
 
   @doc """
   Generate a random URL-encoded string of `byte_size` bytes.
+
+  ## Doctests
+
+      iex> random = random_url_encoded(16)
+      iex> {:ok, <<_::binary>>} = Base.url_decode64(random, padding: false)
   """
   @spec random_url_encoded(pos_integer()) :: binary
   def random_url_encoded(byte_size) do
@@ -55,7 +71,102 @@ defmodule Charon.Utils.Crypto do
 
   @doc """
   Calculate a HMAC of data using key. The algorithm is #{@hmac_alg}.
+
+  ## Doctests
+
+      iex> <<174, 127, 185, 114, 225, 247, 199, 79, _::binary>> = hmac(["iodata"], "secret")
   """
   @spec hmac(iodata, binary) :: binary
   def hmac(data, key), do: :crypto.mac(:hmac, @hmac_alg, key, data)
+
+  @doc """
+  Compare `exp_hmac` with the HMAC of `data` given `key`.
+
+  ## Doctests
+
+      iex> data = ["iodata"]
+      iex> hmac = hmac(data, "secret")
+      iex> hmac_matches?(data, "secret", hmac)
+      true
+      iex> hmac_matches?(data, "other secret", hmac)
+      false
+  """
+  @spec hmac_matches?(iodata, binary, binary) :: boolean
+  def hmac_matches?(data, key, exp_hmac), do: data |> hmac(key) |> constant_time_compare(exp_hmac)
+
+  @doc """
+  Sign a binary into a new binary prefixed with a header containing the original binary's url-encoded HMAC.
+  If the input data is a human-readable (UTF-8) string, the result of this function will be too.
+
+  The output format may change, but will still be verifiable by `verify_hmac/2`.
+
+  ## Doctests
+
+      iex> sign_encoded_hmac("charon!", "secret")
+      "signed_u64.MwvpgZ_Tb5P19rltHpsHE_ONQs3dR6Et39Adu34WvsU.charon!"
+  """
+  @spec sign_encoded_hmac(binary, binary) :: binary
+  def sign_encoded_hmac(binary, key) do
+    hmac = binary |> hmac(key) |> url_encode()
+    <<"signed_u64.", hmac::binary, ?., binary::binary>>
+  end
+
+  @doc """
+  Sign a binary into a new binary prefixed with a header containing the original binary's HMAC.
+
+  The output format may change, but will still be verifiable by `verify_hmac/2`.
+
+  ## Doctests
+
+      iex> <<"signed.", _hmac::256, ".charon!">> = sign_hmac("charon!", "secret")
+  """
+  @spec sign_hmac(binary, binary) :: binary
+  def sign_hmac(binary, key) do
+    hmac = hmac(binary, key)
+    <<"signed.", hmac::binary, ?., binary::binary>>
+  end
+
+  @doc """
+  Verify that a binary is signed with a valid signature (by `sign_hmac/2` or `sign_encoded_hmac/2`).
+
+  ## Doctests
+
+      # verifies both `sign_hmac/2` and `sign_encoded_hmac/2`
+      iex> "charon!" |> sign_encoded_hmac("secret") |> verify_hmac("secret")
+      {:ok, "charon!"}
+      iex> "charon!" |> sign_hmac("secret") |> verify_hmac("secret")
+      {:ok, "charon!"}
+
+      # returns :invalid_signature error on HMAC mismatch
+      iex> "charon!" |> sign_encoded_hmac("secret") |> verify_hmac("wrong")
+      {:error, :invalid_signature}
+      iex> "charon!" |> sign_hmac("secret") |> verify_hmac("wrong")
+      {:error, :invalid_signature}
+
+      # returns :malformed_input when input binary is of unknown format
+      iex> verify_hmac("charon!", "secret")
+      {:error, :malformed_input}
+  """
+  @spec verify_hmac(binary, binary) ::
+          {:ok, binary} | {:error, :invalid_signature | :malformed_input}
+  def verify_hmac(binary, key)
+
+  def verify_hmac(<<"signed.", mac::binary-size(32), ?., data::binary>>, key),
+    do: verify(data, key, mac)
+
+  def verify_hmac(<<"signed_u64.", hmac::binary-size(43), ?., data::binary>>, key) do
+    case url_decode(hmac) do
+      {:ok, hmac} -> verify(data, key, hmac)
+      _ -> {:error, :malformed_input}
+    end
+  end
+
+  def verify_hmac(_, _), do: {:error, :malformed_input}
+
+  ###########
+  # Private #
+  ###########
+
+  defp verify(data, key, hmac),
+    do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
 end
