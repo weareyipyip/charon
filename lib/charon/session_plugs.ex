@@ -5,10 +5,10 @@ defmodule Charon.SessionPlugs do
   """
   alias Plug.Conn
   require Logger
-  alias Charon.{Config, Internal, TokenFactory, SessionStore}
-  alias Charon.Utils.Crypto
+  alias Charon.{Config, Internal, TokenFactory, SessionStore, Models}
   use Internal.Constants
-  alias Charon.Models.{Session, Tokens}
+  alias Internal.Crypto
+  alias Models.{Session, Tokens}
 
   @type upsert_session_opts :: [
           access_claim_overrides: %{required(String.t()) => any()},

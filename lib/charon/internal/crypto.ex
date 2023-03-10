@@ -1,7 +1,5 @@
-defmodule Charon.Utils.Crypto do
-  @moduledoc """
-  Encrypt/decrypt, sign/verify, secure compare binaries etc.
-  """
+defmodule Charon.Internal.Crypto do
+  @moduledoc false
   import Charon.Internal
 
   # this ensures function_exported/3 works for this module
@@ -37,10 +35,8 @@ defmodule Charon.Utils.Crypto do
   end
 
   @doc """
-  Constant time memory comparison for fixed length binaries, such as results of HMAC computations.
-
-  Returns true if the binaries are identical, false if they are of the same length but not identical.
-  The function raises an `ArgumentError` if the binaries are of different size.
+  Constant time memory comparison of fixed length binaries, such as results of HMAC computations.
+  Binaries of different lengths always return `false`.
 
   ## Doctests
 
@@ -48,9 +44,12 @@ defmodule Charon.Utils.Crypto do
       true
       iex> constant_time_compare(<<0>>, <<1>>)
       false
+      iex> constant_time_compare(<<1>>, <<1, 2>>)
+      false
   """
   @spec constant_time_compare(binary, binary) :: boolean()
   if function_exported?(:crypto, :hash_equals, 2) do
+    def constant_time_compare(bin_a, bin_b) when bit_size(bin_a) != bit_size(bin_b), do: false
     def constant_time_compare(bin_a, bin_b), do: :crypto.hash_equals(bin_a, bin_b)
   else
     def constant_time_compare(bin_a, bin_b), do: Plug.Crypto.secure_compare(bin_a, bin_b)

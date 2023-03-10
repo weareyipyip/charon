@@ -14,8 +14,7 @@ defmodule Charon.SessionStore.Behaviour do
   but may define additional functions and instructions to take care of such things
   (like a `cleanup/0` that should run periodically).
   """
-  alias Charon.Session
-  alias Charon.Config
+  alias Charon.{Session, Config}
 
   @optional_callbacks [get_all: 3, delete_all: 3]
 

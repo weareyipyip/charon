@@ -21,7 +21,7 @@ defmodule Charon.MixProject do
       name: "Charon",
       docs: [
         source_ref: "main",
-        extras: ["./README.md"],
+        extras: ~w(./README.md ./LICENSE.md),
         main: "readme"
       ]
     ]
