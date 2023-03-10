@@ -34,10 +34,10 @@ defmodule Charon.SessionStore.RedisStore do
   This module depends on a correctly configured `Redix` module with `command/1` and `pipeline/1` functions. See https://hexdocs.pm/redix for instructions.
   """
   @behaviour Charon.SessionStore.Behaviour
-  alias Charon.Config
-  alias Charon.Internal
+  alias Charon.{Config, Internal, Utils}
   import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
-  import Charon.Utils.{KeyGenerator, Crypto}
+  import Utils.{KeyGenerator}
+  import Internal.Crypto
   require Logger
 
   @multi ~W(MULTI)
