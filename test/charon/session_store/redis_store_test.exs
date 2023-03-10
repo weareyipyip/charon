@@ -78,16 +78,6 @@ defmodule Charon.SessionStore.RedisStoreTest do
                refute RedisStore.get(@sid, @uid, :full, @config)
              end) =~ "Ignored Redis session"
     end
-
-    test "gets session with old key format" do
-      command([
-        "SET",
-        RedisStore.old_session_key(@sid, to_string(@uid), "full", "charon_"),
-        @signed_serialized
-      ])
-
-      assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
-    end
   end
 
   describe "upsert/3" do
@@ -315,17 +305,6 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert {:ok, 0} = command(["EXISTS", user_key])
     end
-
-    test "deletes session with old key format" do
-      command([
-        "SET",
-        RedisStore.old_session_key(@sid, to_string(@uid), "full", "charon_"),
-        @signed_serialized
-      ])
-
-      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
-      assert {:ok, []} = command(~w(keys *))
-    end
   end
 
   describe "get_all/3" do
@@ -384,7 +363,8 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   describe "migrate_sessions/1" do
     test "signs sessions and reinserts with new key" do
-      session_key = RedisStore.old_session_key(@sid, to_string(@uid), "full", "charon_")
+      session_key = RedisStore.session_key(@sid, to_string(@uid), "full", "charon_")
+      session_key = :crypto.hash(:blake2s, session_key)
 
       command(["ZADD", user_sessions_key(@uid), @exp, session_key])
       command(["SET", session_key, @serialized])
