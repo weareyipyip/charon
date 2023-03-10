@@ -47,31 +47,6 @@ defmodule Charon.Models.Session do
   alias Charon.{Config, Internal}
 
   @doc """
-  Serialize a session.
-  """
-  @deprecated "Use :erlang.term_to_binary/1"
-  @spec serialize(struct) :: binary
-  def serialize(session) do
-    session |> :erlang.term_to_binary()
-  end
-
-  @doc """
-  Deserialize a session, without breaking for structural changes in the session struct.
-
-  ## DocTests
-
-      @charon_config Charon.Config.from_enum(token_issuer: "local")
-
-      # serialization is reversible
-      iex> %Session{} = test_session() |> serialize() |> deserialize(@charon_config)
-  """
-  @spec deserialize(binary, Config.t()) :: struct
-  @deprecated "Use :erlang.binary_to_term/1"
-  def deserialize(binary, config) do
-    binary |> :erlang.binary_to_term() |> upgrade_version(config)
-  end
-
-  @doc """
   Upgrade a session (or map created from a session struct) to the latest struct version (#{@latest_version}).
 
   ## DocTests

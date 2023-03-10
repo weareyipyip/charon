@@ -178,14 +178,6 @@ defmodule Charon.SessionStore.RedisStore do
     end
   end
 
-  @doc """
-  This should run periodically, for example once per day at a quiet moment.
-  Deprecated; periodic cleanup is no longer required.
-  """
-  @spec cleanup(Config.t()) :: :ok | {:error, binary()}
-  @deprecated "Periodic cleanup is no longer required."
-  def cleanup(_config), do: :ok
-
   @doc false
   def init_config(enum), do: __MODULE__.Config.from_enum(enum)
 
@@ -194,42 +186,6 @@ defmodule Charon.SessionStore.RedisStore do
   """
   @spec default_signing_key(Config.t()) :: binary
   def default_signing_key(config), do: derive_key(config.get_base_secret.(), "RedisStore HMAC")
-
-  @doc """
-  Migrate sessions to new storage format:
-   - keys no longer hashed
-   - sessions are signed
-  """
-  @spec migrate_sessions(Config.t()) :: :ok
-  def migrate_sessions(config) do
-    mod_conf = get_mod_config(config)
-    mod_conf = %{mod_conf | allow_unsigned?: true}
-    redix = mod_conf.redix_module
-
-    find_session_sets(config, mod_conf, [], nil)
-    |> Stream.chunk_every(50)
-    # [u1_set, u2_set]
-    |> Enum.each(fn session_set_keys ->
-      session_set_keys
-      |> Enum.map(&["ZRANGE", &1, "-inf", "+inf", "BYSCORE"])
-      |> redix.pipeline()
-      # [[u1.a, u1.b], [u2.c]]
-      |> then(fn {:ok, list_of_lists_of_session_keys} ->
-        session_keys = List.flatten(list_of_lists_of_session_keys)
-
-        {:ok, sessions} = redix.command(["MGET" | session_keys])
-        redix.command(["DEL" | session_keys ++ session_set_keys])
-
-        sessions
-        |> Stream.reject(&is_nil/1)
-        |> Stream.map(&deserialize(&1, mod_conf, config))
-        |> Stream.reject(&is_nil/1)
-        |> Stream.map(&Charon.Models.Session.upgrade_version(&1, config))
-        # on upsert, every session is signed and inserted with the new key format
-        |> Enum.each(&upsert(&1, config))
-      end)
-    end)
-  end
 
   ###########
   # Private #
@@ -326,14 +282,4 @@ defmodule Charon.SessionStore.RedisStore do
 
   defp redis_result_to_error({:ok, error}), do: {:error, inspect(error)}
   defp redis_result_to_error(error), do: error
-
-  defp find_session_sets(_config, _mod_conf, set_keys, "0"), do: set_keys
-
-  defp find_session_sets(config, mod_conf, set_keys, cursor) do
-    ["SCAN", cursor, "MATCH", [mod_conf.key_prefix, ".u.*"]]
-    |> mod_conf.redix_module.command()
-    |> then(fn {:ok, [new_cursor | [partial_results]]} ->
-      find_session_sets(config, mod_conf, set_keys ++ partial_results, new_cursor)
-    end)
-  end
 end

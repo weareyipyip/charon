@@ -360,24 +360,4 @@ defmodule Charon.SessionStore.RedisStoreTest do
              ] == Enum.sort(keys)
     end
   end
-
-  describe "migrate_sessions/1" do
-    test "signs sessions and reinserts with new key" do
-      session_key = RedisStore.session_key(@sid, to_string(@uid), "full", "charon_")
-      session_key = :crypto.hash(:blake2s, session_key)
-
-      command(["ZADD", user_sessions_key(@uid), @exp, session_key])
-      command(["SET", session_key, @serialized])
-
-      assert capture_log(fn ->
-               RedisStore.migrate_sessions(@config)
-             end) =~ "Unsigned session"
-
-      assert {:ok, keys} = command(~w(KEYS *))
-      assert [session_key = "charon_.s.426.full.a", "charon_.u.426"] == Enum.sort(keys)
-
-      assert {:ok, <<"signed.", _mac::256, ".", _session::binary>>} =
-               command(["GET", session_key])
-    end
-  end
 end

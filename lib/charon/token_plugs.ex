@@ -405,14 +405,6 @@ defmodule Charon.TokenPlugs do
   def load_session(_, _), do: raise("must be used after verify_token_signature/2")
 
   @doc """
-  Verify that the refresh token is fresh.
-  """
-  @deprecated "Use verify_token_fresh/2 instead."
-  @spec verify_refresh_token_fresh(Plug.Conn.t(), pos_integer) :: Plug.Conn.t()
-  def verify_refresh_token_fresh(conn, grace_period \\ 10),
-    do: verify_token_fresh(conn, grace_period)
-
-  @doc """
   Verify that the token (either access or refresh) is fresh.
 
   A token is fresh if it belongs to the current or previous "refresh token generation".
