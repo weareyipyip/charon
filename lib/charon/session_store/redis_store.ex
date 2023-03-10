@@ -213,16 +213,16 @@ defmodule Charon.SessionStore.RedisStore do
     find_session_sets(config, mod_conf, [], nil)
     |> Stream.chunk_every(50)
     # [u1_set, u2_set]
-    |> Enum.each(fn session_sets ->
-      session_sets
+    |> Enum.each(fn session_set_keys ->
+      session_set_keys
       |> Enum.map(&["ZRANGE", &1, "-inf", "+inf", "BYSCORE"])
       |> redix.pipeline()
       # [[u1.a, u1.b], [u2.c]]
-      |> then(fn {:ok, session_keys_set} ->
-        session_keys = Enum.flat_map(session_keys_set, & &1)
+      |> then(fn {:ok, list_of_lists_of_session_keys} ->
+        session_keys = List.flatten(list_of_lists_of_session_keys)
 
         {:ok, sessions} = redix.command(["MGET" | session_keys])
-        redix.command(["DEL" | session_keys ++ session_sets])
+        redix.command(["DEL" | session_keys ++ session_set_keys])
 
         sessions
         |> Stream.reject(&is_nil/1)
@@ -241,34 +241,37 @@ defmodule Charon.SessionStore.RedisStore do
     do: {to_string(uid), Atom.to_string(type), mod_conf.key_prefix}
 
   # serialize and sign a session
-  defp serialize(session, mod_conf, config) do
-    key = mod_conf.get_signing_key.(config)
-    serialized = :erlang.term_to_binary(session)
-    mac = hmac(serialized, key)
-    <<"signed.", mac::binary, ".", serialized::binary>>
+  defp serialize(session, %{get_signing_key: get_key}, config) do
+    session |> :erlang.term_to_binary() |> sign_hmac(get_key.(config))
   end
 
   # deserialize session and verify its signature
-  defp deserialize(<<"signed.", mac::binary-size(32), ".", serialized::binary>>, mod_conf, config) do
-    serialized
-    |> hmac(mod_conf.get_signing_key.(config))
-    |> constant_time_compare(mac)
-    |> if do
-      :erlang.binary_to_term(serialized)
-    else
-      Logger.warning("Ignored Redis session with invalid signature.")
-      nil
-    end
+  defp deserialize(serialized, %{get_signing_key: get_key, allow_unsigned?: unsigned?}, config) do
+    serialized |> verify_hmac(get_key.(config)) |> on_verify_hmac(unsigned?, serialized)
   end
 
-  defp deserialize(unsigned, %{allow_unsigned?: allow_unsigned?}, _config) do
-    if allow_unsigned? do
-      session = :erlang.binary_to_term(unsigned)
-      Logger.warning("Unsigned session #{session.id} fetched from Redis.")
-      session
-    else
-      Logger.warning("Ignored Redis session with invalid signature.")
-      nil
+  # if (signature verified OR allow_unsigned?) AND session could be deserialized, return it
+  # else return nil
+  defp on_verify_hmac({:ok, serialized}, _, _), do: deserialize(serialized)
+
+  defp on_verify_hmac({_, :malformed_input}, true, serialized) do
+    serialized
+    |> deserialize()
+    |> tap(fn s -> s && Logger.warning("Unsigned session #{s.id} fetched from Redis.") end)
+  end
+
+  # signature is invalid or session isn't signed and this isn't allowed
+  defp on_verify_hmac(_, _, _) do
+    Logger.warning("Ignored Redis session with invalid signature.")
+    nil
+  end
+
+  # deserialize a session, returning nil on errors
+  defp deserialize(serialized) do
+    try do
+      :erlang.binary_to_term(serialized)
+    rescue
+      _ -> nil
     end
   end
 
