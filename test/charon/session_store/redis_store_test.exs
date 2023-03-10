@@ -2,7 +2,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
   alias Charon.SessionStore.RedisStore
-  import Charon.{TestUtils, Internal, TestHelpers}
+  import Charon.{TestUtils, Internal}
   import Charon.Utils.Crypto
   alias Charon.{TestRedix, TestConfig}
   import TestRedix, only: [command: 1]
@@ -48,21 +48,11 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
     end
 
-    test "returns unsigned session if allow_unsigned? = true" do
+    test "ignores unsigned session" do
       command(["SET", session_key(@sid, @uid), @serialized])
 
       assert capture_log(fn ->
-               assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
-             end) =~ "Unsigned session a fetched"
-    end
-
-    test "ignores unsigned session if allow_unsigned? = false" do
-      command(["SET", session_key(@sid, @uid), @serialized])
-
-      config = override_opt_mod_conf(@config, RedisStore, allow_unsigned?: false)
-
-      assert capture_log(fn ->
-               refute RedisStore.get(@sid, @uid, :full, config)
+               refute RedisStore.get(@sid, @uid, :full, @config)
              end) =~ "Ignored Redis session"
     end
 

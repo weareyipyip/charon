@@ -17,8 +17,7 @@ defmodule Charon.SessionStore.RedisStore do
           Charon.SessionStore.RedisStore => %{
             redix_module: MyApp.Redix,
             key_prefix: "charon_",
-            get_signing_key: &RedisStore.default_signing_key/1,
-            allow_unsigned?: true
+            get_signing_key: &RedisStore.default_signing_key/1
           }
         }
       )
@@ -27,7 +26,6 @@ defmodule Charon.SessionStore.RedisStore do
     - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
     - `:get_signing_key` (optional). A getter/1 that returns the key that is used to sign and verify serialized session binaries.
-    - `:allow_unsigned?` (optional). Allow unsigned sessions for legacy reasons. This option will be removed and no unsigned session will be allowed anymore in a future major release.
 
   ## Redix
 
@@ -200,24 +198,17 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   # deserialize session and verify its signature
-  defp deserialize(serialized, %{get_signing_key: get_key, allow_unsigned?: unsigned?}, config) do
-    serialized |> verify_hmac(get_key.(config)) |> on_verify_hmac(unsigned?, serialized)
-  end
-
-  # if (signature verified OR allow_unsigned?) AND session could be deserialized, return it
-  # else return nil
-  defp on_verify_hmac({:ok, serialized}, _, _), do: deserialize(serialized)
-
-  defp on_verify_hmac({_, :malformed_input}, true, serialized) do
+  defp deserialize(serialized, %{get_signing_key: get_key}, config) do
     serialized
-    |> deserialize()
-    |> tap(fn s -> s && Logger.warning("Unsigned session #{s.id} fetched from Redis.") end)
-  end
+    |> verify_hmac(get_key.(config))
+    |> case do
+      {:ok, serialized} ->
+        deserialize(serialized)
 
-  # signature is invalid or session isn't signed and this isn't allowed
-  defp on_verify_hmac(_, _, _) do
-    Logger.warning("Ignored Redis session with invalid signature.")
-    nil
+      _ ->
+        Logger.warning("Ignored Redis session with invalid signature.")
+        nil
+    end
   end
 
   # deserialize a session, returning nil on errors

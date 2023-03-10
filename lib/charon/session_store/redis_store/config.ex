@@ -7,15 +7,13 @@ defmodule Charon.SessionStore.RedisStore.Config do
   defstruct [
     :redix_module,
     key_prefix: "charon_",
-    get_signing_key: &RedisStore.default_signing_key/1,
-    allow_unsigned?: true
+    get_signing_key: &RedisStore.default_signing_key/1
   ]
 
   @type t :: %__MODULE__{
           redix_module: module(),
           key_prefix: String.t(),
-          get_signing_key: (Charon.Config.t() -> binary()),
-          allow_unsigned?: boolean()
+          get_signing_key: (Charon.Config.t() -> binary())
         }
 
   @doc """
