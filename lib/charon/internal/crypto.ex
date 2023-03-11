@@ -49,8 +49,13 @@ defmodule Charon.Internal.Crypto do
   """
   @spec constant_time_compare(binary, binary) :: boolean()
   if function_exported?(:crypto, :hash_equals, 2) do
-    def constant_time_compare(bin_a, bin_b) when bit_size(bin_a) != bit_size(bin_b), do: false
-    def constant_time_compare(bin_a, bin_b), do: :crypto.hash_equals(bin_a, bin_b)
+    def constant_time_compare(bin_a, bin_b) do
+      try do
+        :crypto.hash_equals(bin_a, bin_b)
+      rescue
+        ArgumentError -> false
+      end
+    end
   else
     def constant_time_compare(bin_a, bin_b), do: Plug.Crypto.secure_compare(bin_a, bin_b)
   end
