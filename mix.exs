@@ -21,8 +21,9 @@ defmodule Charon.MixProject do
       name: "Charon",
       docs: [
         source_ref: "main",
-        extras: ~w(./README.md ./LICENSE.md),
-        main: "readme"
+        extras: ~w(./README.md ./LICENSE.md ./UPGRADE_GUIDE.md ./CHANGELOG.md),
+        main: "readme",
+        skip_undefined_reference_warnings_on: ~w(./UPGRADE_GUIDE.md ./CHANGELOG.md)
       ]
     ]
   end
