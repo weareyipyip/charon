@@ -8,7 +8,9 @@ defmodule Charon.SessionStore.RedisStoreTest do
   import TestRedix, only: [command: 1]
 
   @ttl 10
-  @exp now() + @ttl
+  @now now()
+  @exp @now + @ttl
+  @exp_str to_string(@exp)
   @mod_conf RedisStore.Config.from_enum(redix_module: TestRedix)
   @config %{
     TestConfig.get()
@@ -18,10 +20,14 @@ defmodule Charon.SessionStore.RedisStoreTest do
   }
   @sid "a"
   @uid 426
-  @user_session test_session(id: @sid, user_id: @uid, refresh_expires_at: @exp)
-  @serialized :erlang.term_to_binary(@user_session)
-  @mac hmac(@serialized, RedisStore.default_signing_key(@config))
-  @signed_serialized "signed." <> @mac <> "." <> @serialized
+  @user_session test_session(
+                  id: @sid,
+                  user_id: @uid,
+                  refresh_expires_at: @exp,
+                  refreshed_at: @now
+                )
+  @key session_key(@sid, @uid)
+  @set_key user_sessions_key(@uid)
 
   setup_all do
     TestRedix.init()
@@ -33,23 +39,37 @@ defmodule Charon.SessionStore.RedisStoreTest do
     :ok
   end
 
+  defp serialize(session), do: session |> :erlang.term_to_binary()
+  defp sign(binary), do: sign_hmac(binary, RedisStore.default_signing_key(@config))
+  defp get(key), do: command(["GET", key]) |> to_result()
+  defp list_set_values(key), do: command(["ZRANGE", key, 0, -1, "WITHSCORES"]) |> to_result()
+  defp to_result({:ok, result}), do: result
+  defp get_exp(key), do: command(["EXPIRETIME", key]) |> to_result()
+  defp set_exp(key, exp), do: 1 = command(["EXPIREAT", key, exp]) |> to_result()
+  defp add_to_set(set_k, score, v), do: 1 = command(["ZADD", set_k, score, v]) |> to_result()
+  defp insert(key, value), do: "OK" = command(["SET", key, value]) |> to_result()
+
+  defp insert(session = %{id: sid, user_id: uid, type: type}) do
+    insert(session_key(sid, uid, type), session |> serialize() |> sign())
+  end
+
   describe "get/4" do
     test "returns nil if not found (or expired)" do
       assert nil == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "returns nil if other type" do
-      command(["SET", session_key(@sid, @uid, :oauth2), @signed_serialized])
+      insert(%{@user_session | type: :oauth2})
       assert nil == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "returns deserialized session" do
-      command(["SET", session_key(@sid, @uid), @signed_serialized])
+      insert(@user_session)
       assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "ignores unsigned session" do
-      command(["SET", session_key(@sid, @uid), @serialized])
+      insert(@key, serialize(@user_session))
 
       assert capture_log(fn ->
                refute RedisStore.get(@sid, @uid, :full, @config)
@@ -57,13 +77,9 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "ignores signed session with invalid signature" do
-      command([
-        "SET",
-        session_key(@sid, @uid),
-        "signed." <> :crypto.strong_rand_bytes(32) <> "." <> @serialized
-      ])
+      invalid = "signed." <> :crypto.strong_rand_bytes(32) <> "." <> serialize(@user_session)
+      insert(@key, invalid)
 
-      # even if allow_unsigned? = true, sessions with an invalid signature are ignored
       assert capture_log(fn ->
                refute RedisStore.get(@sid, @uid, :full, @config)
              end) =~ "Ignored Redis session"
@@ -73,145 +89,131 @@ defmodule Charon.SessionStore.RedisStoreTest do
   describe "upsert/3" do
     test "stores session and adds key to user's set of sessions" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-      assert {:ok, @signed_serialized} == command(["get", session_key(@sid, @uid)])
-
-      assert {:ok, [session_key(@sid, @uid)]} ==
-               command(["ZRANGE", user_sessions_key(@uid), 0, -1])
+      assert @user_session |> serialize() |> sign() == get(@key)
+      assert [@key, _] = list_set_values(user_sessions_key(@uid))
     end
 
     test "sets ttl / exp score" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-      assert {:ok, ttl} = command(["TTL", session_key(@sid, @uid)])
-      assert_in_delta ttl, @ttl, 3
-      assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
-      assert_in_delta String.to_integer(exp), @exp, 3
-      assert {:ok, ttl} = command(["TTL", user_sessions_key(@uid)])
-      assert_in_delta ttl, @ttl, 3
+      assert @exp = get_exp(@key)
+      assert [@key, @exp_str] = list_set_values(@set_key)
+      assert @exp = get_exp(@set_key)
     end
 
     test "separates by type" do
       other_type = %{@user_session | type: :oauth2}
       assert :ok = RedisStore.upsert(@user_session, @config)
       assert :ok = RedisStore.upsert(other_type, @config)
-      assert {:ok, @signed_serialized} == command(["get", session_key(@sid, @uid)])
-      assert {:ok, <<_::binary>>} = command(["get", session_key(@sid, @uid, :oauth2)])
+      assert session = get(@key)
+      assert oauth2_session = get(session_key(@sid, @uid, :oauth2))
+      assert oauth2_session != session
 
-      assert {:ok, [session_key(@sid, @uid)]} ==
-               command(["ZRANGE", user_sessions_key(@uid), 0, -1])
+      assert [@key, @exp_str] == list_set_values(@set_key)
 
-      assert {:ok, [session_key(@sid, @uid, :oauth2)]} ==
-               command(["ZRANGE", user_sessions_key(@uid, :oauth2), 0, -1])
+      assert [session_key(@sid, @uid, :oauth2), @exp_str] ==
+               list_set_values(user_sessions_key(@uid, :oauth2))
     end
 
     test "updates existing session, ttl, exp" do
-      assert :ok =
-               @user_session
-               |> Map.put(:refresh_expires_at, @exp + 5)
-               |> RedisStore.upsert(@config)
+      assert :ok = RedisStore.upsert(@user_session, @config)
+      assert @exp = get_exp(@key)
 
-      assert {:ok, [_, exp]} = command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
-      assert {:ok, ttl} = command(["TTL", session_key(@sid, @uid)])
+      new_exp = @exp + 10
 
       assert :ok =
                @user_session
-               |> Map.merge(%{extra_payload: %{new: "key"}, refresh_expires_at: @exp + 10})
+               |> Map.merge(%{extra_payload: %{new: "key"}, refresh_expires_at: new_exp})
                |> RedisStore.upsert(@config)
 
-      assert {:ok, "signed." <> <<_::256>> <> "." <> new_session} =
-               command(["GET", session_key(@sid, @uid)])
+      assert "signed." <> <<_::256>> <> "." <> new_session = get(@key)
 
-      assert {:ok, new_ttl} = command(["TTL", session_key(@sid, @uid)])
-
-      assert {:ok, [_, new_exp]} =
-               command(["ZRANGE", user_sessions_key(@uid), 0, -1, "WITHSCORES"])
+      assert ^new_exp = get_exp(@key)
+      assert [@key, to_string(new_exp)] == list_set_values(@set_key)
 
       assert %{extra_payload: %{new: "key"}} = new_session |> :erlang.binary_to_term()
-      # ttl should be reset
-      assert_in_delta new_ttl, ttl, 5
-      assert new_exp != exp
     end
 
     test "prunes expired sessions" do
-      user_key = user_sessions_key(@uid)
       # unexpired, present
-      command(["ZADD", user_key, @exp, "a"])
+      add_to_set(@set_key, @exp, "a")
       # expired, somehow present
-      command(["ZADD", user_key, 0, "c"])
+      add_to_set(@set_key, 0, "c")
 
       assert :ok = RedisStore.upsert(@user_session, @config)
 
-      assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
+      keys = list_set_values(@set_key)
+      assert @key in keys
       assert "a" in keys
       assert "c" not in keys
     end
 
     test "updates user's sessions set ttl" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp, "a"])
-      command(["EXPIRE", user_key, "#{@ttl}"])
+      add_to_set(@set_key, @exp, "a")
+      set_exp(@set_key, @exp)
 
-      assert :ok = RedisStore.upsert(%{@user_session | refresh_expires_at: @exp + 10}, @config)
+      assert @exp == get_exp(@set_key)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 10, 3
+      new_exp = @exp + 10
+      :ok = RedisStore.upsert(%{@user_session | refresh_expires_at: new_exp}, @config)
+
+      assert new_exp == get_exp(@set_key)
     end
 
-    test "prunes expired sessions with reduced refresh exp" do
-      user_key = user_sessions_key(@uid)
+    test "prunes expired sessions on upsert of session with reduced refresh exp" do
       # unexpired, present
-      command(["ZADD", user_key, @exp, "a"])
+      add_to_set(@set_key, @exp, "a")
       # expired, somehow present
-      command(["ZADD", user_key, 0, "c"])
+      add_to_set(@set_key, 0, "c")
 
       assert :ok = RedisStore.upsert(%{@user_session | expires_at: @exp}, @config)
 
-      assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
+      keys = list_set_values(@set_key)
+      assert @key in keys
       assert "a" in keys
       assert "c" not in keys
     end
 
     test "user's session set ttl correct after reduced but highest refresh exp session upsert" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp, "a"])
-      command(["EXPIRE", user_key, "#{@ttl}"])
+      add_to_set(@set_key, @exp, "a")
+      set_exp(@set_key, @exp)
 
-      assert :ok =
-               %{@user_session | expires_at: @exp + 10, refresh_expires_at: @exp + 10}
-               |> RedisStore.upsert(@config)
+      new_exp = @exp + 10
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 10, 3
+      :ok =
+        %{@user_session | expires_at: new_exp, refresh_expires_at: new_exp}
+        |> RedisStore.upsert(@config)
+
+      assert new_exp == get_exp(@set_key)
     end
 
     test "user's session set ttl correct after reduced and NOT highest refresh exp session upsert" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp + 10, "a"])
-      command(["EXPIRE", user_key, "#{@ttl + 10}"])
+      higher_exp = @exp + 10
+      add_to_set(@set_key, higher_exp, "a")
+      set_exp(@set_key, higher_exp)
 
       assert :ok =
                %{@user_session | expires_at: @exp, refresh_expires_at: @exp}
                |> RedisStore.upsert(@config)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 10, 3
+      assert higher_exp == get_exp(@set_key)
     end
 
     test "user's session set ttl correct after reduced first-for-user session upsert" do
-      user_key = user_sessions_key(@uid)
-
       assert :ok =
                %{@user_session | expires_at: @exp, refresh_expires_at: @exp}
                |> RedisStore.upsert(@config)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl, 3
+      assert @exp == get_exp(@set_key)
     end
 
     test "can handle negative session ttl" do
-      assert :ok =
-               @user_session
-               |> Map.put(:refresh_expires_at, now() - 5)
-               |> RedisStore.upsert(@config)
+      :ok =
+        @user_session
+        |> Map.put(:refresh_expires_at, @exp - 500)
+        |> RedisStore.upsert(@config)
+
+      refute get(@key)
+      refute get(@set_key)
     end
   end
 
@@ -221,100 +223,89 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "deletes session" do
-      command(["SET", session_key(@sid, @uid), @signed_serialized])
+      insert(@user_session)
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
-      assert {:ok, nil} = command(["GET", session_key(@sid, @uid)])
+      refute get(@key)
     end
 
     test "also drops the session key in the user's session set" do
-      command(["ZADD", user_sessions_key(@uid), @exp, session_key(@sid, @uid)])
+      add_to_set(@set_key, @exp, "a")
+      add_to_set(@set_key, @exp, @key)
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
-      assert {:ok, []} == command(["ZRANGE", user_sessions_key(@uid), 0, -1])
+      assert ["a", @exp_str] == list_set_values(@set_key)
     end
 
-    test "can handle negative session ttl" do
-      command(["ZADD", user_sessions_key(@uid), "3", session_key(@sid, @uid)])
-      assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
-    end
-
-    test "prunes expired sessions" do
-      user_key = user_sessions_key(@uid)
+    test "prunes expired sessions from user set" do
       # unexpired, present
-      command(["ZADD", user_key, @exp, "a"])
+      add_to_set(@set_key, @exp, @key)
       # expired, somehow present
-      command(["ZADD", user_key, 0, "c"])
+      add_to_set(@set_key, 0, "c")
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
-      assert {:ok, keys} = command(["ZRANGE", user_key, 0, -1])
-      assert "a" in keys
+      keys = list_set_values(@set_key)
+      refute @key in keys
       assert "c" not in keys
     end
 
     test "user's session set ttl correct if deleted session was highest exp session" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp, "a"])
-      command(["ZADD", user_key, @exp + 5, _to_delete = session_key(@sid, @uid)])
-      command(["EXPIRE", user_key, "#{@ttl + 5}"])
+      add_to_set(@set_key, @exp, "a")
+      add_to_set(@set_key, @exp + 5, @key)
+      set_exp(@set_key, @exp + 5)
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl, 3
+      # exp reduced to next-in-line highest exp session
+      assert @exp == get_exp(@set_key)
     end
 
-    test "user's session set ttl correct if deleted session not found" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp, "a"])
-      command(["EXPIRE", user_key, "#{@ttl}"])
+    test "user's session set ttl correct(ed) if deleted session not found" do
+      add_to_set(@set_key, @exp, "a")
+      # the set should never have this value, which doesn't match the exp of "a"
+      set_exp(@set_key, @exp + 5)
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl, 3
+      # exp reduced to next-in-line highest exp session
+      assert @exp == get_exp(@set_key)
     end
 
     test "user's session set ttl correct if deleted session was NOT highest exp session" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp + 5, "a"])
-      command(["ZADD", user_key, @exp, _to_delete = session_key(@sid, @uid)])
-      command(["EXPIRE", user_key, "#{@ttl + 5}"])
+      add_to_set(@set_key, @exp + 5, "a")
+      add_to_set(@set_key, @exp, @key)
+      set_exp(@set_key, @exp + 5)
 
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
 
-      assert {:ok, ttl} = command(["TTL", user_key])
-      assert_in_delta ttl, @ttl + 5, 3
+      # set exp is unchanged
+      assert @exp + 5 == get_exp(@set_key)
     end
 
     test "user's session set removed if deleted session was last session" do
-      user_key = user_sessions_key(@uid)
-      command(["ZADD", user_key, @exp, _to_delete = session_key(@sid, @uid)])
-      command(["EXPIRE", user_key, "#{@ttl}"])
-
+      add_to_set(@set_key, @exp, @key)
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
-
-      assert {:ok, 0} = command(["EXISTS", user_key])
+      refute get(@set_key)
     end
   end
 
   describe "get_all/3" do
     test "returns the user's unexpired, deserialized sessions of requested type" do
       # unexpired, present
-      command(["ZADD", user_sessions_key(@uid), @exp, "a"])
-      command(["SET", "a", @signed_serialized])
+      add_to_set(@set_key, @exp, "a")
+      insert("a", %{@user_session | id: "a"} |> serialize() |> sign())
       # unexpired, missing
-      command(["ZADD", user_sessions_key(@uid), @exp, "b"])
+      add_to_set(@set_key, @exp, "b")
       # expired, somehow present
-      command(["ZADD", user_sessions_key(@uid), 0, "c"])
-      command(["SET", "c", @signed_serialized])
+      add_to_set(@set_key, 0, "c")
+      insert("c", %{@user_session | id: "c"} |> serialize() |> sign())
       # expired and missing as it should be
-      command(["ZADD", user_sessions_key(@uid), 0, "d"])
+      add_to_set(@set_key, 0, "d")
       # another user's session
-      command(["ZADD", "user2", @exp, "e"])
-      command(["SET", "e", @signed_serialized])
+      add_to_set(user_sessions_key(@uid + 1), @exp, "e")
+      insert("e", %{@user_session | id: "e", user_id: @uid + 1} |> serialize() |> sign())
       # unexpired, present, other type
-      command(["ZADD", user_sessions_key(@uid, :oauth2), @exp, "f"])
-      command(["SET", "f", @signed_serialized])
+      add_to_set(user_sessions_key(@uid, :oauth2), @exp, "f")
+      insert("f", %{@user_session | id: "f", type: :oauth2} |> serialize() |> sign())
 
       assert [@user_session] == RedisStore.get_all(@uid, :full, @config)
     end
@@ -323,31 +314,28 @@ defmodule Charon.SessionStore.RedisStoreTest do
   describe "delete_all/3" do
     test "removes all sessions of requested type and the user's session set" do
       # unexpired, present
-      command(["ZADD", user_sessions_key(@uid), @exp, "a"])
-      command(["SET", "a", @signed_serialized])
+      add_to_set(@set_key, @exp, "a")
+      insert("a", %{@user_session | id: "a"} |> serialize() |> sign())
       # unexpired, missing
-      command(["ZADD", user_sessions_key(@uid), @exp, "b"])
+      add_to_set(@set_key, @exp, "b")
       # expired, somehow present
-      command(["ZADD", user_sessions_key(@uid), 0, "c"])
-      command(["SET", "c", @signed_serialized])
+      add_to_set(@set_key, 0, "c")
+      insert("c", %{@user_session | id: "c"} |> serialize() |> sign())
       # expired and missing as it should be
-      command(["ZADD", user_sessions_key(@uid), 0, "d"])
+      add_to_set(@set_key, 0, "d")
       # another user's session
-      command(["ZADD", user_sessions_key(@uid + 1), @exp, "e"])
-      command(["SET", "e", "session_e"])
+      other_users_set_key = user_sessions_key(@uid + 1)
+      add_to_set(other_users_set_key, @exp, "e")
+      insert("e", %{@user_session | id: "e", user_id: @uid + 1} |> serialize() |> sign())
       # unexpired, present, other type
-      command(["ZADD", user_sessions_key(@uid, :oauth2), @exp, "f"])
-      command(["SET", "f", @signed_serialized])
+      oauth2_set_key = user_sessions_key(@uid, :oauth2)
+      add_to_set(oauth2_set_key, @exp, "f")
+      insert("f", %{@user_session | id: "f", type: :oauth2} |> serialize() |> sign())
 
       assert :ok == RedisStore.delete_all(@uid, :full, @config)
       assert {:ok, keys} = command(~w(KEYS *))
 
-      assert [
-               user_sessions_key(@uid, :oauth2) |> IO.iodata_to_binary(),
-               user_sessions_key(@uid + 1) |> IO.iodata_to_binary(),
-               "e",
-               "f"
-             ] == Enum.sort(keys)
+      assert [oauth2_set_key, other_users_set_key, "e", "f"] == Enum.sort(keys)
     end
   end
 end
