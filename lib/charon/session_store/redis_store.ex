@@ -5,7 +5,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   ## Redis requirements
 
-  This module needs a Redis >= 6.2.0 instance.
+  This module needs a Redis >= 7.0.0 instance.
 
   ## Config
 
@@ -78,22 +78,18 @@ defmodule Charon.SessionStore.RedisStore do
     upsert_session_c = ["SET", session_key, serialize(session, mod_conf, config), "EXAT", exp_str]
     # add session key to user's session set, with exp timestamp as score (or update score)
     upsert_set_c = ["ZADD", set_key, exp_str, session_key]
-    max_exp_c = get_max_exp_session_cmd(set_key)
+    get_set_exp_c = get_s_exp_cmd(set_key)
     prune_set_c = prune_session_set_cmd(set_key, now)
 
     if s_exp == exp do
       # s_exp == exp, we can't assume that this session has the highest refresh exp
       # because this session's refresh_expires_at is reduced so that it is <= expires_at
 
-      [@multi, max_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
+      [@multi, get_set_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
       |> mod_conf.redix_module.pipeline()
       |> case do
-        {:ok, [_, _, _, _, _, [prev_max_exp_session, _, _, _]]} ->
-          # prev_max_exp_session had the highest exp *before* this session was upserted
-          # update user session set ttl if there is no other session OR the new session's exp is the highest
-          {prev_exists?, prev_max_exp_str} = parse_zrange_withscores(prev_max_exp_session)
-          prev_max_exp = String.to_integer(prev_max_exp_str)
-          if not prev_exists? or exp > prev_max_exp, do: put_s_exp(set_key, exp_str, mod_conf)
+        {:ok, [_, _, _, _, _, [set_exp, _, _, _]]} when is_integer(set_exp) ->
+          if exp > set_exp, do: put_s_exp(set_key, exp_str, mod_conf)
           :ok
 
         error ->
@@ -123,20 +119,20 @@ defmodule Charon.SessionStore.RedisStore do
     delete_c = ["DEL", session_key]
     delete_key_c = ["ZREM", set_key, session_key]
     max_exp_c = get_max_exp_session_cmd(set_key)
+    get_set_exp_c = get_s_exp_cmd(set_key)
     prune_set_c = prune_session_set_cmd(set_key, now)
 
-    [@multi, max_exp_c, delete_c, delete_key_c, prune_set_c, max_exp_c, @exec]
+    [@multi, get_set_exp_c, delete_c, delete_key_c, prune_set_c, max_exp_c, @exec]
     |> mod_conf.redix_module.pipeline()
     |> case do
-      {:ok, [_, _, _, _, _, _, [pre_max_exp_session, _, _, _, post_max_exp_session]]} ->
-        # pre_max_exp_session had the highest exp *before* this session was deleted
-        {pre_exists?, pre_max_exp_str} = parse_zrange_withscores(pre_max_exp_session)
-        {post_exists?, post_max_exp_str} = parse_zrange_withscores(post_max_exp_session)
+      {:ok, [_, _, _, _, _, _, [set_exp, _, _, _, map_exp_session]]} when is_integer(set_exp) ->
+        # EXPIRETIME returns -2 if key does not exist
+        set_existed? = set_exp > -2
+        set_exp_str = set_exp |> to_string()
+        {set_exists?, max_session_exp_str} = parse_zrange_withscores(map_exp_session)
 
-        if pre_exists? and post_exists? and post_max_exp_str != pre_max_exp_str do
-          put_s_exp(set_key, post_max_exp_str, mod_conf)
-        end
-
+        update_set_exp? = set_existed? and set_exists? and set_exp_str != max_session_exp_str
+        if update_set_exp?, do: put_s_exp(set_key, max_session_exp_str, mod_conf)
         :ok
 
       error ->
@@ -269,6 +265,8 @@ defmodule Charon.SessionStore.RedisStore do
       error -> Logger.error("Error during user session set maintenance: #{inspect(error)}")
     end
   end
+
+  defp get_s_exp_cmd(set_key), do: ["EXPIRETIME", set_key]
 
   defp redis_result_to_error({:ok, error}), do: {:error, inspect(error)}
   defp redis_result_to_error(error), do: error
