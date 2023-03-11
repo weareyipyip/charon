@@ -50,8 +50,7 @@ defmodule Charon.SessionStore.RedisStore do
     ["GET", session_key]
     |> mod_conf.redix_module.command()
     |> case do
-      {:ok, <<serialized::binary>>} -> deserialize(serialized, mod_conf, config)
-      {:ok, _} -> nil
+      {:ok, serialized_or_nil} -> deserialize(serialized_or_nil, mod_conf, config)
       error -> error
     end
   end
@@ -89,8 +88,7 @@ defmodule Charon.SessionStore.RedisStore do
       [@multi, max_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
       |> mod_conf.redix_module.pipeline()
       |> case do
-        {:ok, [_, _, _, _, _, [prev_max_exp_session, "OK", r3, r4]]}
-        when is_integer(r3) and is_integer(r4) ->
+        {:ok, [_, _, _, _, _, [prev_max_exp_session, _, _, _]]} ->
           # prev_max_exp_session had the highest exp *before* this session was upserted
           # update user session set ttl if there is no other session OR the new session's exp is the highest
           {prev_exists?, prev_max_exp_str} = parse_zrange_withscores(prev_max_exp_session)
@@ -108,7 +106,7 @@ defmodule Charon.SessionStore.RedisStore do
       [@multi, upsert_session_c, upsert_set_c, set_exp_c, prune_set_c, @exec]
       |> mod_conf.redix_module.pipeline()
       |> case do
-        {:ok, [_, _, _, _, _, ["OK", r2, 1, r4]]} when is_integer(r2) and is_integer(r4) -> :ok
+        {:ok, [_, _, _, _, _, [_, _, _, _]]} -> :ok
         error -> redis_result_to_error(error)
       end
     end
@@ -130,8 +128,7 @@ defmodule Charon.SessionStore.RedisStore do
     [@multi, max_exp_c, delete_c, delete_key_c, prune_set_c, max_exp_c, @exec]
     |> mod_conf.redix_module.pipeline()
     |> case do
-      {:ok, [_, _, _, _, _, _, [pre_max_exp_session, r2, r3, _, post_max_exp_session]]}
-      when is_integer(r2) and is_integer(r3) ->
+      {:ok, [_, _, _, _, _, _, [pre_max_exp_session, _, _, _, post_max_exp_session]]} ->
         # pre_max_exp_session had the highest exp *before* this session was deleted
         {pre_exists?, pre_max_exp_str} = parse_zrange_withscores(pre_max_exp_session)
         {post_exists?, post_max_exp_str} = parse_zrange_withscores(post_max_exp_session)
@@ -155,7 +152,7 @@ defmodule Charon.SessionStore.RedisStore do
     with {:ok, keys = [_ | _]} <-
            get_valid_session_keys(user_id_str, type_str, key_prefix, mod_conf),
          {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
-      values |> Stream.reject(&is_nil/1) |> Enum.map(&deserialize(&1, mod_conf, config))
+      values |> Stream.map(&deserialize(&1, mod_conf, config)) |> Enum.reject(&is_nil/1)
     else
       {:ok, []} -> []
       other -> other
@@ -169,7 +166,7 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys} <- get_session_keys(user_id_str, type_str, key_prefix, mod_conf),
          to_delete = [set_key(user_id_str, type_str, key_prefix) | keys],
-         {:ok, n} when is_integer(n) <- ["DEL" | to_delete] |> mod_conf.redix_module.command() do
+         {:ok, _} <- ["DEL" | to_delete] |> mod_conf.redix_module.command() do
       :ok
     else
       error -> redis_result_to_error(error)
@@ -198,6 +195,8 @@ defmodule Charon.SessionStore.RedisStore do
   end
 
   # deserialize session and verify its signature
+  defp deserialize(nil, _, _), do: nil
+
   defp deserialize(serialized, %{get_signing_key: get_key}, config) do
     serialized
     |> verify_hmac(get_key.(config))
@@ -266,7 +265,7 @@ defmodule Charon.SessionStore.RedisStore do
     put_s_exp_cmd(set_key, exp_str)
     |> mod_conf.redix_module.command()
     |> case do
-      {:ok, n} when is_integer(n) -> :ok
+      {:ok, _} -> :ok
       error -> Logger.error("Error during user session set maintenance: #{inspect(error)}")
     end
   end

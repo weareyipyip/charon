@@ -67,7 +67,7 @@ defmodule Charon.SessionPlugs do
 
       # renews session if present in conn, updating only refresh_tokens, refreshed_at, and refresh_expires_at
       # existing session's user id will not change despite attempted override
-      iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0)
+      iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0, refreshed_at: 0)
       iex> conn = conn()
       ...> |> Conn.put_private(@session, old_session)
       ...> |> Utils.set_token_signature_transport(:bearer)

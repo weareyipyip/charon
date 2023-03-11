@@ -7,8 +7,9 @@ defmodule Charon.TestUtils do
   end
 
   # key for the sorted-by-expiration-timestamp set of the user's session keys
-  def user_sessions_key(user_id, type \\ :full, prefix \\ "charon_"),
-    do: RedisStore.set_key(to_string(user_id), to_string(type), prefix)
+  def user_sessions_key(user_id, type \\ :full, prefix \\ "charon_") do
+    RedisStore.set_key(to_string(user_id), to_string(type), prefix) |> IO.iodata_to_binary()
+  end
 
   def conn(), do: Plug.Test.conn(:get, "/")
 
@@ -16,15 +17,17 @@ defmodule Charon.TestUtils do
   Create a test session, with all required keys set.
   """
   def test_session(overrides \\ []) do
+    now = Charon.Internal.now()
+
     %Charon.Models.Session{
-      created_at: 0,
-      expires_at: 0,
+      created_at: now,
+      expires_at: :infinite,
       id: "a",
       prev_tokens_fresh_from: 0,
-      refresh_expires_at: 0,
+      refresh_expires_at: now + 10,
       refresh_token_id: "b",
-      refreshed_at: 0,
-      tokens_fresh_from: 0,
+      refreshed_at: now,
+      tokens_fresh_from: now,
       user_id: 1
     }
     |> Map.merge(Map.new(overrides))
