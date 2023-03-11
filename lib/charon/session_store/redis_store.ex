@@ -50,7 +50,7 @@ defmodule Charon.SessionStore.RedisStore do
     ["GET", session_key]
     |> mod_conf.redix_module.command()
     |> case do
-      {:ok, nil_or_serialized} -> deserialize(nil_or_serialized, mod_conf, config)
+      {:ok, serialized_or_nil} -> deserialize(serialized_or_nil, mod_conf, config)
       error -> error
     end
   end
