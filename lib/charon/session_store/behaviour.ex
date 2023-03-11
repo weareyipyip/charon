@@ -36,6 +36,10 @@ defmodule Charon.SessionStore.Behaviour do
 
   Values `session_id`, `user_id` and `type` are taken from the `session` struct.
   Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
+
+  Implementations may assume that `Charon.SessionPlugs.upsert_session/3` will ensure that:
+   - `:refreshed_at` contains the current unix timestamp
+   - `:refresh_expires_at` never exceeds `:expires_at`
   """
   @callback upsert(session :: Session.t(), config :: Config.t()) :: :ok | {:error, binary}
 
