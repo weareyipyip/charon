@@ -27,9 +27,9 @@ defmodule Charon.ConfigTest do
       signing_key: "default"
     },
     RedisStore.Config => %{
-      redix_module: :required,
       key_prefix: "charon_",
-      get_signing_key: &RedisStore.default_signing_key/1
+      get_signing_key: &RedisStore.default_signing_key/1,
+      debug_log?: false
     }
   }
 
@@ -48,9 +48,10 @@ defmodule Charon.ConfigTest do
       base_config = @configurations[Charon.Config]
       config = override_opt_mod_conf(base_config, RedisStore, %{})
 
-      assert_raise ArgumentError,
-                   "the following keys must also be given when building struct Charon.SessionStore.RedisStore.Config: [:redix_module]",
-                   fn -> Charon.Config.from_enum(config) end
+      assert %Charon.SessionStore.RedisStore.Config{
+               get_signing_key: &Charon.SessionStore.RedisStore.default_signing_key/1,
+               key_prefix: "charon_"
+             } == Charon.Config.from_enum(config).optional_modules[RedisStore]
     end
   end
 end

@@ -15,24 +15,26 @@ defmodule Charon.SessionStore.RedisStore do
         ...,
         optional_modules: %{
           Charon.SessionStore.RedisStore => %{
-            redix_module: MyApp.Redix,
             key_prefix: "charon_",
-            get_signing_key: &RedisStore.default_signing_key/1
+            get_signing_key: &RedisStore.default_signing_key/1,
+            debug_log?: false
           }
         }
       )
 
   The following options are supported:
-    - `:redix_module` (required). A module that implements a `command/1` and a `pipeline/1` function for Redis commands like Redix.
     - `:key_prefix` (optional). A string prefix for the Redis keys that are sessions.
     - `:get_signing_key` (optional). A getter/1 that returns the key that is used to sign and verify serialized session binaries.
+    - `:debug_log?` (optional). Enable debug logging of raw Redis commands.
 
-  ## Redix
+  ## Initialize connection pool
 
-  This module depends on a correctly configured `Redix` module with `command/1` and `pipeline/1` functions. See https://hexdocs.pm/redix for instructions.
+  RedisStore uses a connection pool, which you need to add to your application's supervision tree.
+  See `Charon.SessionStore.RedisStore.ConnectionPool`.
   """
   @behaviour Charon.SessionStore.Behaviour
   alias Charon.{Config, Internal, Utils}
+  alias __MODULE__.RedisClient
   import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
   import Utils.{KeyGenerator}
   import Internal.Crypto
@@ -48,7 +50,7 @@ defmodule Charon.SessionStore.RedisStore do
     session_key = session_key(session_id, user_id_str, type_str, key_prefix)
 
     ["GET", session_key]
-    |> mod_conf.redix_module.command()
+    |> RedisClient.command(mod_conf.debug_log?)
     |> case do
       {:ok, serialized_or_nil} -> deserialize(serialized_or_nil, mod_conf, config)
       error -> error
@@ -75,7 +77,14 @@ defmodule Charon.SessionStore.RedisStore do
     now = Integer.to_string(now)
 
     # upsert the actual session as a separate key-value pair that expires when the refresh token expires
-    upsert_session_c = ["SET", session_key, serialize(session, mod_conf, config), "EXAT", exp_str]
+    upsert_session_c = [
+      "SET",
+      session_key,
+      serialize(session, mod_conf, config),
+      "EXAT",
+      exp_str
+    ]
+
     # add session key to user's session set, with exp timestamp as score (or update score)
     upsert_set_c = ["ZADD", set_key, exp_str, session_key]
     get_set_exp_c = get_s_exp_cmd(set_key)
@@ -86,7 +95,7 @@ defmodule Charon.SessionStore.RedisStore do
       # because this session's refresh_expires_at is reduced so that it is <= expires_at
 
       [@multi, get_set_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
-      |> mod_conf.redix_module.pipeline()
+      |> RedisClient.pipeline(mod_conf.debug_log?)
       |> case do
         {:ok, [_, _, _, _, _, [set_exp, _, _, _]]} when is_integer(set_exp) ->
           if exp > set_exp, do: put_s_exp(set_key, exp_str, mod_conf)
@@ -100,7 +109,7 @@ defmodule Charon.SessionStore.RedisStore do
       set_exp_c = put_s_exp_cmd(set_key, exp_str)
 
       [@multi, upsert_session_c, upsert_set_c, set_exp_c, prune_set_c, @exec]
-      |> mod_conf.redix_module.pipeline()
+      |> RedisClient.pipeline(mod_conf.debug_log?)
       |> case do
         {:ok, [_, _, _, _, _, [_, _, _, _]]} -> :ok
         error -> redis_result_to_error(error)
@@ -123,7 +132,7 @@ defmodule Charon.SessionStore.RedisStore do
     prune_set_c = prune_session_set_cmd(set_key, now)
 
     [@multi, get_set_exp_c, delete_c, delete_key_c, prune_set_c, max_exp_c, @exec]
-    |> mod_conf.redix_module.pipeline()
+    |> RedisClient.pipeline(mod_conf.debug_log?)
     |> case do
       {:ok, [_, _, _, _, _, _, [set_exp, _, _, _, map_exp_session]]} when is_integer(set_exp) ->
         # EXPIRETIME returns -2 if key does not exist
@@ -147,7 +156,7 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys = [_ | _]} <-
            get_valid_session_keys(user_id_str, type_str, key_prefix, mod_conf),
-         {:ok, values} <- mod_conf.redix_module.command(["MGET" | keys]) do
+         {:ok, values} <- RedisClient.command(["MGET" | keys], mod_conf.debug_log?) do
       values |> Stream.map(&deserialize(&1, mod_conf, config)) |> Enum.reject(&is_nil/1)
     else
       {:ok, []} -> []
@@ -162,7 +171,7 @@ defmodule Charon.SessionStore.RedisStore do
 
     with {:ok, keys} <- get_session_keys(user_id_str, type_str, key_prefix, mod_conf),
          to_delete = [set_key(user_id_str, type_str, key_prefix) | keys],
-         {:ok, _} <- ["DEL" | to_delete] |> mod_conf.redix_module.command() do
+         {:ok, _} <- ["DEL" | to_delete] |> RedisClient.command(mod_conf.debug_log?) do
       :ok
     else
       error -> redis_result_to_error(error)
@@ -226,19 +235,19 @@ defmodule Charon.SessionStore.RedisStore do
   def set_key(user_id, type, key_prefix), do: [key_prefix, ".u.", user_id, ?., type]
 
   # get all keys, including expired ones, for a user
-  defp get_session_keys(user_id, type, key_prefix, config) do
+  defp get_session_keys(user_id, type, key_prefix, mod_conf) do
     # get all of the user's session keys (index 0 = first, -1 = last)
     ["ZRANGE", set_key(user_id, type, key_prefix), "0", "-1"]
-    |> config.redix_module.command()
+    |> RedisClient.command(mod_conf.debug_log?)
   end
 
   # get all valid keys for a user
-  defp get_valid_session_keys(user_id, type, key_prefix, config) do
+  defp get_valid_session_keys(user_id, type, key_prefix, mod_conf) do
     now = Internal.now() |> Integer.to_string()
 
     # get all of the user's valid session keys (with score/timestamp >= now)
     ["ZRANGE", set_key(user_id, type, key_prefix), now, "+inf", "BYSCORE"]
-    |> config.redix_module.command()
+    |> RedisClient.command(mod_conf.debug_log?)
   end
 
   # returns {session_exists?, exp_str}
@@ -247,7 +256,8 @@ defmodule Charon.SessionStore.RedisStore do
   defp parse_zrange_withscores(_), do: {false, "0"}
 
   # clean up the user's old sessions
-  defp prune_session_set_cmd(set_key, now_str), do: ["ZREMRANGEBYSCORE", set_key, "-inf", now_str]
+  defp prune_session_set_cmd(set_key, now_str),
+    do: ["ZREMRANGEBYSCORE", set_key, "-inf", now_str]
 
   # grab the session key and score (= exp timestamp) of the highest-exp session of the user
   defp get_max_exp_session_cmd(set_key) do
@@ -259,7 +269,7 @@ defmodule Charon.SessionStore.RedisStore do
 
   defp put_s_exp(set_key, exp_str, mod_conf) do
     put_s_exp_cmd(set_key, exp_str)
-    |> mod_conf.redix_module.command()
+    |> RedisClient.command(mod_conf.debug_log?)
     |> case do
       {:ok, _} -> :ok
       error -> Logger.error("Error during user session set maintenance: #{inspect(error)}")
