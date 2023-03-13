@@ -55,9 +55,7 @@ The package can be installed by adding `charon` to your list of dependencies in 
 ```elixir
 def deps do
   [
-    {:charon, "~> 3.0"},
-    # to use the default Charon.TokenFactory.Jwt
-    {:jason, "~> 1.0"}
+    {:charon, "~> 3.0"}
   ]
 end
 ```
