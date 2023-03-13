@@ -71,10 +71,6 @@ defmodule Charon.Config do
       ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer, :get_base_secret]
 
       iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp", get_base_secret: "supersecure")
-
-      # optional modules may also check compile-time config
-      iex> from_enum(token_issuer: "Santa", get_base_secret: "supersecure", optional_modules: %{Charon.SessionStore.RedisStore => []})
-      ** (ArgumentError) the following keys must also be given when building struct Charon.SessionStore.RedisStore.Config: [:redix_module]
   """
   @spec from_enum(Enum.t()) :: t()
   def from_enum(enum) do

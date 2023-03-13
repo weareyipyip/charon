@@ -38,15 +38,15 @@ defmodule Charon.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:blake3, "~> 1.0", optional: true},
       {:ex_doc, "~> 0.21", only: [:dev, :test], runtime: false},
-      {:jason, "~> 1.0", optional: true},
-      {:plug, "~> 1.11"},
-      {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
-      {:redix, "~> 1.1", only: [:test], runtime: false},
-      {:jose, "~> 1.11", only: [:test], runtime: false},
       {:fastglobal, "~> 1.0"},
+      {:jose, "~> 1.11", only: [:test], runtime: false},
+      {:mix_test_watch, "~> 1.0", only: [:dev], runtime: false},
       {:mock, "~> 0.3", only: [:test]},
-      {:blake3, "~> 1.0", optional: true}
+      {:plug, "~> 1.11"},
+      {:poolboy, "~> 1.5", optional: true},
+      {:redix, "~> 1.1", optional: true}
     ]
   end
 

@@ -4,20 +4,15 @@ defmodule Charon.SessionStore.RedisStoreTest do
   alias Charon.SessionStore.RedisStore
   import Charon.{TestUtils, Internal}
   import Charon.Internal.Crypto
-  alias Charon.{TestRedix, TestConfig}
-  import TestRedix, only: [command: 1]
+  alias Charon.{TestConfig}
+  alias RedisStore.{RedisClient, ConnectionPool}
+  import RedisClient, only: [command: 1]
 
   @ttl 10
   @now now()
   @exp @now + @ttl
   @exp_str to_string(@exp)
-  @mod_conf RedisStore.Config.from_enum(redix_module: TestRedix)
-  @config %{
-    TestConfig.get()
-    | session_ttl: :infinite,
-      refresh_token_ttl: @ttl,
-      optional_modules: %{RedisStore => @mod_conf}
-  }
+  @config %{TestConfig.get() | session_ttl: :infinite, refresh_token_ttl: @ttl}
   @sid "a"
   @uid 426
   @user_session test_session(
@@ -30,12 +25,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
   @set_key user_sessions_key(@uid)
 
   setup_all do
-    TestRedix.init()
+    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
+    start_supervised!({ConnectionPool, redix_opts: redix_opts})
     :ok
   end
 
   setup do
-    TestRedix.before_each()
+    RedisClient.command(~w(FLUSHDB))
     :ok
   end
 
