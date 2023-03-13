@@ -18,6 +18,10 @@
   - `Charon.TokenPlugs.verify_refresh_token_fresh/2`
 
 - `Charon.SessionStore.RedisStore` support for unsigned binaries has been dropped.
+
   - config options `:allow_unsigned?` has been removed
   - `migrate_sessions/1` has been removed
   - sessions that have not been migrated using `migrate_sessions/1` can no longer be used
+
+- `Charon.SessionStore.RedisStore` now uses a Redix connection pool by itself,
+  which requires initialization under the application supervision tree.
