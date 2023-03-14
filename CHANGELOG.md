@@ -25,3 +25,7 @@
 
 - `Charon.SessionStore.RedisStore` now uses a Redix connection pool by itself,
   which requires initialization under the application supervision tree.
+
+- `Charon.TokenPlugs.verify_token_signature/2` no longer adds default value "full" for claim "styp".
+  This should not result in issues for tokens created by Charon 2.x.x deployments.
+  Older deployments may wish to add a plug after `Charon.TokenPlugs.verify_token_signature/2` that adds this default claim.
