@@ -157,14 +157,6 @@ defmodule Charon.TokenPlugs do
       iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
       iex> %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
 
-      # a default claim "styp" = "full" is added to the payload on verification
-      iex> token = sign(%{"msg" => "hurray!"})
-      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
-      iex> %{"styp" => "full"} = Internal.get_private(conn, @bearer_token_payload)
-      iex> token = sign(%{"styp" => "other"})
-      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
-      iex> %{"styp" => "other"} = Internal.get_private(conn, @bearer_token_payload)
-
       # signature must match
       iex> token = sign(%{"msg" => "hurray!"})
       iex> conn = conn() |> set_token(token <> "boom") |> verify_token_signature(@config)
@@ -181,7 +173,6 @@ defmodule Charon.TokenPlugs do
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
-      payload = Map.put_new(payload, "styp", "full")
       put_private(conn, %{@now => now(), @bearer_token_payload => payload})
     else
       _ -> set_auth_error(conn, "bearer token signature invalid")
