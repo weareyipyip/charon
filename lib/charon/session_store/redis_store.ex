@@ -35,7 +35,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     """
     @behaviour Charon.SessionStore.Behaviour
     alias Charon.{Config, Internal, Utils}
-    alias __MODULE__.RedisClient
+    alias __MODULE__.{RedisClient, ConnectionPool}
     import Charon.SessionStore.RedisStore.Config, only: [get_mod_config: 1]
     import Utils.{KeyGenerator}
     import Internal.Crypto
@@ -43,6 +43,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     @multi ~W(MULTI)
     @exec ~W(EXEC)
+    @unwatch ~w(UNWATCH)
 
     @impl true
     def get(session_id, user_id, type, config) do
@@ -66,56 +67,69 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
             type: type,
             refreshed_at: now,
             expires_at: s_exp,
-            refresh_expires_at: exp
+            refresh_expires_at: exp,
+            lock_version: lock_version
           },
           config
         ) do
-      mod_conf = get_mod_config(config)
-      {uid_str, type_str, key_prefix} = key_data(uid, type, mod_conf)
-      session_key = session_key(sid, uid_str, type_str, key_prefix)
-      set_key = set_key(uid_str, type_str, key_prefix)
-      exp_str = Integer.to_string(exp)
-      now = Integer.to_string(now)
+      ConnectionPool.transaction(fn redix_conn ->
+        mod_conf = get_mod_config(config)
+        {uid_str, type_str, key_prefix} = key_data(uid, type, mod_conf)
+        session_key = session_key(sid, uid_str, type_str, key_prefix)
+        set_key = set_key(uid_str, type_str, key_prefix)
 
-      # upsert the actual session as a separate key-value pair that expires when the refresh token expires
-      upsert_session_c = [
-        "SET",
-        session_key,
-        serialize(session, mod_conf, config),
-        "EXAT",
-        exp_str
-      ]
+        with {:ok, [_, serialized_or_nil]} <-
+               [["WATCH", session_key, set_key], ["GET", session_key]]
+               |> RedisClient.conn_pipeline(redix_conn, mod_conf.debug_log?),
+             deserialized = deserialize(serialized_or_nil, mod_conf, config),
+             lock_ok? = is_nil(deserialized) or deserialized.lock_version == lock_version,
+             nil <- unless(lock_ok?, do: {:error, :conflict}) do
+          exp_str = Integer.to_string(exp)
+          now = Integer.to_string(now)
+          serialized = %{session | lock_version: lock_version + 1} |> serialize(mod_conf, config)
 
-      # add session key to user's session set, with exp timestamp as score (or update score)
-      upsert_set_c = ["ZADD", set_key, exp_str, session_key]
-      get_set_exp_c = get_s_exp_cmd(set_key)
-      prune_set_c = prune_session_set_cmd(set_key, now)
+          # upsert the actual session as a separate key-value pair that expires when the refresh token expires
+          upsert_session_c = ["SET", session_key, serialized, "EXAT", exp_str]
+          # add session key to user's session set, with exp timestamp as score (or update score)
+          upsert_set_c = ["ZADD", set_key, exp_str, session_key]
+          get_set_exp_c = get_s_exp_cmd(set_key)
+          prune_set_c = prune_session_set_cmd(set_key, now)
 
-      if s_exp == exp do
-        # s_exp == exp, we can't assume that this session has the highest refresh exp
-        # because this session's refresh_expires_at is reduced so that it is <= expires_at
+          if s_exp == exp do
+            # s_exp == exp, we can't assume that this session has the highest refresh exp
+            # because this session's refresh_expires_at is reduced so that it is <= expires_at
 
-        [@multi, get_set_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
-        |> RedisClient.pipeline(mod_conf.debug_log?)
-        |> case do
-          {:ok, [_, _, _, _, _, [set_exp, _, _, _]]} when is_integer(set_exp) ->
-            if exp > set_exp, do: put_s_exp(set_key, exp_str, mod_conf)
-            :ok
+            [@multi, get_set_exp_c, upsert_session_c, upsert_set_c, prune_set_c, @exec]
+            |> RedisClient.conn_pipeline(redix_conn, mod_conf.debug_log?)
+            |> case do
+              {:ok, [_, _, _, _, _, nil]} ->
+                {:error, :conflict}
 
+              {:ok, [_, _, _, _, _, [set_exp, _, _, _]]} when is_integer(set_exp) ->
+                if exp > set_exp, do: put_s_exp(set_key, exp_str, mod_conf)
+                :ok
+
+              error ->
+                redis_result_to_error(error)
+            end
+          else
+            # s_exp != exp; we can assume that this session has the highest refresh exp of all of the user's sessions
+            set_exp_c = put_s_exp_cmd(set_key, exp_str)
+
+            [@multi, upsert_session_c, upsert_set_c, set_exp_c, prune_set_c, @exec]
+            |> RedisClient.conn_pipeline(redix_conn, mod_conf.debug_log?)
+            |> case do
+              {:ok, [_, _, _, _, _, nil]} -> {:error, :conflict}
+              {:ok, [_, _, _, _, _, [_, _, _, _]]} -> :ok
+              error -> redis_result_to_error(error)
+            end
+          end
+        else
           error ->
-            redis_result_to_error(error)
+            RedisClient.conn_command(@unwatch, redix_conn, mod_conf.debug_log?)
+            error
         end
-      else
-        # s_exp != exp; we can assume that this session has the highest refresh exp of all of the user's sessions
-        set_exp_c = put_s_exp_cmd(set_key, exp_str)
-
-        [@multi, upsert_session_c, upsert_set_c, set_exp_c, prune_set_c, @exec]
-        |> RedisClient.pipeline(mod_conf.debug_log?)
-        |> case do
-          {:ok, [_, _, _, _, _, [_, _, _, _]]} -> :ok
-          error -> redis_result_to_error(error)
-        end
-      end
+      end)
     end
 
     @impl true

@@ -7,12 +7,19 @@ defmodule Charon.SessionStore.RedisStoreTest do
   alias Charon.{TestConfig}
   alias RedisStore.{RedisClient, ConnectionPool}
   import RedisClient, only: [command: 1]
+  import Mock
 
   @ttl 10
   @now now()
   @exp @now + @ttl
   @exp_str to_string(@exp)
-  @config %{TestConfig.get() | session_ttl: :infinite, refresh_token_ttl: @ttl}
+  @mod_conf %{} |> RedisStore.init_config()
+  @config %{
+    TestConfig.get()
+    | session_ttl: :infinite,
+      refresh_token_ttl: @ttl,
+      optional_modules: %{RedisStore => @mod_conf}
+  }
   @sid "a"
   @uid 426
   @user_session test_session(
@@ -23,6 +30,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
                 )
   @key session_key(@sid, @uid)
   @set_key user_sessions_key(@uid)
+  @lock_incr_user_session %{@user_session | lock_version: 1}
 
   setup_all do
     redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
@@ -85,7 +93,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   describe "upsert/3" do
     test "stores session and adds key to user's set of sessions" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-      assert @user_session |> serialize() |> sign() == get(@key)
+      assert @lock_incr_user_session |> serialize() |> sign() == get(@key)
       assert [@key, _] = list_set_values(user_sessions_key(@uid))
     end
 
@@ -117,7 +125,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
       new_exp = @exp + 10
 
       assert :ok =
-               @user_session
+               @lock_incr_user_session
                |> Map.merge(%{extra_payload: %{new: "key"}, refresh_expires_at: new_exp})
                |> RedisStore.upsert(@config)
 
@@ -210,6 +218,39 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       refute get(@key)
       refute get(@set_key)
+    end
+
+    test "implements optimistic locking with respect to input session" do
+      assert :ok = RedisStore.upsert(@user_session, @config)
+      # stored lock_version has been increased
+      assert {:error, :conflict} = RedisStore.upsert(@user_session, @config)
+    end
+
+    test "optimistic locking works for conflicts during upsert itself" do
+      assert :ok = RedisStore.upsert(@user_session, @config)
+
+      with_mock RedisClient,
+                [:passthrough],
+                conn_pipeline: fn
+                  commands = [["WATCH", _, _], _], conn, _ ->
+                    # mess with the transaction by modifying the session from another Redis client
+                    # in between the WATCH command and the rest of the operation
+                    conn
+                    |> Redix.pipeline(commands)
+                    |> tap(fn _ ->
+                      ConnectionPool.checkout() |> Redix.command(["SET", @key, "other"])
+                    end)
+
+                  # actually execute everything else
+                  commands, conn, _debug? ->
+                    Redix.pipeline(conn, commands)
+                end do
+        # this upsert is cancelled
+        assert {:error, :conflict} = RedisStore.upsert(@lock_incr_user_session, @config)
+      end
+
+      # the other "upsert" has won
+      assert "other" == get(@key)
     end
   end
 
