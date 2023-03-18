@@ -1,40 +1,8 @@
 if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
   defmodule Charon.SessionStore.RedisStore.ConnectionPool do
-    @opts_docs """
-    ## Options
-      - `:size` (default 10) total number of (local) normal workers
-      - `:max_overflow` (default 5) max number of (local) extra workers in case of high load
-      - `:redix_opts` passed to `Redix.start_link/1`
-
-    The pool and its config options are local to the Elixir/OTP node,
-    so if you use multiple nodes, the total connection count to Redis maxes out at
-    `(size + max_overflow) * number_of_nodes`.
-    """
-
-    @moduledoc """
-    Redix Connection pool for `Charon.SessionStore.RedisStore`.
-
-    Add the pool to your application's supervision tree:
-
-        # in application.ex
-        def start(_, ) do
-          redix_opts = [host: "localhost", port: 6379, password: "supersecret", database: 0]
-
-          children = [
-            ...
-            {Charon.SessionStore.RedisStore.ConnectionPool, size: 15, redix_opts: redix_opts},
-            ...
-          ]
-
-          opts = [strategy: :one_for_one, name: MyApp.Supervisor]
-          Supervisor.start_link(children, opts)
-        end
-
-    #{@opts_docs}
-    """
+    @moduledoc false
     use Supervisor
 
-    @name __MODULE__
     @pool_name :charon_redisstore_pool
     @default_timeout 5000
 
@@ -48,16 +16,25 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @doc """
     Start the connection pool.
 
-    #{@opts_docs}
+    ## Options
+      - `:name` (default module name) under which the supervisor is registred
+      - `:size` (default 10) total number of (local) normal workers
+      - `:max_overflow` (default 5) max number of (local) extra workers in case of high load
+      - `:redix_opts` passed to `Redix.start_link/1`
+
+    The pool and its config options are local to the Elixir/OTP node,
+    so if you use multiple nodes, the total connection count to Redis maxes out at
+    `(size + max_overflow) * number_of_nodes`.
     """
     @spec start_link(nil | maybe_improper_list | map) :: :ignore | {:error, any} | {:ok, pid}
     def start_link(opts \\ []) do
+      name = opts[:name] || __MODULE__
       size = opts[:size] || 10
       max_overflow = opts[:max_overflow] || 5
       redix_opts = opts[:redix_opts] || []
 
       init_arg = [size: size, max_overflow: max_overflow, redix_opts: redix_opts]
-      Supervisor.start_link(__MODULE__, init_arg, name: @name)
+      Supervisor.start_link(__MODULE__, init_arg, name: name)
     end
 
     @doc """
@@ -129,17 +106,5 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       [:poolboy.child_spec(@pool_name, poolboy_config, opts[:redix_opts])]
       |> Supervisor.init(strategy: :one_for_one)
     end
-  end
-else
-  defmodule Charon.SessionStore.RedisStore.ConnectionPool do
-    @message "Optional dependencies `:redix` and `:poolboy` must be loaded to use this module."
-    @moduledoc @message
-
-    def start_link(_ \\ []), do: raise(@message)
-    def init(_), do: raise(@message)
-    def status(), do: raise(@message)
-    def transaction(_, _ \\ nil), do: raise(@message)
-    def checkout(_ \\ nil, _ \\ nil), do: raise(@message)
-    def checking(_), do: raise(@message)
   end
 end

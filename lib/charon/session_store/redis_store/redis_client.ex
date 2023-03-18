@@ -63,11 +63,11 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       result
     end
 
-    defp maybe_log(_result, _command, false), do: :ok
-
     defp maybe_log(result = {:error, _}, command, _) do
       Logger.error("Redis command #{inspect(command)}, result: #{inspect(result)}")
     end
+
+    defp maybe_log(_result, _command, false), do: :ok
 
     defp maybe_log(result, command, _) do
       Logger.debug(fn -> "Redis command #{inspect(command)}, result: #{inspect(result)}" end)

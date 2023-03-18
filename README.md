@@ -83,7 +83,7 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 
 A session store can be created using multiple state stores, be it a database or a GenServer. All you have to do is implement a simple behaviour which you can find in `Charon.SessionStore.Behaviour`. Two default implementations are provided, `Charon.SessionStore.RedisStore` uses a Redis database, `Charon.SessionStore.LocalStore` uses a GenServer. Use `Charon.SessionStore.DummyStore` in case you don't want to use server-side sessions and prefer fully stateless tokens. The default and recommended option is RedisStore. Use LocalStore for local testing only - it is NOT persistent.
 
-In order to use RedisStore, add `Charon.SessionStore.RedisStore.ConnectionPool` to your supervision tree:
+In order to use RedisStore, add `Charon.SessionStore.RedisStore` to your supervision tree:
 
 ```elixir
 # application.ex
@@ -93,7 +93,7 @@ def start(_, ) do
 
   children = [
     ...
-    {Charon.SessionStore.RedisStore.ConnectionPool, size: 15, redix_opts: redix_opts},
+    {Charon.SessionStore.RedisStore, pool_size: 15, redix_opts: redix_opts},
     ...
   ]
 
