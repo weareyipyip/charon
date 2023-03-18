@@ -106,6 +106,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
                refute RedisStore.get(@sid, @uid, :full, @config)
              end) =~ "Ignored Redis session"
     end
+
+    test "ignores valid session with mismatching properties" do
+      # another user's session somehow ends up in this user's session set
+      invalid = serialize(%{@user_session | user_id: @uid + 1}) |> sign()
+      add_session_set(@sid, invalid)
+      refute RedisStore.get(@sid, @uid, :full, @config)
+    end
   end
 
   describe "upsert/3" do
