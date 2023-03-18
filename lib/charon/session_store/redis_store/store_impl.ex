@@ -195,7 +195,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     @doc false
     # the session set maps sid's to sessions
-    def session_set_key({uid, type, prefix}), do: to_key(uid, type, prefix, "s")
+    def session_set_key({uid, type, prefix}), do: to_key(uid, type, prefix, "se")
 
     @doc false
     # the lock set maps sid's to session lock_version values
