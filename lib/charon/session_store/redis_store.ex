@@ -18,6 +18,8 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     ## Redis requirements
 
     This module needs a Redis >= 7.0.0 instance and needs permissions to create Redis functions.
+    The optimistic-locking functionality of the store was not designed with a Redis cluster in mind
+    and will behave unpredictably when used with a distributed Redis deployment.
 
     ## Config
 
