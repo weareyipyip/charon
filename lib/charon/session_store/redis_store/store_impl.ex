@@ -16,13 +16,14 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     def get(session_id, user_id, type, config) do
       mod_conf = get_mod_config(config)
       session_set_key = key_data(user_id, type, mod_conf) |> session_set_key()
+      signing_key = get_signing_key(mod_conf, config)
 
       ["HGET", session_set_key, session_id]
       |> RedisClient.command()
       |> case do
         {:ok, nil_or_binary} ->
           nil_or_binary
-          |> verify(mod_conf, config)
+          |> verify(signing_key)
           |> maybe_deserialize()
           |> validate(session_id, user_id, type, Internal.now())
 
@@ -55,7 +56,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
       new_lock_version = lock_version + 1
       session = %{session | lock_version: new_lock_version}
-      serialized_signed = session |> serialize() |> sign(mod_conf, config)
+      serialized_signed = session |> serialize() |> sign_hmac(get_signing_key(mod_conf, config))
 
       [
         LuaFunctions.opt_lock_upsert_cmd(
@@ -111,13 +112,14 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       mod_conf = get_mod_config(config)
       key_data = key_data(user_id, type, mod_conf)
       session_set_key = session_set_key(key_data)
+      signing_key = get_signing_key(mod_conf, config)
       now = Internal.now()
 
       with {:ok, values} <- RedisClient.command(["HVALS", session_set_key]) do
         values
         |> Stream.map(fn nil_or_binary ->
           nil_or_binary
-          |> verify(mod_conf, config)
+          |> verify(signing_key)
           |> maybe_deserialize()
           |> validate(user_id, type, now)
         end)
@@ -153,15 +155,11 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     defp serialize(session), do: :erlang.term_to_binary(session)
 
-    # sign a binary with a prefixed hmac
-    defp sign(serialized, %{get_signing_key: get_key}, config),
-      do: sign_hmac(serialized, get_key.(config))
+    defp get_signing_key(%{get_signing_key: get_key}, config), do: get_key.(config)
 
     # verify the prefixed hmac of a binary
-    defp verify(nil, _, _), do: nil
-
-    defp verify(serialized, %{get_signing_key: get_key}, config),
-      do: verify_hmac(serialized, get_key.(config))
+    defp verify(nil, _), do: nil
+    defp verify(serialized, key), do: verify_hmac(serialized, key)
 
     # deserialize the result of verify/3, when valid
     defp maybe_deserialize({:ok, verified}), do: :erlang.binary_to_term(verified)
