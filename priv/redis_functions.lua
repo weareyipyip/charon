@@ -31,19 +31,17 @@ local function prune_expired(session_set_key, exp_oset_key, lock_set_key, now)
   end
 end
 
--- stupid EXPIREAT GT does not work if the key doesn't exist :|
-local function incr_exp(key, new_max)
-  local current_exp = redis.call("EXPIRETIME", key)
-  -- the key does not exist if current_exp == -2
-  if current_exp ~= -2 and new_max > current_exp then
-    return redis.call("EXPIREAT", key, new_max)
-  else
-    return 0
-  end
-end
-
+-- stupid EXPIREAT GT does not work if the key doesn't currently have an exp :|
+-- function assumes all keys exist and have the same exp value
 local function incr_exps(keys, new_max)
-  return map(keys, function (v) return incr_exp(v, new_max) end)
+  local first_key = keys[1]
+  local current_exp = redis.call("EXPIRETIME", first_key)
+
+  if new_max > current_exp then
+    return expire_all(keys, new_max)
+  else
+    return {0, 0, 0}
+  end
 end
 
 ------------
