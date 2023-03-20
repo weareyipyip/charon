@@ -66,13 +66,9 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 
 ```elixir
 # Charon itself only requires a token issuer and a base secret getter.
-# The default implementation of session store requires some config as well.
 @my_config Charon.Config.from_enum(
              token_issuer: "MyApp",
              get_base_secret: &MyApp.get_base_secret/0
-             optional_modules: %{
-               Charon.SessionStore.RedisStore => %{redix_module: MyApp.Redix}
-             }
            )
 
 # it is possible to use the application environment as well if you wish
