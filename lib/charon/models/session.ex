@@ -2,7 +2,7 @@ defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
-  @latest_version 6
+  @latest_version 7
 
   @enforce_keys [
     :created_at,
@@ -24,6 +24,7 @@ defmodule Charon.Models.Session do
     :tokens_fresh_from,
     :user_id,
     extra_payload: %{},
+    lock_version: 0,
     prev_tokens_fresh_from: 0,
     type: :full,
     version: @latest_version
@@ -34,6 +35,7 @@ defmodule Charon.Models.Session do
           expires_at: integer | :infinite,
           extra_payload: map(),
           id: String.t(),
+          lock_version: integer(),
           prev_tokens_fresh_from: integer,
           refresh_expires_at: integer,
           refresh_token_id: binary(),
@@ -123,6 +125,11 @@ defmodule Charon.Models.Session do
   ###########
 
   defp update(session = %{version: @latest_version}, _), do: session
+
+  # v6: no lock_version yet
+  defp update(session = %{version: 6}, config) do
+    session |> Map.merge(%{version: 7, lock_version: 0}) |> update(config)
+  end
 
   # v5: tokens_fresh_from was still called t_gen_fresh_at, which is less descriptive
   defp update(session = %{version: 5, prev_t_gen_fresh_at: p, t_gen_fresh_at: c}, config) do

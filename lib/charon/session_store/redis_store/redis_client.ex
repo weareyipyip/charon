@@ -15,17 +15,20 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     """
     @spec command(command, boolean, keyword) :: redix_result
     def command(command, debug_log? \\ false, redix_opts \\ []) do
-      ConnectionPool.transaction(&conn_command(&1, command, debug_log?, redix_opts))
+      ConnectionPool.transaction(&conn_command(command, &1, debug_log?, redix_opts))
     end
 
     @doc """
     Execute a Redis command using a previously checked-out connection.
 
-    Use `Charon.SessionStore.RedisStore.ConnectionPool.checkout/2` to get a connection,
-    and use `Charon.SessionStore.RedisStore.ConnectionPool.checkin/1` to return the connection to the pool.
+    Either use this command with the connection available inside
+    `Charon.SessionStore.RedisStore.ConnectionPool.transaction/2`,
+    or use `Charon.SessionStore.RedisStore.ConnectionPool.checkout/2` to get a connection,
+    combined with `Charon.SessionStore.RedisStore.ConnectionPool.checkin/1`
+    to return the connection to the pool.
     """
-    @spec conn_command(connection, command, boolean, keyword) :: redix_result
-    def conn_command(conn, command, debug_log? \\ false, redix_opts \\ []) do
+    @spec conn_command(command, connection, boolean, keyword) :: redix_result
+    def conn_command(command, conn, debug_log? \\ false, redix_opts \\ []) do
       Redix.command(conn, command, redix_opts) |> tap_maybe_log(command, debug_log?)
     end
 
@@ -34,17 +37,20 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     """
     @spec pipeline([command], boolean, keyword) :: redix_result
     def pipeline(commands, debug_log? \\ false, redix_opts \\ []) do
-      ConnectionPool.transaction(&conn_pipeline(&1, commands, debug_log?, redix_opts))
+      ConnectionPool.transaction(&conn_pipeline(commands, &1, debug_log?, redix_opts))
     end
 
     @doc """
     Execute a list of Redis commands using a previously checked-out connection.
 
-    Use `Charon.SessionStore.RedisStore.ConnectionPool.checkout/2` to get a connection,
-    and use `Charon.SessionStore.RedisStore.ConnectionPool.checkin/1` to return the connection to the pool.
+    Either use this command with the connection available inside
+    `Charon.SessionStore.RedisStore.ConnectionPool.transaction/2`,
+    or use `Charon.SessionStore.RedisStore.ConnectionPool.checkout/2` to get a connection,
+    combined with `Charon.SessionStore.RedisStore.ConnectionPool.checkin/1`
+    to return the connection to the pool.
     """
-    @spec conn_pipeline(connection, [command], boolean, keyword) :: redix_result
-    def conn_pipeline(conn, commands, debug_log? \\ false, redix_opts \\ []) do
+    @spec conn_pipeline([command], connection, boolean, keyword) :: redix_result
+    def conn_pipeline(commands, conn, debug_log? \\ false, redix_opts \\ []) do
       Redix.pipeline(conn, commands, redix_opts) |> tap_maybe_log(commands, debug_log?)
     end
 
@@ -57,11 +63,11 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       result
     end
 
-    defp maybe_log(_result, _command, false), do: :ok
-
     defp maybe_log(result = {:error, _}, command, _) do
       Logger.error("Redis command #{inspect(command)}, result: #{inspect(result)}")
     end
+
+    defp maybe_log(_result, _command, false), do: :ok
 
     defp maybe_log(result, command, _) do
       Logger.debug(fn -> "Redis command #{inspect(command)}, result: #{inspect(result)}" end)

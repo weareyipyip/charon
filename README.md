@@ -66,13 +66,9 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 
 ```elixir
 # Charon itself only requires a token issuer and a base secret getter.
-# The default implementation of session store requires some config as well.
 @my_config Charon.Config.from_enum(
              token_issuer: "MyApp",
              get_base_secret: &MyApp.get_base_secret/0
-             optional_modules: %{
-               Charon.SessionStore.RedisStore => %{redix_module: MyApp.Redix}
-             }
            )
 
 # it is possible to use the application environment as well if you wish
@@ -83,7 +79,7 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 
 A session store can be created using multiple state stores, be it a database or a GenServer. All you have to do is implement a simple behaviour which you can find in `Charon.SessionStore.Behaviour`. Two default implementations are provided, `Charon.SessionStore.RedisStore` uses a Redis database, `Charon.SessionStore.LocalStore` uses a GenServer. Use `Charon.SessionStore.DummyStore` in case you don't want to use server-side sessions and prefer fully stateless tokens. The default and recommended option is RedisStore. Use LocalStore for local testing only - it is NOT persistent.
 
-In order to use RedisStore, add `Charon.SessionStore.RedisStore.ConnectionPool` to your supervision tree:
+In order to use RedisStore, add `Charon.SessionStore.RedisStore` to your supervision tree:
 
 ```elixir
 # application.ex
@@ -93,7 +89,7 @@ def start(_, ) do
 
   children = [
     ...
-    {Charon.SessionStore.RedisStore.ConnectionPool, size: 15, redix_opts: redix_opts},
+    {Charon.SessionStore.RedisStore, pool_size: 15, redix_opts: redix_opts},
     ...
   ]
 

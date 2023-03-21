@@ -28,8 +28,7 @@ defmodule Charon.ConfigTest do
     },
     RedisStore.Config => %{
       key_prefix: "charon_",
-      get_signing_key: &RedisStore.default_signing_key/1,
-      debug_log?: false
+      get_signing_key: &RedisStore.default_signing_key/1
     }
   }
 

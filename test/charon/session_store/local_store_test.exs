@@ -11,6 +11,9 @@ defmodule Charon.SessionStore.LocalStoreTest do
   @config %{}
   @user_key {@sid, @uid, @stype}
   @user_session test_session(id: @sid, user_id: @uid, refresh_expires_at: @exp)
+  @lock_incr_user_session %{@user_session | lock_version: 1}
+
+  defp incr_lock(s = %{lock_version: l}), do: %{s | lock_version: l + 1}
 
   setup do
     start_supervised!(LocalStore)
@@ -42,7 +45,7 @@ defmodule Charon.SessionStore.LocalStoreTest do
   describe "upsert/3" do
     test "stores session by session id, user id and type" do
       assert :ok = LocalStore.upsert(@user_session, @config)
-      assert {1, %{@user_key => @user_session}} == Agent.get(LocalStore, & &1)
+      assert {1, %{@user_key => @lock_incr_user_session}} == Agent.get(LocalStore, & &1)
     end
 
     test "seperates sessions by type" do
@@ -52,17 +55,18 @@ defmodule Charon.SessionStore.LocalStoreTest do
 
       assert {2,
               %{
-                @user_key => @user_session,
-                {@sid, @uid, :other_type} => other_type_session
+                @user_key => @lock_incr_user_session,
+                {@sid, @uid, :other_type} => incr_lock(other_type_session)
               }} == Agent.get(LocalStore, & &1)
     end
 
     test "updates existing session" do
       assert :ok = LocalStore.upsert(@user_session, @config)
-      assert {1, %{@user_key => @user_session}} == Agent.get(LocalStore, & &1)
-      new_user_session = %{@user_session | refresh_expires_at: @exp + 1}
-      assert :ok = LocalStore.upsert(new_user_session, @config)
-      assert {2, %{@user_key => new_user_session}} == Agent.get(LocalStore, & &1)
+      current_session = @lock_incr_user_session
+      assert {1, %{@user_key => current_session}} == Agent.get(LocalStore, & &1)
+      updated_user_sessioin = %{current_session | refresh_expires_at: @exp + 1}
+      assert :ok = LocalStore.upsert(updated_user_sessioin, @config)
+      assert {2, %{@user_key => incr_lock(updated_user_sessioin)}} == Agent.get(LocalStore, & &1)
     end
 
     test "cleans up expired sessions when session count is multiple of 1000" do
@@ -77,7 +81,14 @@ defmodule Charon.SessionStore.LocalStoreTest do
 
       only_valid_session = %{@user_session | id: 1000}
       assert :ok = LocalStore.upsert(only_valid_session, @config)
+      only_valid_session = incr_lock(only_valid_session)
       assert {1, %{{1000, 426, :full} => ^only_valid_session}} = Agent.get(LocalStore, & &1)
+    end
+
+    test "implements optimistic locking" do
+      assert :ok = LocalStore.upsert(@user_session, @config)
+      # stored lock_version has been increased
+      assert {:error, :conflict} = LocalStore.upsert(@user_session, @config)
     end
   end
 

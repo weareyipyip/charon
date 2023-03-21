@@ -5,13 +5,11 @@ defmodule Charon.SessionStore.RedisStore.Config do
   alias Charon.SessionStore.RedisStore
   @enforce_keys []
   defstruct key_prefix: "charon_",
-            get_signing_key: &RedisStore.default_signing_key/1,
-            debug_log?: false
+            get_signing_key: &RedisStore.default_signing_key/1
 
   @type t :: %__MODULE__{
           key_prefix: String.t(),
-          get_signing_key: (Charon.Config.t() -> binary()),
-          debug_log?: boolean
+          get_signing_key: (Charon.Config.t() -> binary())
         }
 
   @doc """

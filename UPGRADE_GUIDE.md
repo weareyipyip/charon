@@ -6,7 +6,8 @@
 
 If you use `Charon.SessionStore.RedisStore` you must do the following before upgrading to 3.x:
 
-1.  Upgrade your Redis instance to 7.x.x
+1.  Update Charon to >= 2.8.0
+1.  Upgrade your Redis instance to 7.x.x (this can be an in-place upgrade)
 1.  Run `Charon.SessionStore.RedisStore.migrate_sessions/1`
 1.  If you explicitly set config options `:allow_unsigned?` and `:redix_module`, you must remove your overrides. Support for these config options has been dropped.
 1.  Initialize the Redix connection pool in your supervision tree. See readme section [setting up a sessionstore](./README.md#setting-up-a-session-store).

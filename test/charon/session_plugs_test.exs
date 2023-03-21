@@ -2,10 +2,13 @@ defmodule Charon.SessionPlugsTest do
   use ExUnit.Case
   @moduletag :capture_log
   use Charon.Internal.Constants
+  alias Charon.SessionPlugs.SessionUpdateConflictError
+  alias Charon.SessionPlugs.SessionStorageError
   alias Plug.Conn
   alias Charon.{Utils, SessionStore}
   alias Charon.Models.{Session, Tokens}
   import Charon.{TestUtils, Internal}
+  import Mock
 
   @config Charon.TestConfig.get()
 
@@ -78,6 +81,28 @@ defmodule Charon.SessionPlugsTest do
 
       assert_in_delta 10, get_in(cookies, [@config.access_cookie_name, :max_age]), 2
       assert_in_delta 10, get_in(cookies, [@config.refresh_cookie_name, :max_age]), 2
+    end
+
+    test "should raise SessionStorageError on sessionstore failure" do
+      with_mock SessionStore, upsert: fn _, _ -> {:error, "boom"} end do
+        assert_raise SessionStorageError, fn ->
+          conn()
+          |> Utils.set_token_signature_transport(:bearer)
+          |> Utils.set_user_id(@uid)
+          |> upsert_session(@config)
+        end
+      end
+    end
+
+    test "should raise SessionUpdateConflictError on sessionstore update conflict error" do
+      with_mock SessionStore, upsert: fn _, _ -> {:error, :conflict} end do
+        assert_raise SessionUpdateConflictError, fn ->
+          conn()
+          |> Utils.set_token_signature_transport(:bearer)
+          |> Utils.set_user_id(@uid)
+          |> upsert_session(@config)
+        end
+      end
     end
   end
 end

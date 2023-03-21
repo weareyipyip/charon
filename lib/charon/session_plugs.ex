@@ -30,7 +30,11 @@ defmodule Charon.SessionPlugs do
 
   Optionally, it is possible to add extra claims to the access- and refresh tokens or to store extra payload in the server-side session.
 
-  Raises on session store errors. No recovery is possible from this error - the session HAS to be stored or there is no point in handing out tokens.
+  Session stores may return an optimistic locking error, meaning there are concurrent updates to a session.
+  In this case, `upsert/3` will raise a `Charon.SessionPlugs.SessionUpdateConflictError`, which should result
+  in an HTTP 409 Conflict error.
+  If the session store returns another error, a `Charon.SessionPlugs.SessionStorageError` is raised,
+  which is an unrecoverable state that should result in an HTTP 500 Internal Server Error.
 
   ## Claims
 
@@ -218,29 +222,30 @@ defmodule Charon.SessionPlugs do
     # store the session
     case SessionStore.upsert(session, config) do
       :ok ->
-        :ok
+        # dress up the conn and return
+        conn
+        |> transport_tokens(
+          tokens,
+          access_ttl,
+          refresh_ttl,
+          access_cookie_opts,
+          access_cookie_name,
+          refresh_cookie_opts,
+          refresh_cookie_name
+        )
+        |> Internal.put_private(%{
+          @session => session,
+          @access_token_payload => a_payload,
+          @refresh_token_payload => r_payload
+        })
+
+      {:error, :conflict} ->
+        raise __MODULE__.SessionUpdateConflictError
 
       error ->
         error |> inspect() |> Logger.error()
-        raise(RuntimeError, "session could not be stored")
+        raise __MODULE__.SessionStorageError
     end
-
-    # dress up the conn and return
-    conn
-    |> transport_tokens(
-      tokens,
-      access_ttl,
-      refresh_ttl,
-      access_cookie_opts,
-      access_cookie_name,
-      refresh_cookie_opts,
-      refresh_cookie_name
-    )
-    |> Internal.put_private(%{
-      @session => session,
-      @access_token_payload => a_payload,
-      @refresh_token_payload => r_payload
-    })
   end
 
   @doc """
