@@ -1,4 +1,4 @@
-#!lua name=charon_redis_store
+#!lua name=charon_redis_store_0.0.0+development
 
 -------------
 -- PRIVATE --
@@ -94,6 +94,6 @@ local function maybe_prune_expired(keys, args)
   end
 end
 
-redis.register_function('charon_resolve_set_exps', resolve_set_exps)
-redis.register_function('charon_opt_lock_upsert', opt_lock_upsert)
-redis.register_function('charon_maybe_prune_expired', maybe_prune_expired)
+redis.register_function('resolve_set_exps_0.0.0+development', resolve_set_exps)
+redis.register_function('opt_lock_upsert_0.0.0+development', opt_lock_upsert)
+redis.register_function('maybe_prune_expired_0.0.0+development', maybe_prune_expired)

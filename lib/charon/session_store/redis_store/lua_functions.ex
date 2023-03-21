@@ -3,6 +3,12 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @moduledoc false
     require Logger
 
+    @version "0.0.0+development"
+    @hashed_version @version |> :erlang.phash2(Integer.pow(2, 32)) |> to_string()
+    @resolve_set_exps_function_name "resolve_set_exps_#{@hashed_version}"
+    @upsert_function_name "opt_lock_upsert_#{@hashed_version}"
+    @prune_expired_function_name "maybe_prune_expired_#{@hashed_version}"
+
     @doc """
     Returns the Redis command to call Redis function "charon_resolve_set_exps",
     which sets all set expiration timestamps to that of the max-exp session.
@@ -12,7 +18,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @spec resolve_set_exps_cmd(iodata, iodata, iodata) :: [integer]
     def resolve_set_exps_cmd(session_set_key, exp_oset_key, lock_set_key) do
       call_redis_function_cmd(
-        "charon_resolve_set_exps",
+        @resolve_set_exps_function_name,
         [session_set_key, exp_oset_key, lock_set_key],
         []
       )
@@ -44,7 +50,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
           expires_at
         ) do
       call_redis_function_cmd(
-        "charon_opt_lock_upsert",
+        @upsert_function_name,
         [session_set_key, exp_oset_key, lock_set_key],
         [sid, lock_version, session, expires_at]
       )
@@ -60,7 +66,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @spec maybe_prune_expired_cmd(iodata, iodata, iodata, iodata, integer) :: [integer] | binary
     def maybe_prune_expired_cmd(session_set_key, exp_oset_key, lock_set_key, prune_lock_key, now) do
       call_redis_function_cmd(
-        "charon_maybe_prune_expired",
+        @prune_expired_function_name,
         [session_set_key, exp_oset_key, lock_set_key, prune_lock_key],
         [now]
       )
@@ -82,9 +88,13 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     def register_functions(redix_opts) do
       with <<priv_dir::binary>> <- :code.priv_dir(:charon) |> to_string(),
            {:ok, script} <- File.read(priv_dir <> "/redis_functions.lua"),
+           # the build pipeline replaces the non-encoded version string, so we use the base64-encoded value at runtime
+           to_replace = "MC4wLjArZGV2ZWxvcG1lbnQ=" |> Base.decode64!(),
+           script = String.replace(script, to_replace, @hashed_version),
            {:ok, temp_redix} <- Redix.start_link(redix_opts),
            load_function_command = ["FUNCTION", "LOAD", "REPLACE", script],
-           {:ok, "charon_redis_store"} <- Redix.command(temp_redix, load_function_command) do
+           {:ok, "charon_redis_store_#{@hashed_version}"} <-
+             Redix.command(temp_redix, load_function_command) do
         Process.exit(temp_redix, :normal)
         Logger.info("Redis functions registered successfully.")
       else

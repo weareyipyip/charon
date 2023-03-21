@@ -9,6 +9,20 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     import Internal.Crypto
     require Logger
 
+    # Implementation goals:
+    #  - single round-trip implementations of all callbacks
+    #  - no cleanup/0 or equivalent required (all keys eventually expire)
+    #  - optimistic locking support (when get-then-updating a session)
+    #  - defense-in-depth against a compromised redis server by signing serialized session binaries
+
+    # In order to achieve these goals, a storage format based on three sets is used:
+    #  - session_set maps session ids to the actual sessions
+    #  - exp_oset (expiration ordered-set) stores refresh exp values mapped to session ids, sorted by exp
+    #  - lock_set maps session ids to the lock_version value of the stored session
+
+    # Additionally, a minor performance optimalisation has been added to only prune expired sessions from the
+    # sets once on hour, using an expiring redis key called prune_lock.
+
     @multi ~W(MULTI)
     @exec ~W(EXEC)
 
@@ -33,9 +47,6 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     end
 
     @impl SessionStoreBehaviour
-    def upsert(_session = %{refresh_expires_at: exp, refreshed_at: now}, _config) when exp < now,
-      do: :ok
-
     def upsert(
           session = %{
             id: sid,
@@ -46,7 +57,8 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
             user_id: uid
           },
           config
-        ) do
+        )
+        when exp >= now do
       mod_conf = get_mod_config(config)
       key_data = key_data(uid, type, mod_conf)
       session_set_key = session_set_key(key_data)
@@ -83,6 +95,8 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
         error -> redis_result_to_error(error)
       end
     end
+
+    def upsert(_, _), do: :ok
 
     @impl SessionStoreBehaviour
     def delete(session_id, user_id, type, config) do

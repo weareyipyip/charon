@@ -20,6 +20,10 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     This module needs a Redis >= 7.0.0 instance and needs permissions to create Redis functions.
     The optimistic-locking functionality of the store was not designed with a Redis cluster in mind
     and will behave unpredictably when used with a distributed Redis deployment.
+    Using a failover-replica should be fine, however.
+    The Redis functions are registered with a name that includes the hashed Charon version,
+    to make sure that the called function matches the expected code,
+    and multiple Charon deployments can share a Redis instance.
 
     ## Config
 
@@ -60,6 +64,31 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     ### Options
     #{@supervisor_opts_docs}
+
+    ## Session signing
+
+    In order to offer some defense-in-depth against a compromised Redis server,
+    the serialized sessions are signed using a HMAC. The key is derived from the Charon
+    base secret, but can be overridden in the config. This is not usually necessary, except
+    when you're changing the base secret and still want to access your sessions.
+    It is debatable, of course, in case your Redis server is compromised,
+    if your application server holding the signing key can still be considered secure.
+    However, given that there are no real drawbacks to using signed session binaries,
+    since the performance cost is negligible, no extra config is needed, it is easy to implement,
+    and defense-in-depth is a good guiding principle, RedisStore implements this feature anyway.
+
+    ## Implementation details
+
+    RedisStore stores sessions until their associated refresh token(s) expire.
+    That means that `:refresh_expires_at` is used to determine if a session is "alive",
+    not `:expires_at`.
+    This makes sense, because a session without a valid refresh token is effectively useless,
+    and it means we can support "infinite lifetime" sessions while still pruning sessions that aren't used.
+    This is one reason to set `:refresh_ttl` to a limited value, no more than six months is recommended.
+
+    Last but not least, [Redis 7 functions](https://redis.io/docs/manual/programmability/functions-intro/)
+    are used to implement some features, specifically optimistic locking, and to ensure all callbacks
+    use only a single round-trip to the Redis instance.
     """
     use Supervisor
     alias Charon.SessionStore.Behaviour, as: SessionStoreBehaviour
