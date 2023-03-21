@@ -115,8 +115,8 @@ defmodule Charon.SessionIntegrationTest do
         %{nbf: now(), exp: now(), type: "bearer"} => "bearer token claim type invalid",
         %{nbf: now(), exp: now(), type: "refresh"} =>
           "bearer token claim sub, sid or styp not found",
-        # this works because a default claim styp=full is added
-        %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a"} => "session not found"
+        %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a", styp: "full"} =>
+          "session not found"
       }
       |> Enum.each(fn {payload, exp_error} ->
         {:ok, token} = Charon.TokenFactory.Jwt.sign(payload, @config)

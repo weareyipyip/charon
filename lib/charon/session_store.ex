@@ -41,16 +41,4 @@ defmodule Charon.SessionStore do
   def delete_all(user_id, type, config) do
     config.session_store_module.delete_all(user_id, type, config)
   end
-
-  @deprecated "use delete/4 with type :full"
-  def delete(session_id, user_id, config), do: delete(session_id, user_id, :full, config)
-
-  @deprecated "use get/4 with type :full"
-  def get(session_id, user_id, config), do: get(session_id, user_id, :full, config)
-
-  @deprecated "use get_all/3 with type :full"
-  def get_all(user_id, config), do: get_all(user_id, :full, config)
-
-  @deprecated "use delete_all/3 with type :full"
-  def delete_all(user_id, config), do: delete_all(user_id, :full, config)
 end

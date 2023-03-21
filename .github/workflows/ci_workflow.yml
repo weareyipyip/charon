@@ -1,7 +1,7 @@
 name: CI / Automated testing
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "v3"]
   pull_request:
 
 jobs:
@@ -13,7 +13,7 @@ jobs:
 
     services:
       redis:
-        image: redis:6-alpine
+        image: redis:7-alpine
         ports:
           - 6379:6379
 

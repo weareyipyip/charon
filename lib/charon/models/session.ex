@@ -2,7 +2,7 @@ defmodule Charon.Models.Session do
   @moduledoc """
   A session.
   """
-  @latest_version 6
+  @latest_version 7
 
   @enforce_keys [
     :created_at,
@@ -24,6 +24,7 @@ defmodule Charon.Models.Session do
     :tokens_fresh_from,
     :user_id,
     extra_payload: %{},
+    lock_version: 0,
     prev_tokens_fresh_from: 0,
     type: :full,
     version: @latest_version
@@ -34,6 +35,7 @@ defmodule Charon.Models.Session do
           expires_at: integer | :infinite,
           extra_payload: map(),
           id: String.t(),
+          lock_version: integer(),
           prev_tokens_fresh_from: integer,
           refresh_expires_at: integer,
           refresh_token_id: binary(),
@@ -45,31 +47,6 @@ defmodule Charon.Models.Session do
         }
 
   alias Charon.{Config, Internal}
-
-  @doc """
-  Serialize a session.
-  """
-  @deprecated "Use :erlang.term_to_binary/1"
-  @spec serialize(struct) :: binary
-  def serialize(session) do
-    session |> :erlang.term_to_binary()
-  end
-
-  @doc """
-  Deserialize a session, without breaking for structural changes in the session struct.
-
-  ## DocTests
-
-      @charon_config Charon.Config.from_enum(token_issuer: "local")
-
-      # serialization is reversible
-      iex> %Session{} = test_session() |> serialize() |> deserialize(@charon_config)
-  """
-  @spec deserialize(binary, Config.t()) :: struct
-  @deprecated "Use :erlang.binary_to_term/1"
-  def deserialize(binary, config) do
-    binary |> :erlang.binary_to_term() |> upgrade_version(config)
-  end
 
   @doc """
   Upgrade a session (or map created from a session struct) to the latest struct version (#{@latest_version}).
@@ -148,6 +125,11 @@ defmodule Charon.Models.Session do
   ###########
 
   defp update(session = %{version: @latest_version}, _), do: session
+
+  # v6: no lock_version yet
+  defp update(session = %{version: 6}, config) do
+    session |> Map.merge(%{version: 7, lock_version: 0}) |> update(config)
+  end
 
   # v5: tokens_fresh_from was still called t_gen_fresh_at, which is less descriptive
   defp update(session = %{version: 5, prev_t_gen_fresh_at: p, t_gen_fresh_at: c}, config) do

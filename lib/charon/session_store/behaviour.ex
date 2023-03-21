@@ -3,6 +3,8 @@ defmodule Charon.SessionStore.Behaviour do
   Behaviour definition of a persistent session store.
   Clients should not use the implementation directly, but should use `Charon.SessionStore`.
 
+  ## Implementation guidelines
+
   Implementations are expected to store sessions by ID, user ID and session type.
   For the optional callbacks `get_all/3` and `delete_all/3`, sessions should be retrievable
   by user ID and session type only.
@@ -13,6 +15,12 @@ defmodule Charon.SessionStore.Behaviour do
   Implementations should handle cleanup of expired entries,
   but may define additional functions and instructions to take care of such things
   (like a `cleanup/0` that should run periodically).
+
+  Implementations should implement optimistic locking with respect to the `:lock_version` field
+  of the session struct. On an update, the lock version of the updated session should match
+  the lock version of the existing session. If that is the case, the implementation should increase
+  `:lock_version` and proceed with the update. If not, the implementation should abort the update
+  and return `{:error, :conflict}`.
   """
   alias Charon.{Session, Config}
 
@@ -32,7 +40,8 @@ defmodule Charon.SessionStore.Behaviour do
               :ok | {:error, binary}
 
   @doc """
-  Insert or update `session`.
+  Insert or update `session`. If the implementation supports optimistic locking, it
+  will return `{:error, :conflict}` on an optimistic locking conflict.
 
   Values `session_id`, `user_id` and `type` are taken from the `session` struct.
   Implementations may choose to ignore `user_id`, since `session_id` is unique by itself.
@@ -41,7 +50,8 @@ defmodule Charon.SessionStore.Behaviour do
    - `:refreshed_at` contains the current unix timestamp
    - `:refresh_expires_at` never exceeds `:expires_at`
   """
-  @callback upsert(session :: Session.t(), config :: Config.t()) :: :ok | {:error, binary}
+  @callback upsert(session :: Session.t(), config :: Config.t()) ::
+              :ok | {:error, :conflict | binary}
 
   @doc """
   Get session of type `type` with id `session_id` for user with id `user_id`.

@@ -157,14 +157,6 @@ defmodule Charon.TokenPlugs do
       iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
       iex> %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
 
-      # a default claim "styp" = "full" is added to the payload on verification
-      iex> token = sign(%{"msg" => "hurray!"})
-      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
-      iex> %{"styp" => "full"} = Internal.get_private(conn, @bearer_token_payload)
-      iex> token = sign(%{"styp" => "other"})
-      iex> conn = conn() |> set_token(token) |> verify_token_signature(@config)
-      iex> %{"styp" => "other"} = Internal.get_private(conn, @bearer_token_payload)
-
       # signature must match
       iex> token = sign(%{"msg" => "hurray!"})
       iex> conn = conn() |> set_token(token <> "boom") |> verify_token_signature(@config)
@@ -181,7 +173,6 @@ defmodule Charon.TokenPlugs do
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
-      payload = Map.put_new(payload, "styp", "full")
       put_private(conn, %{@now => now(), @bearer_token_payload => payload})
     else
       _ -> set_auth_error(conn, "bearer token signature invalid")
@@ -403,14 +394,6 @@ defmodule Charon.TokenPlugs do
   end
 
   def load_session(_, _), do: raise("must be used after verify_token_signature/2")
-
-  @doc """
-  Verify that the refresh token is fresh.
-  """
-  @deprecated "Use verify_token_fresh/2 instead."
-  @spec verify_refresh_token_fresh(Plug.Conn.t(), pos_integer) :: Plug.Conn.t()
-  def verify_refresh_token_fresh(conn, grace_period \\ 10),
-    do: verify_token_fresh(conn, grace_period)
 
   @doc """
   Verify that the token (either access or refresh) is fresh.

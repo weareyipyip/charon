@@ -1,24 +1,19 @@
 defmodule Charon.TestUtils do
-  alias Charon.SessionStore.RedisStore
+  alias Charon.SessionStore.RedisStore.StoreImpl
 
   def session_set_key(user_id, type \\ :full, prefix \\ "charon_") do
-    RedisStore.session_set_key({to_string(user_id), to_string(type), prefix})
+    StoreImpl.session_set_key({to_string(user_id), to_string(type), prefix})
     |> IO.iodata_to_binary()
   end
 
   def exp_oset_key(user_id, type \\ :full, prefix \\ "charon_") do
-    RedisStore.exp_oset_key({to_string(user_id), to_string(type), prefix})
+    StoreImpl.exp_oset_key({to_string(user_id), to_string(type), prefix})
     |> IO.iodata_to_binary()
   end
 
-  def old_session_key(session_id, user_id, type \\ :full, prefix \\ "charon_") do
-    RedisStore.old_session_key(session_id, {to_string(user_id), to_string(type), prefix})
+  def lock_set_key(user_id, type \\ :full, prefix \\ "charon_") do
+    StoreImpl.lock_set_key({to_string(user_id), to_string(type), prefix})
     |> IO.iodata_to_binary()
-  end
-
-  # key for the sorted-by-expiration-timestamp set of the user's session keys
-  def old_exp_oset_key(user_id, type \\ :full, prefix \\ "charon_") do
-    RedisStore.old_set_key({to_string(user_id), to_string(type), prefix}) |> IO.iodata_to_binary()
   end
 
   def conn(), do: Plug.Test.conn(:get, "/")
