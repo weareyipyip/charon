@@ -33,7 +33,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       signing_key = get_signing_key(mod_conf, config)
 
       ["HGET", session_set_key, session_id]
-      |> RedisClient.command()
+      |> RedisClient.command(true)
       |> case do
         {:ok, nil_or_binary} ->
           nil_or_binary
@@ -88,7 +88,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
           now
         )
       ]
-      |> RedisClient.pipeline()
+      |> RedisClient.pipeline(true)
       |> case do
         {:ok, ["CONFLICT", _]} -> {:error, :conflict}
         {:ok, [[_, _, _, _, _, _], _]} -> :ok
@@ -114,7 +114,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
         LuaFunctions.resolve_set_exps_cmd(session_set_key, exp_oset_key, lock_set_key),
         @exec
       ]
-      |> RedisClient.pipeline()
+      |> RedisClient.pipeline(true)
       |> case do
         {:ok, [_, _, _, _, _, transaction_res]} when is_list(transaction_res) -> :ok
         error -> redis_result_to_error(error)
@@ -129,7 +129,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       signing_key = get_signing_key(mod_conf, config)
       now = Internal.now()
 
-      with {:ok, values} <- RedisClient.command(["HVALS", session_set_key]) do
+      with {:ok, values} <- RedisClient.command(["HVALS", session_set_key], true) do
         values
         |> Stream.map(fn nil_or_binary ->
           nil_or_binary
@@ -152,7 +152,8 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       session_set_key = session_set_key(key_data)
       lock_set_key = lock_set_key(key_data)
 
-      with {:ok, _} <- RedisClient.command(["DEL", exp_oset_key, session_set_key, lock_set_key]) do
+      with {:ok, _} <-
+             RedisClient.command(["DEL", exp_oset_key, session_set_key, lock_set_key], true) do
         :ok
       else
         error -> redis_result_to_error(error)
