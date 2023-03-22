@@ -46,7 +46,8 @@ defmodule Charon.MixProject do
       {:mock, "~> 0.3", only: [:test]},
       {:plug, "~> 1.11"},
       {:poolboy, "~> 1.5", optional: true},
-      {:redix, "~> 1.1", optional: true}
+      {:redix, "~> 1.1", optional: true},
+      {:benchee, "~> 1.1", only: [:dev, :test]}
     ]
   end
 
