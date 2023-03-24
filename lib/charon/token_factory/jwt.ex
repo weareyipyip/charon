@@ -166,7 +166,7 @@ defmodule Charon.TokenFactory.Jwt do
       header = gen_header(alg, kid, jmod)
       data = [header, ?., payload]
       signature = data |> do_sign(key) |> url_encode()
-      token = [data | [?., signature]] |> IO.iodata_to_binary()
+      token = [data, ?., signature] |> IO.iodata_to_binary()
       {:ok, token}
     else
       _ -> {:error, "could not create jwt"}
