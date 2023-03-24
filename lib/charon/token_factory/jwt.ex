@@ -134,8 +134,8 @@ defmodule Charon.TokenFactory.Jwt do
   """
   import Charon.Utils.KeyGenerator
   import __MODULE__.Config, only: [get_mod_config: 1]
-  import Plug.Crypto, only: [secure_compare: 2]
   import Charon.Internal
+  import Charon.Internal.Crypto
   @behaviour Charon.TokenFactory.Behaviour
 
   @sign_alg_to_header_alg %{
@@ -249,16 +249,16 @@ defmodule Charon.TokenFactory.Jwt do
 
   # Verify #
   defp do_verify(data, {:hmac_sha256, key}, signature),
-    do: data |> calc_hmac(key, :sha256) |> secure_compare(signature)
+    do: data |> calc_hmac(key, :sha256) |> constant_time_compare(signature)
 
   defp do_verify(data, {:hmac_sha384, key}, signature),
-    do: data |> calc_hmac(key, :sha384) |> secure_compare(signature)
+    do: data |> calc_hmac(key, :sha384) |> constant_time_compare(signature)
 
   defp do_verify(data, {:hmac_sha512, key}, signature),
-    do: data |> calc_hmac(key, :sha512) |> secure_compare(signature)
+    do: data |> calc_hmac(key, :sha512) |> constant_time_compare(signature)
 
   defp do_verify(data, {:blake3_256, key}, sig),
-    do: __MODULE__.Blake3.keyed_hash(key, data) |> secure_compare(sig)
+    do: __MODULE__.Blake3.keyed_hash(key, data) |> constant_time_compare(sig)
 
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed25519])
