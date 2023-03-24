@@ -3,8 +3,10 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @moduledoc false
     require Logger
 
-    @version "0.0.0+development"
-    @hashed_version @version |> :erlang.phash2(Integer.pow(2, 32)) |> to_string()
+    @hashed_version Mix.Project.config()
+                    |> Keyword.fetch!(:version)
+                    |> :erlang.phash2(Integer.pow(2, 32))
+                    |> to_string()
     @resolve_set_exps_function_name "resolve_set_exps_#{@hashed_version}"
     @upsert_function_name "opt_lock_upsert_#{@hashed_version}"
     @prune_expired_function_name "maybe_prune_expired_#{@hashed_version}"
@@ -88,9 +90,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     def register_functions(redix_opts) do
       with <<priv_dir::binary>> <- :code.priv_dir(:charon) |> to_string(),
            {:ok, script} <- File.read(priv_dir <> "/redis_functions.lua"),
-           # the build pipeline replaces the non-encoded version string, so we use the base64-encoded value at runtime
-           to_replace = "MC4wLjArZGV2ZWxvcG1lbnQ=" |> Base.decode64!(),
-           script = String.replace(script, to_replace, @hashed_version),
+           script = String.replace(script, "0.0.0+development", @hashed_version),
            {:ok, temp_redix} <- Redix.start_link(redix_opts),
            load_function_command = ["FUNCTION", "LOAD", "REPLACE", script],
            {:ok, "charon_redis_store_#{@hashed_version}"} <-

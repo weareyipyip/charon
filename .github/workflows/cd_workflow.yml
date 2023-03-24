@@ -28,11 +28,6 @@ jobs:
         with:
           source: tag
           file_path: mix.exs
-      - name: Set version in lua_functions.ex
-        uses: weareyipyip/set-version-action@v2
-        with:
-          source: tag
-          file_path: lib/charon/session_store/redis_store/lua_functions.ex
 
       - uses: erlef/setup-beam@v1
         with:
