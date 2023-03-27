@@ -7,8 +7,9 @@ defmodule Charon.SessionPlugs do
   require Logger
   alias Charon.{Config, Internal, TokenFactory, SessionStore, Models}
   use Internal.Constants
-  alias Internal.Crypto
+  import Internal.Crypto
   alias Models.{Session, Tokens}
+  alias __MODULE__.{SessionStorageError, SessionUpdateConflictError}
 
   @type upsert_session_opts :: [
           access_claim_overrides: %{required(String.t()) => any()},
@@ -69,6 +70,14 @@ defmodule Charon.SessionPlugs do
       iex> %Session{} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
 
+      # works with infinite lifespan sessions
+      iex> conn = conn()
+      ...> |> Utils.set_user_id(1)
+      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> upsert_session(%{@config | session_ttl: :infinite})
+      iex> %Session{expires_at: :infinite} = Utils.get_session(conn)
+      iex> %Tokens{} = Utils.get_tokens(conn)
+
       # renews session if present in conn, updating only refresh_tokens, refreshed_at, and refresh_expires_at
       # existing session's user id will not change despite attempted override
       iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0, refreshed_at: 0)
@@ -127,125 +136,22 @@ defmodule Charon.SessionPlugs do
       iex> %{"styp" => "oauth2"} = get_private(conn, @access_token_payload)
   """
   @spec upsert_session(Conn.t(), Config.t(), upsert_session_opts()) :: Conn.t()
-  def upsert_session(
-        conn,
-        config = %{
-          refresh_token_ttl: max_refresh_ttl,
-          access_token_ttl: max_access_ttl,
-          access_cookie_name: access_cookie_name,
-          refresh_cookie_name: refresh_cookie_name,
-          access_cookie_opts: access_cookie_opts,
-          refresh_cookie_opts: refresh_cookie_opts,
-          session_ttl: session_ttl
-        },
-        opts \\ []
-      ) do
-    now = Internal.now(conn)
-    access_claim_overrides = opts[:access_claim_overrides] || %{}
-    refresh_claim_overrides = opts[:refresh_claim_overrides] || %{}
-    extra_session_payload = opts[:extra_session_payload] || %{}
-    session_type = opts[:session_type] || :full
+  def upsert_session(conn, config, opts \\ []) do
+    timestamps = conn |> Internal.now() |> calc_timestamps(config)
 
-    # the refresh token id is renewed every time so that refresh tokens can be single-use only
-    refresh_token_id = Crypto.random_url_encoded(16)
+    new_session = create_or_update_session(conn, timestamps, opts)
+    new_session |> SessionStore.upsert(config) |> raise_on_store_error()
 
-    # update the existing session or create a new one
-    session =
-      if existing_session = Internal.get_private(conn, @session) do
-        %{
-          existing_session
-          | extra_payload: extra_session_payload,
-            refresh_expires_at: now + max_refresh_ttl,
-            refresh_token_id: refresh_token_id,
-            refreshed_at: now,
-            type: session_type
-        }
-        |> maybe_cycle_token_generation(conn, now)
-        |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
-      else
-        %Session{
-          created_at: now,
-          expires_at: if(session_ttl == :infinite, do: :infinite, else: session_ttl + now),
-          extra_payload: extra_session_payload,
-          id: Crypto.random_url_encoded(16),
-          prev_tokens_fresh_from: now,
-          refresh_expires_at: now + max_refresh_ttl,
-          refresh_token_id: refresh_token_id,
-          refreshed_at: now,
-          tokens_fresh_from: now,
-          type: session_type,
-          user_id: get_user_id!(conn)
-        }
-        |> tap(&Logger.debug("CREATED session: #{inspect(&1)}"))
-      end
-      |> truncate_refresh_expires_at()
+    {access_tok_pl, refresh_tok_pl} = create_token_payloads(new_session, timestamps, config, opts)
+    tokens = create_tokens(access_tok_pl, refresh_tok_pl, timestamps, config)
 
-    # create access and refresh tokens and put them on the conn
-    refresh_exp = session.refresh_expires_at
-    refresh_ttl = refresh_exp - now
-    access_ttl = min(refresh_ttl, max_access_ttl)
-    access_exp = access_ttl + now
-
-    shared_payload = %{
-      "iat" => now,
-      "iss" => config.token_issuer,
-      "nbf" => now,
-      "sid" => session.id,
-      "sub" => session.user_id,
-      "styp" => session.type |> Atom.to_string()
-    }
-
-    a_payload =
-      shared_payload
-      |> Map.merge(%{
-        "jti" => Crypto.random_url_encoded(16),
-        "exp" => access_exp,
-        "type" => "access"
-      })
-      |> Map.merge(access_claim_overrides)
-
-    r_payload =
-      shared_payload
-      |> Map.merge(%{"jti" => refresh_token_id, "exp" => refresh_exp, "type" => "refresh"})
-      |> Map.merge(refresh_claim_overrides)
-
-    {:ok, refresh_token} = TokenFactory.sign(r_payload, config)
-    {:ok, access_token} = TokenFactory.sign(a_payload, config)
-
-    tokens = %Tokens{
-      access_token: access_token,
-      access_token_exp: access_exp,
-      refresh_token: refresh_token,
-      refresh_token_exp: refresh_exp
-    }
-
-    # store the session
-    case SessionStore.upsert(session, config) do
-      :ok ->
-        # dress up the conn and return
-        conn
-        |> transport_tokens(
-          tokens,
-          access_ttl,
-          refresh_ttl,
-          access_cookie_opts,
-          access_cookie_name,
-          refresh_cookie_opts,
-          refresh_cookie_name
-        )
-        |> Internal.put_private(%{
-          @session => session,
-          @access_token_payload => a_payload,
-          @refresh_token_payload => r_payload
-        })
-
-      {:error, :conflict} ->
-        raise __MODULE__.SessionUpdateConflictError
-
-      error ->
-        error |> inspect() |> Logger.error()
-        raise __MODULE__.SessionStorageError
-    end
+    conn
+    |> maybe_set_signature_cookies(tokens, timestamps, config)
+    |> Internal.put_private(%{
+      @session => new_session,
+      @access_token_payload => access_tok_pl,
+      @refresh_token_payload => refresh_tok_pl
+    })
   end
 
   @doc """
@@ -265,59 +171,75 @@ defmodule Charon.SessionPlugs do
       %{}
   """
   @spec delete_session(Conn.t(), Config.t()) :: Conn.t()
-  def delete_session(
-        conn,
-        config = %{
-          access_cookie_name: access_cookie_name,
-          refresh_cookie_name: refresh_cookie_name,
-          access_cookie_opts: access_cookie_opts,
-          refresh_cookie_opts: refresh_cookie_opts
-        }
-      ) do
-    case conn.private do
-      %{@bearer_token_payload => %{"sub" => uid, "sid" => sid, "styp" => type}} ->
-        SessionStore.delete(sid, uid, String.to_atom(type), config)
+  def delete_session(conn, config) do
+    conn
+    |> tap(fn
+      %{private: %{@bearer_token_payload => %{"sub" => uid, "sid" => sid, "styp" => type}}} ->
+        SessionStore.delete(sid, uid, String.to_atom(type), config) |> raise_on_store_error()
 
       _ ->
         :ok
-    end
-
-    conn
-    |> Conn.delete_resp_cookie(refresh_cookie_name, refresh_cookie_opts)
-    |> Conn.delete_resp_cookie(access_cookie_name, access_cookie_opts)
+    end)
+    |> Conn.delete_resp_cookie(config.refresh_cookie_name, config.refresh_cookie_opts)
+    |> Conn.delete_resp_cookie(config.access_cookie_name, config.access_cookie_opts)
   end
 
   ############
   # Privates #
   ############
 
-  defp transport_tokens(
-         conn,
-         tokens,
-         access_ttl,
-         refresh_ttl,
-         access_cookie_opts,
-         access_cookie_name,
-         refresh_cookie_opts,
-         refresh_cookie_name
-       ) do
-    case get_sig_transport!(conn) do
-      :bearer ->
-        Conn.put_private(conn, @tokens, tokens)
+  defp calc_timestamps(now, config) do
+    session_ttl = config.session_ttl
+    # atom > int so this works if session_ttl is :infinite
+    refresh_ttl = min(config.refresh_token_ttl, session_ttl)
+    access_ttl = min(config.access_token_ttl, refresh_ttl)
+    session_exp = calc_session_exp(session_ttl, now)
+    refresh_exp = refresh_ttl + now
+    access_exp = access_ttl + now
+    {now, session_exp, refresh_exp, access_exp, refresh_ttl, access_ttl}
+  end
 
-      :cookie ->
-        split = Internal.split_signature(tokens.access_token, access_ttl, access_cookie_opts)
-        {access_token, at_signature, access_cookie_opts} = split
-        split = Internal.split_signature(tokens.refresh_token, refresh_ttl, refresh_cookie_opts)
-        {refresh_token, rt_signature, refresh_cookie_opts} = split
-        tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
+  defp calc_session_exp(session_ttl, now)
+  defp calc_session_exp(:infinite, _), do: :infinite
+  defp calc_session_exp(finite_ttl, now), do: finite_ttl + now
 
-        conn
-        |> Conn.put_private(@tokens, tokens)
-        |> Conn.put_resp_cookie(access_cookie_name, at_signature, access_cookie_opts)
-        |> Conn.put_resp_cookie(refresh_cookie_name, rt_signature, refresh_cookie_opts)
+  defp create_or_update_session(conn, {now, session_exp, refresh_exp, _, _, _}, opts) do
+    refresh_token_id = random_url_encoded(16)
+    extra_session_payload = opts[:extra_session_payload] || %{}
+
+    if existing_session = Internal.get_private(conn, @session) do
+      %{
+        existing_session
+        | extra_payload: extra_session_payload,
+          refresh_expires_at: refresh_exp,
+          refresh_token_id: refresh_token_id,
+          refreshed_at: now
+      }
+      |> maybe_cycle_token_generation(conn, now)
+      |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
+    else
+      %Session{
+        created_at: now,
+        expires_at: session_exp,
+        extra_payload: extra_session_payload,
+        id: random_url_encoded(16),
+        prev_tokens_fresh_from: now,
+        refresh_expires_at: refresh_exp,
+        refresh_token_id: refresh_token_id,
+        refreshed_at: now,
+        tokens_fresh_from: now,
+        type: opts[:session_type] || :full,
+        user_id: get_user_id!(conn)
+      }
+      |> tap(&Logger.debug("CREATED session: #{inspect(&1)}"))
     end
   end
+
+  defp maybe_cycle_token_generation(session, %{private: %{@cycle_token_generation => true}}, now) do
+    %{session | tokens_fresh_from: now, prev_tokens_fresh_from: session.tokens_fresh_from}
+  end
+
+  defp maybe_cycle_token_generation(session, _conn, _now), do: session
 
   defp get_user_id!(conn) do
     conn
@@ -325,6 +247,70 @@ defmodule Charon.SessionPlugs do
     |> case do
       nil -> raise "Set user id using Utils.set_user_id/2"
       result -> result
+    end
+  end
+
+  defp raise_on_store_error(:ok), do: :ok
+  defp raise_on_store_error({:error, :conflict}), do: raise(SessionUpdateConflictError)
+
+  defp raise_on_store_error(error) do
+    Logger.error("Session store error: #{inspect(error)}")
+    raise SessionStorageError
+  end
+
+  defp create_token_payloads(session, {now, _, refresh_exp, access_exp, _, _}, config, opts) do
+    shared_payload = %{
+      "iat" => now,
+      "iss" => config.token_issuer,
+      "nbf" => now,
+      "sid" => session.id,
+      "sub" => session.user_id,
+      "styp" => session.type |> Atom.to_string()
+    }
+
+    access_token_payload =
+      shared_payload
+      |> Map.merge(%{"jti" => random_url_encoded(16), "exp" => access_exp, "type" => "access"})
+      |> Map.merge(opts[:access_claim_overrides] || %{})
+
+    refresh_token_payload =
+      shared_payload
+      |> Map.merge(%{"jti" => session.refresh_token_id, "exp" => refresh_exp, "type" => "refresh"})
+      |> Map.merge(opts[:refresh_claim_overrides] || %{})
+
+    {access_token_payload, refresh_token_payload}
+  end
+
+  defp create_tokens(access_tok_pl, refresh_tok_pl, {_, _, refresh_exp, access_exp, _, _}, config) do
+    {:ok, refresh_token} = TokenFactory.sign(refresh_tok_pl, config)
+    {:ok, access_token} = TokenFactory.sign(access_tok_pl, config)
+
+    %Tokens{
+      access_token: access_token,
+      access_token_exp: access_exp,
+      refresh_token: refresh_token,
+      refresh_token_exp: refresh_exp
+    }
+  end
+
+  defp maybe_set_signature_cookies(conn, tokens, {_, _, _, _, refresh_ttl, access_ttl}, config) do
+    case get_sig_transport!(conn) do
+      :bearer ->
+        Conn.put_private(conn, @tokens, tokens)
+
+      :cookie ->
+        {access_token, at_signature, access_cookie_opts} =
+          Internal.split_signature(tokens.access_token, access_ttl, config.access_cookie_opts)
+
+        {refresh_token, rt_signature, refresh_cookie_opts} =
+          Internal.split_signature(tokens.refresh_token, refresh_ttl, config.refresh_cookie_opts)
+
+        tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
+
+        conn
+        |> Conn.put_private(@tokens, tokens)
+        |> Conn.put_resp_cookie(config.access_cookie_name, at_signature, access_cookie_opts)
+        |> Conn.put_resp_cookie(config.refresh_cookie_name, rt_signature, refresh_cookie_opts)
     end
   end
 
@@ -336,16 +322,4 @@ defmodule Charon.SessionPlugs do
       result -> result
     end
   end
-
-  defp truncate_refresh_expires_at(session)
-  defp truncate_refresh_expires_at(s = %{expires_at: :infinite}), do: s
-
-  defp truncate_refresh_expires_at(s = %{expires_at: s_exp, refresh_expires_at: rt_exp}),
-    do: %{s | refresh_expires_at: min(s_exp, rt_exp)}
-
-  defp maybe_cycle_token_generation(session, %{private: %{@cycle_token_generation => true}}, now) do
-    %{session | tokens_fresh_from: now, prev_tokens_fresh_from: session.tokens_fresh_from}
-  end
-
-  defp maybe_cycle_token_generation(session, _conn, _now), do: session
 end

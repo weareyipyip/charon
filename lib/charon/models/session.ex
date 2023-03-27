@@ -159,14 +159,7 @@ defmodule Charon.Models.Session do
 
   # v1: session has no :refresh_expires_at
   defp update(session = %{version: 1}, config) do
-    base_refresh_exp = config.refresh_token_ttl + Internal.now()
-
-    refresh_exp =
-      case session.expires_at do
-        :infinite -> base_refresh_exp
-        finite -> min(base_refresh_exp, finite)
-      end
-
+    refresh_exp = min(session.expires_at, config.refresh_token_ttl + Internal.now())
     session |> Map.merge(%{version: 2, refresh_expires_at: refresh_exp}) |> update(config)
   end
 
