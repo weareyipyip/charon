@@ -111,7 +111,7 @@ defmodule Charon.Models.Session do
       ...>   user_id: 9,
       ...>   version: #{@latest_version}
       ...> } = session
-      iex> refresh_exp > 100000
+      iex> is_integer(refresh_exp) and refresh_exp >= System.os_time(:second)
       true
   """
   @spec upgrade_version(map, Config.t()) :: map
