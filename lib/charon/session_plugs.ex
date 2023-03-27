@@ -184,9 +184,9 @@ defmodule Charon.SessionPlugs do
     |> Conn.delete_resp_cookie(config.access_cookie_name, config.access_cookie_opts)
   end
 
-  ############
-  # Privates #
-  ############
+  ###########
+  # Private #
+  ###########
 
   defp calc_timestamps(now, config) do
     session_ttl = config.session_ttl
