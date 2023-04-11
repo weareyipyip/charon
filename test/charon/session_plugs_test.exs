@@ -66,6 +66,26 @@ defmodule Charon.SessionPlugsTest do
       assert_in_delta tokens.refresh_token_exp, now() + 10, 3
     end
 
+    test "should not create tokens that outlive an existing session" do
+      session = %{@user_session | expires_at: now() + 10}
+      SessionStore.upsert(session, @config)
+
+      tokens =
+        conn()
+        |> Utils.set_token_signature_transport(:bearer)
+        |> Utils.set_session(%{session | lock_version: session.lock_version + 1})
+        |> upsert_session(%{
+          @config
+          | session_ttl: 120,
+            access_token_ttl: 120,
+            refresh_token_ttl: 120
+        })
+        |> Utils.get_tokens()
+
+      assert_in_delta tokens.access_token_exp, now() + 10, 3
+      assert_in_delta tokens.refresh_token_exp, now() + 10, 3
+    end
+
     test "should not create cookies that outlive the session" do
       cookies =
         conn()
