@@ -137,9 +137,10 @@ defmodule Charon.SessionPlugs do
   """
   @spec upsert_session(Conn.t(), Config.t(), upsert_session_opts()) :: Conn.t()
   def upsert_session(conn, config, opts \\ []) do
-    timestamps = conn |> Internal.now() |> calc_timestamps(config)
+    existing_session = Internal.get_private(conn, @session)
+    timestamps = conn |> Internal.now() |> calc_timestamps(existing_session, config)
 
-    new_session = create_or_update_session(conn, timestamps, opts)
+    new_session = create_or_update_session(conn, existing_session, timestamps, opts)
     new_session |> SessionStore.upsert(config) |> raise_on_store_error()
 
     {access_tok_pl, refresh_tok_pl} = create_token_payloads(new_session, timestamps, config, opts)
@@ -188,28 +189,29 @@ defmodule Charon.SessionPlugs do
   # Private #
   ###########
 
-  defp calc_timestamps(now, config) do
-    session_ttl = config.session_ttl
+  defp calc_timestamps(now, existing_session, config) do
+    {session_exp, session_ttl} = calc_session_exp_ttl(existing_session, config.session_ttl, now)
     # atom > int so this works if session_ttl is :infinite
     refresh_ttl = min(config.refresh_token_ttl, session_ttl)
     access_ttl = min(config.access_token_ttl, refresh_ttl)
-    session_exp = calc_session_exp(session_ttl, now)
     refresh_exp = refresh_ttl + now
     access_exp = access_ttl + now
     {now, session_exp, refresh_exp, access_exp, refresh_ttl, access_ttl}
   end
 
-  defp calc_session_exp(session_ttl, now)
-  defp calc_session_exp(:infinite, _), do: :infinite
-  defp calc_session_exp(finite_ttl, now), do: finite_ttl + now
+  defp calc_session_exp_ttl(existing_session, new_session_ttl, now)
+  defp calc_session_exp_ttl(nil, :infinite, _), do: {:infinite, :infinite}
+  defp calc_session_exp_ttl(nil, ttl, now), do: {ttl + now, ttl}
+  defp calc_session_exp_ttl(%{expires_at: :infinite}, _, _), do: {:infinite, :infinite}
+  defp calc_session_exp_ttl(%{expires_at: exp}, _, now), do: {exp, exp - now}
 
-  defp create_or_update_session(conn, {now, session_exp, refresh_exp, _, _, _}, opts) do
+  defp create_or_update_session(conn, session, {now, session_exp, refresh_exp, _, _, _}, opts) do
     refresh_token_id = random_url_encoded(16)
     extra_session_payload = opts[:extra_session_payload] || %{}
 
-    if existing_session = Internal.get_private(conn, @session) do
+    if session do
       %{
-        existing_session
+        session
         | extra_payload: extra_session_payload,
           refresh_expires_at: refresh_exp,
           refresh_token_id: refresh_token_id,
