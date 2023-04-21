@@ -8,6 +8,7 @@ defmodule Charon.Internal.Crypto do
   @encr_alg :chacha20
   @hmac_alg :sha256
   @iv_size 16
+  @bytes_per_dec :math.log(10) / :math.log(255)
 
   @doc """
   Encrypt the plaintext into a binary using the provided key.
@@ -162,6 +163,13 @@ defmodule Charon.Internal.Crypto do
   end
 
   def verify_hmac(_, _), do: {:error, :malformed_input}
+
+  def random_digits(n) do
+    bytes = ceil(@bytes_per_dec * n)
+    :crypto.strong_rand_bytes(bytes)
+    |> :binary.decode_unsigned()
+    |> rem(10 ** n)
+  end
 
   ###########
   # Private #
