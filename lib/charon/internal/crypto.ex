@@ -168,7 +168,7 @@ defmodule Charon.Internal.Crypto do
     ceil(@bytes_per_dec * n)
     |> :crypto.strong_rand_bytes()
     |> :binary.decode_unsigned()
-    |> rem(10 ** n)
+    |> rem(:math.pow(10, n) |> round())
   end
 
   ###########
