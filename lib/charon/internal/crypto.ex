@@ -165,8 +165,8 @@ defmodule Charon.Internal.Crypto do
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
   def random_digits(n) do
-    bytes = ceil(@bytes_per_dec * n)
-    :crypto.strong_rand_bytes(bytes)
+    ceil(@bytes_per_dec * n)
+    |> :crypto.strong_rand_bytes()
     |> :binary.decode_unsigned()
     |> rem(10 ** n)
   end
