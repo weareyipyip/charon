@@ -94,7 +94,7 @@ defmodule Charon.SessionStore.LocalStoreTest do
 
   describe "delete/4" do
     test "returns ok if session not found" do
-      assert :ok= LocalStore.delete(@sid, @uid, @stype, @config)
+      assert :ok = LocalStore.delete(@sid, @uid, @stype, @config)
       assert {0, _} = Agent.get(LocalStore, & &1)
     end
 
