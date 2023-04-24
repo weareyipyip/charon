@@ -163,6 +163,12 @@ defmodule Charon.Internal.Crypto do
 
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
+  @spec random_digits(pos_integer) :: binary
+  def random_digits(n) do
+    "1" <> result = random_digits_integer(n) |> Integer.to_string()
+    result
+  end
+
   @spec random_digits_integer(pos_integer) :: number
   def random_digits_integer(n) do
     boundary = Integer.pow(10, n)
@@ -178,12 +184,6 @@ defmodule Charon.Internal.Crypto do
         {_, result} -> {:halt, boundary + rem(result, boundary)}
       end
     end)
-  end
-
-  @spec random_digits(pos_integer) :: number
-  def random_digits(n) do
-    "1" <> result = random_digits_integer(n) |> Integer.to_string()
-    result
   end
 
   ###########
