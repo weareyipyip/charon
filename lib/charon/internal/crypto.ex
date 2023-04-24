@@ -8,7 +8,6 @@ defmodule Charon.Internal.Crypto do
   @encr_alg :chacha20
   @hmac_alg :sha256
   @iv_size 16
-  @bytes_per_dec :math.log(10) / :math.log(255)
 
   @doc """
   Encrypt the plaintext into a binary using the provided key.
