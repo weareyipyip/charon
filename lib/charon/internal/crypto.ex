@@ -164,16 +164,35 @@ defmodule Charon.Internal.Crypto do
 
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
+  @spec random_digits_integer(pos_integer) :: number
+  def random_digits_integer(n) do
+    boundary = Integer.pow(10, n)
+
+    fn -> :crypto.strong_rand_bytes(5) end
+    |> Stream.repeatedly()
+    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int1::20, int2::20>>, acc ->
+      acc
+      |> maybe_add_six_digits(int1)
+      |> maybe_add_six_digits(int2)
+      |> case do
+        acc = {count, _partial_result} when count < n -> {:cont, acc}
+        {_, result} -> {:halt, boundary + rem(result, boundary)}
+      end
+    end)
+  end
+
+  @spec random_digits(pos_integer) :: number
   def random_digits(n) do
-    ceil(@bytes_per_dec * n)
-    |> :crypto.strong_rand_bytes()
-    |> :binary.decode_unsigned()
-    |> rem(:math.pow(10, n) |> round())
+    "1" <> result = random_digits_integer(n) |> Integer.to_string()
+    result
   end
 
   ###########
   # Private #
   ###########
+
+  defp maybe_add_six_digits({n, acc}, v) when v < 1_000_000, do: {n + 6, acc * 1_000_000 + v}
+  defp maybe_add_six_digits(acc, _too_large_unsigned_int), do: acc
 
   defp verify(data, key, hmac),
     do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
