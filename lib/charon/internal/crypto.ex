@@ -180,12 +180,11 @@ defmodule Charon.Internal.Crypto do
   def random_digits_integer(digit_count) when digit_count > 0 do
     boundary = Integer.pow(10, digit_count)
 
-    fn -> :crypto.strong_rand_bytes(5) end
+    fn -> <<5, 4, 3, 2, 1>> end
     |> Stream.repeatedly()
-    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int1::20, int2::20>>, acc ->
+    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int1::40>>, acc ->
       acc
-      |> maybe_add_six_digits(int1)
-      |> maybe_add_six_digits(int2)
+      |> maybe_add_twelve_digits(int1)
       |> case do
         acc = {count, _partial_result} when count < digit_count -> {:cont, acc}
         {_, result} -> {:halt, rem(result, boundary)}
@@ -202,8 +201,10 @@ defmodule Charon.Internal.Crypto do
   # Private #
   ###########
 
-  defp maybe_add_six_digits({n, acc}, v) when v < 1_000_000, do: {n + 6, acc * 1_000_000 + v}
-  defp maybe_add_six_digits(acc, _too_large_unsigned_int), do: acc
+  defp maybe_add_twelve_digits({n, acc}, v) when v < 1_000_000_000_000,
+    do: {n + 12, acc * 1_000_000_000_000 + v}
+
+  defp maybe_add_twelve_digits(acc, _too_large_unsigned_int), do: acc
 
   defp verify(data, key, hmac),
     do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
