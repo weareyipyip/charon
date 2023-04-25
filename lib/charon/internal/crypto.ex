@@ -164,21 +164,21 @@ defmodule Charon.Internal.Crypto do
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
   @doc """
-  Generate a random string with given amount of base10 characters.
+  Generate a random string containing `digit_count` base10 characters.
   """
   @spec random_digits(pos_integer) :: binary
-  def random_digits(n) do
-    random_digits_integer(n)
+  def random_digits(digit_count) do
+    random_digits_integer(digit_count)
     |> Integer.to_string()
-    |> String.pad_leading(n, "0")
+    |> String.pad_leading(digit_count, "0")
   end
 
   @doc """
-  Generate a random number with at most given amount of digits.
+  Generate a random number with at most `digit_count` digits.
   """
   @spec random_digits_integer(pos_integer) :: number
-  def random_digits_integer(n) when n > 0 do
-    boundary = Integer.pow(10, n)
+  def random_digits_integer(digit_count) when digit_count > 0 do
+    boundary = Integer.pow(10, digit_count)
 
     fn -> :crypto.strong_rand_bytes(5) end
     |> Stream.repeatedly()
@@ -187,13 +187,13 @@ defmodule Charon.Internal.Crypto do
       |> maybe_add_six_digits(int1)
       |> maybe_add_six_digits(int2)
       |> case do
-        acc = {count, _partial_result} when count < n -> {:cont, acc}
+        acc = {count, _partial_result} when count < digit_count -> {:cont, acc}
         {_, result} -> {:halt, rem(result, boundary)}
       end
     end)
   end
 
-  def random_digits_integer(_n) do
+  def random_digits_integer(_digit_count) do
     raise "Can only generate a positive number of random digits."
   end
 
