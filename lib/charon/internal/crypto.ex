@@ -193,8 +193,9 @@ defmodule Charon.Internal.Crypto do
     end)
   end
 
-  def random_digits_integer(_digit_count) do
-    raise "Can only generate a positive number of random digits."
+  def random_digits_integer(digit_count) do
+    raise ArgumentError,
+          "random_digits_integer (digit_count) expects a positive integer, got: #{inspect(digit_count)}"
   end
 
   ###########
