@@ -163,10 +163,14 @@ defmodule Charon.Internal.Crypto do
 
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
+  @doc """
+  todo
+  """
   @spec random_digits(pos_integer) :: binary
   def random_digits(n) do
-    "1" <> result = random_digits_integer(n) |> Integer.to_string()
-    result
+    random_digits_integer(n)
+    |> Integer.to_string()
+    |> String.pad_leading(n, "0")
   end
 
   @spec random_digits_integer(pos_integer) :: number
@@ -181,7 +185,7 @@ defmodule Charon.Internal.Crypto do
       |> maybe_add_six_digits(int2)
       |> case do
         acc = {count, _partial_result} when count < n -> {:cont, acc}
-        {_, result} -> {:halt, boundary + rem(result, boundary)}
+        {_, result} -> {:halt, rem(result, boundary)}
       end
     end)
   end

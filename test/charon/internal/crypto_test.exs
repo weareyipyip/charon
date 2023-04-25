@@ -21,5 +21,9 @@ defmodule Charon.Internal.CryptoTest do
     end
   end
 
+  describe "random digit generation" do
+    
+  end
+
   doctest Crypto
 end
