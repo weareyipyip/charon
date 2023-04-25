@@ -164,7 +164,7 @@ defmodule Charon.Internal.Crypto do
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
   @doc """
-  todo
+  Generate a random string with given amount of base10 characters.
   """
   @spec random_digits(pos_integer) :: binary
   def random_digits(n) do
@@ -173,8 +173,11 @@ defmodule Charon.Internal.Crypto do
     |> String.pad_leading(n, "0")
   end
 
+  @doc """
+  Generate a random number with at most given amount of digits.
+  """
   @spec random_digits_integer(pos_integer) :: number
-  def random_digits_integer(n) do
+  def random_digits_integer(n) when n > 0 do
     boundary = Integer.pow(10, n)
 
     fn -> :crypto.strong_rand_bytes(5) end
@@ -188,6 +191,10 @@ defmodule Charon.Internal.Crypto do
         {_, result} -> {:halt, rem(result, boundary)}
       end
     end)
+  end
+
+  def random_digits_integer(_n) do
+    raise "Can only generate a positive number of random digits."
   end
 
   ###########

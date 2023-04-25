@@ -8,6 +8,8 @@ defmodule Charon.Internal.CryptoTest do
   @wrong_key <<232, 111, 192, 185, 177, 205, 141, 32, 158, 126, 100, 146, 16, 49, 97, 144, 236,
                38, 216, 67, 37, 243, 34, 65, 76, 210, 90, 29, 95, 179, 169, 211>>
 
+  @digits 6
+
   describe "encryption" do
     test "works" do
       assert {:ok, "hello world"} = "hello world" |> encrypt(@key) |> decrypt(@key)
@@ -22,7 +24,15 @@ defmodule Charon.Internal.CryptoTest do
   end
 
   describe "random digit generation" do
-    
+    test "generates random number between 0 and (10^n-1)" do
+      n = random_digits_integer(@digits)
+      assert n >= 0
+      assert n < Integer.pow(10, @digits)
+    end
+
+    test "generates string of n digits" do
+      assert random_digits(@digits) |> String.length() == @digits
+    end
   end
 
   doctest Crypto
