@@ -180,7 +180,7 @@ defmodule Charon.Internal.Crypto do
   def random_digits_integer(digit_count) when digit_count > 0 do
     boundary = Integer.pow(10, digit_count)
 
-    fn -> <<5, 4, 3, 2, 1>> end
+    fn -> :crypto.strong_rand_bytes(5) end
     |> Stream.repeatedly()
     |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int1::40>>, acc ->
       acc
@@ -194,7 +194,7 @@ defmodule Charon.Internal.Crypto do
 
   def random_digits_integer(digit_count) do
     raise ArgumentError,
-          "random_digits_integer (digit_count) expects a positive integer, got: #{inspect(digit_count)}"
+          "random_digits_integer (digit_count) expects an integer above 0, got: #{inspect(digit_count)}"
   end
 
   ###########
