@@ -115,14 +115,40 @@ defmodule Charon.SessionPlugsTest do
     end
 
     test "should raise SessionUpdateConflictError on sessionstore update conflict error" do
-      with_mock SessionStore, upsert: fn _, _ -> {:error, :conflict} end do
-        assert_raise SessionUpdateConflictError, fn ->
-          conn()
-          |> Utils.set_token_signature_transport(:bearer)
-          |> Utils.set_user_id(@uid)
-          |> upsert_session(@config)
-        end
+      SessionStore.upsert(@user_session, @config)
+
+      assert_raise SessionUpdateConflictError, fn ->
+        conn()
+        |> Utils.set_token_signature_transport(:bearer)
+        |> Utils.set_user_id(@uid)
+        # lock_version not increased
+        |> Utils.set_session(@user_session)
+        |> upsert_session(@config)
       end
+    end
+
+    test "allows changing session type on update" do
+      session = %{@user_session | type: :proto}
+      SessionStore.upsert(session, @config)
+
+      assert %{type: :full} =
+               conn()
+               |> Utils.set_token_signature_transport(:bearer)
+               |> Utils.set_session(%{session | lock_version: session.lock_version + 2})
+               |> upsert_session(@config, session_type: :full)
+               |> Utils.get_session()
+    end
+
+    test "leaves session type alone if not overridden on update" do
+      session = %{@user_session | type: :proto}
+      SessionStore.upsert(session, @config)
+
+      assert %{type: :proto} =
+               conn()
+               |> Utils.set_token_signature_transport(:bearer)
+               |> Utils.set_session(%{session | lock_version: session.lock_version + 1})
+               |> upsert_session(@config)
+               |> Utils.get_session()
     end
   end
 end

@@ -215,7 +215,8 @@ defmodule Charon.SessionPlugs do
         | extra_payload: extra_session_payload,
           refresh_expires_at: refresh_exp,
           refresh_token_id: refresh_token_id,
-          refreshed_at: now
+          refreshed_at: now,
+          type: opts[:session_type] || session.type
       }
       |> maybe_cycle_token_generation(conn, now)
       |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
