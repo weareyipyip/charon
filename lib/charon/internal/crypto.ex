@@ -174,7 +174,7 @@ defmodule Charon.Internal.Crypto do
   end
 
   @doc """
-  Generate a random number with at most `digit_count` digits.
+  Generate a cryptographically strongly random integer where 0 <= result < `upper_bound`.
   """
   @spec strong_random_integer(pos_integer) :: number
   def strong_random_integer(upper_bound) when upper_bound > 0 do
