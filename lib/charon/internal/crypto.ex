@@ -168,31 +168,23 @@ defmodule Charon.Internal.Crypto do
   """
   @spec strong_random_digits(pos_integer) :: binary
   def strong_random_digits(digit_count) do
-    strong_random_integer(digit_count)
-    |> Integer.to_string()
-    |> String.pad_leading(digit_count, "0")
-  end
-
-  @doc """
-  Generate a cryptographically strongly random integer where 0 <= result < `upper_bound`.
-  """
-  @spec strong_random_integer(pos_integer) :: number
-  def strong_random_integer(upper_bound) when upper_bound > 0 do
-    boundary = Integer.pow(10, upper_bound)
+    upper_bound = Integer.pow(10, digit_count)
 
     fn -> :crypto.strong_rand_bytes(5) end
     |> Stream.repeatedly()
-    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int::40>>, {n, acc} = progress ->
+    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int::40>>, acc = {n, result} ->
       if int < 1_000_000_000_000 do
-        {n + 12, acc * 1_000_000_000_000 + int}
+        {n + 12, result * 1_000_000_000_000 + int}
       else
-        progress
+        acc
       end
       |> case do
-        acc = {count, _partial_result} when count < upper_bound -> {:cont, acc}
-        {_, result} -> {:halt, rem(result, boundary)}
+        acc = {count, _partial_result} when count < digit_count -> {:cont, acc}
+        {_, result} -> {:halt, rem(result, upper_bound)}
       end
     end)
+    |> Integer.to_string()
+    |> String.pad_leading(digit_count, "0")
   end
 
   ###########
