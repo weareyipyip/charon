@@ -25,13 +25,13 @@ defmodule Charon.Internal.CryptoTest do
 
   describe "random digit generation" do
     test "generates random number between 0 and (10^n-1)" do
-      n = random_digits_integer(@digits)
+      n = strong_random_integer(@digits)
       assert n >= 0
       assert n < Integer.pow(10, @digits)
     end
 
     test "generates string of n digits" do
-      assert random_digits(@digits) |> String.length() == @digits
+      assert strong_random_digits(@digits) |> String.length() == @digits
     end
   end
 

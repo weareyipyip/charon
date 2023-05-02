@@ -164,11 +164,11 @@ defmodule Charon.Internal.Crypto do
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
   @doc """
-  Generate a random string containing `digit_count` base10 characters.
+  Generate a string of cryptographically strong random digits of length `digit_count`.
   """
-  @spec random_digits(pos_integer) :: binary
-  def random_digits(digit_count) do
-    random_digits_integer(digit_count)
+  @spec strong_random_digits(pos_integer) :: binary
+  def strong_random_digits(digit_count) do
+    strong_random_integer(digit_count)
     |> Integer.to_string()
     |> String.pad_leading(digit_count, "0")
   end
@@ -176,35 +176,28 @@ defmodule Charon.Internal.Crypto do
   @doc """
   Generate a random number with at most `digit_count` digits.
   """
-  @spec random_digits_integer(pos_integer) :: number
-  def random_digits_integer(digit_count) when digit_count > 0 do
-    boundary = Integer.pow(10, digit_count)
+  @spec strong_random_integer(pos_integer) :: number
+  def strong_random_integer(upper_bound) when upper_bound > 0 do
+    boundary = Integer.pow(10, upper_bound)
 
     fn -> :crypto.strong_rand_bytes(5) end
     |> Stream.repeatedly()
-    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int1::40>>, acc ->
-      acc
-      |> maybe_add_twelve_digits(int1)
+    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int::40>>, {n, acc} = progress ->
+      if int < 1_000_000_000_000 do
+        {n + 12, acc * 1_000_000_000_000 + int}
+      else
+        progress
+      end
       |> case do
-        acc = {count, _partial_result} when count < digit_count -> {:cont, acc}
+        acc = {count, _partial_result} when count < upper_bound -> {:cont, acc}
         {_, result} -> {:halt, rem(result, boundary)}
       end
     end)
   end
 
-  def random_digits_integer(digit_count) do
-    raise ArgumentError,
-          "random_digits_integer (digit_count) expects an integer above 0, got: #{inspect(digit_count)}"
-  end
-
   ###########
   # Private #
   ###########
-
-  defp maybe_add_twelve_digits({n, acc}, v) when v < 1_000_000_000_000,
-    do: {n + 12, acc * 1_000_000_000_000 + v}
-
-  defp maybe_add_twelve_digits(acc, _too_large_unsigned_int), do: acc
 
   defp verify(data, key, hmac),
     do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
