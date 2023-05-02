@@ -163,6 +163,38 @@ defmodule Charon.Internal.Crypto do
 
   def verify_hmac(_, _), do: {:error, :malformed_input}
 
+  @doc """
+  Generate a string of cryptographically strong random digits of length `digit_count`.
+  """
+  @spec strong_random_digits(pos_integer) :: binary
+  def strong_random_digits(digit_count) do
+    strong_random_integer(digit_count)
+    |> Integer.to_string()
+    |> String.pad_leading(digit_count, "0")
+  end
+
+  @doc """
+  Generate a cryptographically strongly random integer where 0 <= result < `upper_bound`.
+  """
+  @spec strong_random_integer(pos_integer) :: number
+  def strong_random_integer(upper_bound) when upper_bound > 0 do
+    boundary = Integer.pow(10, upper_bound)
+
+    fn -> :crypto.strong_rand_bytes(5) end
+    |> Stream.repeatedly()
+    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int::40>>, {n, acc} = progress ->
+      if int < 1_000_000_000_000 do
+        {n + 12, acc * 1_000_000_000_000 + int}
+      else
+        progress
+      end
+      |> case do
+        acc = {count, _partial_result} when count < upper_bound -> {:cont, acc}
+        {_, result} -> {:halt, rem(result, boundary)}
+      end
+    end)
+  end
+
   ###########
   # Private #
   ###########
