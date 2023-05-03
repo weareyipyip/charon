@@ -167,30 +167,36 @@ defmodule Charon.Internal.Crypto do
   Generate a string of cryptographically strong random digits of length `digit_count`.
   """
   @spec strong_random_digits(pos_integer) :: binary
-  def strong_random_digits(digit_count) do
+  def strong_random_digits(digit_count) when digit_count >= 0 do
     upper_bound = Integer.pow(10, digit_count)
-
-    fn -> :crypto.strong_rand_bytes(5) end
-    |> Stream.repeatedly()
-    |> Enum.reduce_while({_count = 0, _result = 0}, fn <<int::40>>, acc = {n, result} ->
-      if int < 1_000_000_000_000 do
-        {n + 12, result * 1_000_000_000_000 + int}
-      else
-        acc
-      end
-      |> case do
-        acc = {count, _partial_result} when count < digit_count -> {:cont, acc}
-        {_, result} -> {:halt, rem(result, upper_bound)}
-      end
-    end)
-    |> Integer.to_string()
-    |> String.pad_leading(digit_count, "0")
+    generate_digits(0, upper_bound)
   end
 
   ###########
   # Private #
   ###########
 
-  defp verify(data, key, hmac),
-    do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
+  defp verify(data, key, hmac) do
+    if hmac_matches?(data, key, hmac) do
+      {:ok, data}
+    else
+      {:error, :invalid_signature}
+    end
+  end
+
+  defp generate_digits(acc, upper_bound) when acc < upper_bound do
+    <<int1::20, int2::20>> = :crypto.strong_rand_bytes(5)
+    acc |> add_valid_digits(int1) |> add_valid_digits(int2) |> generate_digits(upper_bound)
+  end
+
+  defp generate_digits(acc, upper_bound) do
+    # for digit_count=3; 1000 + rem(10023, 1000) = 1023
+    Integer.to_string(upper_bound + rem(acc, upper_bound))
+    # 1023 -> "023"
+    |> then(fn <<_::binary-size(1), result::binary>> -> result end)
+  end
+
+  # 0 <= v <= 1_048_575
+  defp add_valid_digits(acc, v) when v < 1_000_000, do: acc * 1_000_000 + v
+  defp add_valid_digits(acc, _too_large_unsigned_int), do: acc
 end
