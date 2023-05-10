@@ -256,8 +256,7 @@ defmodule Charon.SessionPlugs do
   defp raise_on_store_error({:error, :conflict}), do: raise(SessionUpdateConflictError)
 
   defp raise_on_store_error(error) do
-    Logger.error("Session store error: #{inspect(error)}")
-    raise SessionStorageError
+    raise SessionStorageError, error: error
   end
 
   defp create_token_payloads(session, {now, _, refresh_exp, access_exp, _, _}, config, opts) do
