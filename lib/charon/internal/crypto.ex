@@ -201,28 +201,4 @@ defmodule Charon.Internal.Crypto do
 
   defp verify(data, key, hmac),
     do: if(hmac_matches?(data, key, hmac), do: {:ok, data}, else: {:error, :invalid_signature})
-
-  def random_digits(1) do
-    random_digit()
-  end
-
-  def random_digits(n) do
-    random_digit() + random_digits(n - 1) * 10
-  end
-
-  def random_digit() do
-    case :crypto.strong_rand_bytes(1) |> :binary.decode_unsigned() do
-      0 -> 0
-      1 -> 1
-      2 -> 2
-      3 -> 3
-      4 -> 4
-      5 -> 5
-      6 -> 6
-      7 -> 7
-      8 -> 8
-      9 -> 9
-      _ -> random_digit()
-    end
-  end
 end
