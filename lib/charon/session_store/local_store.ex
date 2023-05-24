@@ -49,7 +49,7 @@ defmodule Charon.SessionStore.LocalStore do
           {{:error, :conflict}, state}
 
         true ->
-          {:ok, {count + 1, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+          {:ok, {count, Map.put(store, key, new_session)} |> maybe_prune_expired()}
       end
     end)
   end
