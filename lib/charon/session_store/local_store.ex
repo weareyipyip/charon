@@ -34,14 +34,23 @@ defmodule Charon.SessionStore.LocalStore do
   def upsert(session = %{lock_version: lock_version}, _config) do
     key = to_key(session)
 
-    Agent.get_and_update(@agent_name, fn
-      state = {_count, _store = %{^key => %{lock_version: current_lock_version}}}
-      when current_lock_version != lock_version ->
-        {{:error, :conflict}, state}
+    Agent.get_and_update(@agent_name, fn state = {count, store} ->
+      old_session = Map.get(store, key)
+      new_session = %{session | lock_version: lock_version + 1}
 
-      _state = {count, store} ->
-        session = %{session | lock_version: lock_version + 1}
-        {:ok, {count + 1, Map.put(store, key, session)} |> maybe_prune_expired()}
+      cond do
+        is_nil(old_session) ->
+          {:ok, {count + 1, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+
+        expired?(old_session, now()) ->
+          {:ok, {count, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+
+        old_session.lock_version != lock_version ->
+          {{:error, :conflict}, state}
+
+        true ->
+          {:ok, {count + 1, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+      end
     end)
   end
 

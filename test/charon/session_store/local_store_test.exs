@@ -64,9 +64,15 @@ defmodule Charon.SessionStore.LocalStoreTest do
       assert :ok = LocalStore.upsert(@user_session, @config)
       current_session = @lock_incr_user_session
       assert {1, %{@user_key => current_session}} == Agent.get(LocalStore, & &1)
-      updated_user_sessioin = %{current_session | refresh_expires_at: @exp + 1}
-      assert :ok = LocalStore.upsert(updated_user_sessioin, @config)
-      assert {2, %{@user_key => incr_lock(updated_user_sessioin)}} == Agent.get(LocalStore, & &1)
+      updated_user_session = %{current_session | refresh_expires_at: @exp + 1}
+      assert :ok = LocalStore.upsert(updated_user_session, @config)
+      assert {2, %{@user_key => incr_lock(updated_user_session)}} == Agent.get(LocalStore, & &1)
+    end
+
+    test "creates new session when old one is expired" do
+      assert :ok = LocalStore.upsert(%{@user_session | refresh_expires_at: now() - 10}, @config)
+      assert :ok = LocalStore.upsert(@user_session, @config)
+      assert {1, %{@user_key => incr_lock(@user_session)}} == Agent.get(LocalStore, & &1)
     end
 
     test "cleans up expired sessions when session count is multiple of 1000" do
