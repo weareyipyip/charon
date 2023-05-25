@@ -36,20 +36,18 @@ defmodule Charon.SessionStore.LocalStore do
 
     Agent.get_and_update(@agent_name, fn state = {count, store} ->
       old_session = Map.get(store, key)
-      new_session = %{session | lock_version: lock_version + 1}
+      insert? = is_nil(old_session)
+      session = %{session | lock_version: lock_version + 1}
 
       cond do
-        is_nil(old_session) ->
-          {:ok, {count + 1, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+        insert? ->
+          {:ok, maybe_prune_expired({count + 1, Map.put(store, key, session)})}
 
-        expired?(old_session, now()) ->
-          {:ok, {count, Map.put(store, key, new_session)} |> maybe_prune_expired()}
-
-        old_session.lock_version != lock_version ->
-          {{:error, :conflict}, state}
+        old_session.lock_version == lock_version or expired?(old_session, now()) ->
+          {:ok, maybe_prune_expired({count, Map.put(store, key, session)})}
 
         true ->
-          {:ok, {count + 1, Map.put(store, key, new_session)} |> maybe_prune_expired()}
+          {{:error, :conflict}, state}
       end
     end)
   end
