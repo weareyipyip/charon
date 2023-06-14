@@ -275,6 +275,29 @@ end
 
 And that's it :) Optionally, you can add get-all, logout-all and logout-other session endpoints, if your session store supports it (the default Redis one does).
 
+## Testing
+
+To aid in testing, some utility functions have been added for your convenience.
+
+```elixir
+defmodule MyAppWeb.ControllerTest do
+  use MyAppWeb.ConnCase
+  alias Charon.TestHelpers
+  alias MyApp.User
+
+  setup seeds do
+    # create a user somehow...
+    user = %User{id: 1}
+
+    # create a valid session with tokens and put the access token on the conn
+    conn = TestHelpers.put_token(conn, user.id, MyAppWeb.Charon.config())
+
+    [conn: conn]
+  end
+
+end
+```
+
 ## Copyright and License
 
 Copyright (c) 2023, YipYip B.V.
