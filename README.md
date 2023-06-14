@@ -17,6 +17,8 @@ Charon is an extensible auth framework for Elixir, mostly for API's. The base pa
     - [Setting up a session store](#setting-up-a-session-store)
     - [Protecting routes](#protecting-routes)
     - [Logging in, logging out and refreshing](#logging-in-logging-out-and-refreshing)
+    - [Testing](#testing)
+  - [Copyright and License](#copyright-and-license)
 
 <!-- /TOC -->
 
@@ -275,7 +277,7 @@ end
 
 And that's it :) Optionally, you can add get-all, logout-all and logout-other session endpoints, if your session store supports it (the default Redis one does).
 
-## Testing
+### Testing
 
 To aid in testing, some utility functions have been added for your convenience.
 
