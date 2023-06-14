@@ -38,7 +38,7 @@ Charon is an extensible auth framework for Elixir, mostly for API's. The base pa
 
 - [CharonAbsinthe](https://github.com/weareyipyip/charon_absinthe) for using Charon with Absinthe.
 - [CharonOauth2](https://github.com/weareyipyip/charon_oauth2) adds Oauth2 authorization server capability.
-- (planned) CharonLogin adds authentication flows/challenges to generically provide login checks like password and MFA.
+- [CharonLogin](https://github.com/weareyipyip/charon_login) adds authentication flows/challenges to generically provide login checks like password and MFA.
 - (planned) CharonSocial for social login.
 - (planned) CharonPermissions for authorization checks.
 
