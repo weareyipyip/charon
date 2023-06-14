@@ -5,6 +5,7 @@ defmodule Charon.TestPipeline do
   @config Charon.TestConfig.get()
 
   plug(:get_token_from_auth_header)
+  plug(:fetch_cookies)
   plug(:get_token_sig_from_cookie, @config.refresh_cookie_name)
   plug(:verify_token_signature, @config)
   plug(:verify_token_nbf_claim)

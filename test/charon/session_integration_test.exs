@@ -1,7 +1,7 @@
 defmodule Charon.SessionIntegrationTest do
   use ExUnit.Case, async: false
   use Charon.Internal.Constants
-  alias Charon.{TestPipeline, SessionPlugs, Utils, Internal, TestUtils}
+  alias Charon.{TestPipeline, SessionPlugs, Utils, Internal, TestUtils, TestHelpers}
   import TestUtils
   import Plug.Conn
   import Internal
@@ -15,28 +15,14 @@ defmodule Charon.SessionIntegrationTest do
     :ok
   end
 
-  def create_session(uid, token_sig_trans, opts \\ []) do
-    conn()
-    |> Utils.set_user_id(uid)
-    |> Utils.set_token_signature_transport(token_sig_trans)
-    |> SessionPlugs.upsert_session(@config, opts)
-    |> then(fn conn ->
-      tokens = Utils.get_tokens(conn)
-      session = Utils.get_session(conn)
-      cookies = conn.resp_cookies |> Map.new(fn {k, %{value: v}} -> {k, v} end)
-      {tokens, cookies, session}
-    end)
-  end
-
   describe "pipeline" do
     test "successfully validates a SessionPlugs token" do
-      {tokens, cookies, session} = create_session(426, :cookie)
-      %{id: sid, refresh_token_id: rtid} = session
+      test_session = TestHelpers.create_session(426, @config, token_sig_transport: :cookie)
+      %{session: %{id: sid, refresh_token_id: rtid}} = test_session
 
       conn =
         conn()
-        |> put_req_header("authorization", "Bearer #{tokens.refresh_token}")
-        |> then(&%{&1 | cookies: cookies})
+        |> TestHelpers.put_token_for(test_session, token: :refresh)
         |> TestPipeline.call([])
 
       assert nil == Utils.get_auth_error(conn)
@@ -68,7 +54,7 @@ defmodule Charon.SessionIntegrationTest do
     end
 
     test "rejects stale refresh token depending on token cycle TTL and iat claim" do
-      {%{refresh_token: r1}, _cookies, _session} = create_session(1, :bearer)
+      %{tokens: %{refresh_token: r1}} = TestHelpers.create_session(1, @config)
 
       refresher = fn token ->
         conn()
