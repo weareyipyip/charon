@@ -37,7 +37,7 @@ defmodule Charon.TestHelpers do
   def create_session(user_id, config, opts \\ []) do
     Plug.Test.conn(:get, "/")
     |> Utils.set_user_id(user_id)
-    |> Utils.set_token_signature_transport(opts[:token_sig_transport] || :bearer)
+    |> Utils.set_token_transport(opts[:token_sig_transport] || :bearer)
     |> SessionPlugs.upsert_session(config, opts[:upsert_session_opts] || [])
     |> then(fn conn ->
       %{

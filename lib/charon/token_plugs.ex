@@ -27,7 +27,7 @@ defmodule Charon.TokenPlugs do
         @config Charon.Config.from_enum(Application.compile_env!(:my_app, :charon))
 
         plug :get_token_from_auth_header
-        plug :get_token_sig_from_cookie, @config.access_cookie_name
+        plug :get_token_from_cookie, @config.access_cookie_name
         plug :verify_token_signature, @config
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
@@ -44,7 +44,7 @@ defmodule Charon.TokenPlugs do
         @config Charon.Config.from_enum(Application.compile_env!(:my_app, :charon))
 
         plug :get_token_from_auth_header
-        plug :get_token_sig_from_cookie, @config.refresh_cookie_name
+        plug :get_token_from_cookie, @config.refresh_cookie_name
         plug :verify_token_signature, @config
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
@@ -71,23 +71,23 @@ defmodule Charon.TokenPlugs do
       iex> conn = conn() |> put_req_header("authorization", "Bearer aaa")
       iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
       nil
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_token_signature_transport()
+      iex> conn |> get_token_from_auth_header([]) |> Utils.get_token_transport()
       :bearer
-      iex> conn |> get_token_from_auth_header([]) |> Internal.get_private(@bearer_token)
+      iex> conn |> get_token_from_auth_header([]) |> Utils.get_bearer_token()
       "aaa"
 
       # missing auth header
       iex> conn = conn()
       iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      "bearer token not found"
+      nil
 
       # auth header format must be correct
       iex> conn = conn() |> put_req_header("authorization", "boom")
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      "bearer token not found"
+      iex> conn |> get_token_from_auth_header([]) |> Utils.get_bearer_token()
+      nil
       iex> conn = conn() |> put_req_header("authorization", "Bearer ")
       iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      "bearer token not found"
+      nil
   """
   @spec get_token_from_auth_header(Conn.t(), any) :: Conn.t()
   def get_token_from_auth_header(conn, _opts) do
@@ -95,11 +95,63 @@ defmodule Charon.TokenPlugs do
     |> get_req_header("authorization")
     |> auth_header_to_token()
     |> case do
-      not_found when not_found in [nil, ""] ->
-        set_auth_error(conn, "bearer token not found")
+      not_found when not_found in [nil, ""] -> conn
+      token -> put_private(conn, %{@bearer_token => token, @token_transport => :bearer})
+    end
+  end
 
-      token ->
-        put_private(conn, %{@bearer_token => token, @token_signature_transport => :bearer})
+  @doc """
+  Get the token or token signature from a cookie, if:
+   - no bearer token was previously found by `get_token_from_auth_header/2`
+   - OR the bearer token ends with ".", in which case the cookie contents are appended to it
+
+  ## Doctests
+
+      # cookie is appended to a bearer token that ends with "."
+      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
+      iex> conn = conn |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
+      :cookie
+      iex> conn |> Utils.get_bearer_token()
+      "token.sig"
+
+      # cookie is ignored if a bearer token is present that does not end with "."
+      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
+      iex> conn = conn |> Utils.set_token_transport(:bearer) |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
+      :bearer
+      iex> conn |> Utils.get_bearer_token()
+      "token"
+
+      # cookie contents are used as token if no bearer token was found previously
+      iex> conn = conn() |> put_req_cookie("c", "cookie token") |> fetch_cookies()
+      iex> conn = conn |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
+      :cookie_only
+      iex> conn |> Utils.get_bearer_token()
+      "cookie token"
+  """
+  @doc since: "3.1.0"
+  @spec get_token_from_cookie(Conn.t(), String.t()) :: Conn.t()
+  def get_token_from_cookie(conn = %{private: %{@auth_error => _}}, _), do: conn
+
+  def get_token_from_cookie(conn = %{private: private}, cookie_name) do
+    with %{^cookie_name => cookie} <- conn.cookies do
+      bearer_token = Map.get(private, @bearer_token)
+
+      cond do
+        bearer_token && String.ends_with?(bearer_token, ".") ->
+          token = bearer_token <> cookie
+          put_private(conn, %{@token_transport => :cookie, @bearer_token => token})
+
+        bearer_token ->
+          conn
+
+        true ->
+          put_private(conn, %{@token_transport => :cookie_only, @bearer_token => cookie})
+      end
+    else
+      _ -> conn
     end
   end
 
@@ -110,43 +162,23 @@ defmodule Charon.TokenPlugs do
   ## Doctests
 
       iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_sig_from_cookie("c")
-      iex> conn |> Utils.get_token_signature_transport()
+      iex> conn = conn |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
       :cookie
-      iex> conn |> Internal.get_private(@bearer_token)
+      iex> conn |> Utils.get_bearer_token()
       "token.sig"
 
       # cookie is ignored if bearer token does not end with .
       iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_sig_from_cookie("c")
-      iex> conn |> Utils.get_token_signature_transport()
+      iex> conn = conn |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
       nil
-      iex> conn |> Internal.get_private(@bearer_token)
+      iex> conn |> Utils.get_bearer_token()
       "token"
-
-      iex> conn() |> get_token_sig_from_cookie("a")
-      ** (RuntimeError) must be used after get_token_from_auth_header/2
   """
+  @deprecated "Use get_token_from_cookie/2."
   @spec get_token_sig_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_sig_from_cookie(conn = %{private: %{@auth_error => _}}, _), do: conn
-
-  def get_token_sig_from_cookie(
-        conn = %{private: %{@bearer_token => token}},
-        cookie_name
-      ) do
-    with %{^cookie_name => signature} <- conn.cookies,
-         true <- String.ends_with?(token, ".") do
-      put_private(conn, %{
-        @token_signature_transport => :cookie,
-        @bearer_token => token <> signature
-      })
-    else
-      _ -> conn
-    end
-  end
-
-  def get_token_sig_from_cookie(_, _),
-    do: raise("must be used after get_token_from_auth_header/2")
+  def get_token_sig_from_cookie(conn, opts), do: get_token_from_cookie(conn, opts)
 
   @doc """
   Verify that the bearer token found by `get_token_from_auth_header/2` is signed correctly.
@@ -165,8 +197,8 @@ defmodule Charon.TokenPlugs do
       iex> Utils.get_auth_error(conn)
       "bearer token signature invalid"
 
-      iex> conn() |> verify_token_signature(@config)
-      ** (RuntimeError) must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2
+      iex> conn() |> verify_token_signature(@config) |> Utils.get_auth_error()
+      "bearer token not found"
   """
   @spec verify_token_signature(Conn.t(), Config.t()) :: Conn.t()
   def verify_token_signature(conn = %{private: %{@auth_error => _}}, _), do: conn
@@ -179,10 +211,7 @@ defmodule Charon.TokenPlugs do
     end
   end
 
-  def verify_token_signature(_, _) do
-    "must be used after get_token_from_auth_header/2 and optionally get_token_sig_from_cookie/2"
-    |> raise()
-  end
+  def verify_token_signature(conn, _), do: set_auth_error(conn, "bearer token not found")
 
   @doc """
   Verify that the bearer token payload contains a valid `nbf` (not before) claim.

@@ -25,9 +25,12 @@ defmodule Charon.SessionPlugs do
   In both cases, new access / refresh tokens are created and stored in the conn's private map.
   The server-side session stored in the session store is created / updated as well.
 
-  If a new session is created, this plug must be preceded by `Charon.Utils.set_token_signature_transport/2` and `Charon.Utils.set_user_id/2` or an error will be raised.
+  If a new session is created, this plug must be preceded by `Charon.Utils.set_token_transport/2` and `Charon.Utils.set_user_id/2` or an error will be raised.
 
-  The tokens' signatures are split off and sent as cookies if the session's token signature transport mechanism is set to `:cookie`. By default, these are http-only strictly-same-site secure cookies.
+  The token transport can be:
+   - `:cookie_only` - tokens are returned to the client as cookies
+   - `:cookie` - tokens' signatures are split from the tokens and sent as http-only strictly-same-site secure cookies
+   - `:bearer` - tokens are left as-is for the implementing application to return to the client
 
   Optionally, it is possible to add extra claims to the access- and refresh tokens or to store extra payload in the server-side session.
 
@@ -55,17 +58,17 @@ defmodule Charon.SessionPlugs do
   ## Examples / doctests
 
       # error if user id not set for new session
-      iex> %Conn{} |> Utils.set_token_signature_transport(:bearer) |> upsert_session(@config)
+      iex> %Conn{} |> Utils.set_token_transport(:bearer) |> upsert_session(@config)
       ** (RuntimeError) Set user id using Utils.set_user_id/2
 
       # error if signature transport not set for new session
       iex> %Conn{} |> Utils.set_user_id(1) |> upsert_session(@config)
-      ** (RuntimeError) Set token signature transport using Utils.set_token_signature_transport/2
+      ** (RuntimeError) Set token transport using Utils.set_token_transport/2
 
       # creates session if none present in conn
       iex> conn = conn()
       ...> |> Utils.set_user_id(1)
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> upsert_session(@config)
       iex> %Session{} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
@@ -73,7 +76,7 @@ defmodule Charon.SessionPlugs do
       # works with infinite lifespan sessions
       iex> conn = conn()
       ...> |> Utils.set_user_id(1)
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> upsert_session(%{@config | session_ttl: :infinite})
       iex> %Session{expires_at: :infinite} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
@@ -83,7 +86,7 @@ defmodule Charon.SessionPlugs do
       iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0, refreshed_at: 0)
       iex> conn = conn()
       ...> |> Conn.put_private(@session, old_session)
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
       iex> session = Utils.get_session(conn) |> Map.from_struct()
@@ -93,20 +96,31 @@ defmodule Charon.SessionPlugs do
       iex> Enum.find(~w(refresh_token_id refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
       nil
 
-      # returns signatures in cookies if requested, which removes signatures from tokens
+      # returns token signatures in cookies if token transport is :cookie
       iex> conn = conn()
-      ...> |> Utils.set_token_signature_transport(:cookie)
+      ...> |> Utils.set_token_transport(:cookie)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
       iex> cookies = conn |> Conn.fetch_cookies() |> Map.get(:cookies)
       iex> <<_access_sig::binary>> = Map.get(cookies, @config.access_cookie_name)
       iex> <<_refresh_sig::binary>> = Map.get(cookies, @config.refresh_cookie_name)
-      iex> true = Regex.match?(~r/\\w+\\.\\w+\\./,  conn |> Utils.get_tokens() |> Map.get(:access_token))
-      iex> true = Regex.match?(~r/\\w+\\.\\w+\\./,  conn |> Utils.get_tokens() |> Map.get(:refresh_token))
+      iex> tokens = Utils.get_tokens(conn)
+      iex> [_, _] = String.split(tokens.access_token, ".", trim: true)
+      iex> [_, _] = String.split(tokens.refresh_token, ".", trim: true)
+
+      # returns full tokens in cookies if token transport is :cookie_only
+      iex> conn = conn()
+      ...> |> Utils.set_token_transport(:cookie_only)
+      ...> |> Utils.set_user_id(1)
+      ...> |> upsert_session(@config)
+      iex> cookies = conn |> Conn.fetch_cookies() |> Map.get(:cookies)
+      iex> [_, _, _] = cookies |> Map.get(@config.access_cookie_name) |> String.split(".", trim: true)
+      iex> [_, _, _] = cookies |> Map.get(@config.refresh_cookie_name) |> String.split(".", trim: true)
+      iex> %{access_token: nil, refresh_token: nil} = Utils.get_tokens(conn)
 
       # tokens get a lot of default claims
       iex> conn = conn()
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config)
       iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => <<sid::binary>>, "sub" => 1, "type" => "access", "styp" => "full"} = get_private(conn, @access_token_payload)
@@ -114,7 +128,7 @@ defmodule Charon.SessionPlugs do
 
       # allows adding extra claims to tokens
       iex> conn = conn()
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config, access_claim_overrides: %{"much" => :extra}, refresh_claim_overrides: %{"really" => true})
       iex> %{"much" => :extra} = get_private(conn, @access_token_payload)
@@ -123,13 +137,13 @@ defmodule Charon.SessionPlugs do
       # allows adding extra payload to session
       iex> conn = conn()
       ...> |> Utils.set_user_id(1)
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> upsert_session(@config, extra_session_payload: %{what?: "that's right!"})
       iex> %Session{extra_payload: %{what?: "that's right!"}} = Utils.get_session(conn)
 
       # allows separating sessions by type (default :full)
       iex> conn = conn()
-      ...> |> Utils.set_token_signature_transport(:bearer)
+      ...> |> Utils.set_token_transport(:bearer)
       ...> |> Utils.set_user_id(1)
       ...> |> upsert_session(@config, session_type: :oauth2)
       iex> %Session{type: :oauth2} = Utils.get_session(conn)
@@ -147,7 +161,7 @@ defmodule Charon.SessionPlugs do
     tokens = create_tokens(access_tok_pl, refresh_tok_pl, timestamps, config)
 
     conn
-    |> maybe_set_signature_cookies(tokens, timestamps, config)
+    |> maybe_set_cookies(tokens, timestamps, config)
     |> Internal.put_private(%{
       @session => new_session,
       @access_token_payload => access_tok_pl,
@@ -294,33 +308,45 @@ defmodule Charon.SessionPlugs do
     }
   end
 
-  defp maybe_set_signature_cookies(conn, tokens, {_, _, _, _, refresh_ttl, access_ttl}, config) do
+  defp maybe_set_cookies(conn, tokens, {_, _, _, _, refresh_ttl, access_ttl}, config) do
     case get_sig_transport!(conn) do
       :bearer ->
         Conn.put_private(conn, @tokens, tokens)
 
-      :cookie ->
-        {access_token, at_signature, access_cookie_opts} =
-          Internal.split_signature(tokens.access_token, access_ttl, config.access_cookie_opts)
+      cookie ->
+        %{access_token: access_token, refresh_token: refresh_token} = tokens
 
-        {refresh_token, rt_signature, refresh_cookie_opts} =
-          Internal.split_signature(tokens.refresh_token, refresh_ttl, config.refresh_cookie_opts)
+        {{access_token, access_cookie}, {refresh_token, refresh_cookie}} =
+          case cookie do
+            :cookie -> {split_signature(access_token), split_signature(refresh_token)}
+            :cookie_only -> {{nil, access_token}, {nil, refresh_token}}
+          end
 
         tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
+        access_opts = set_max_age(config.access_cookie_opts, access_ttl)
+        refresh_opts = set_max_age(config.refresh_cookie_opts, refresh_ttl)
 
         conn
         |> Conn.put_private(@tokens, tokens)
-        |> Conn.put_resp_cookie(config.access_cookie_name, at_signature, access_cookie_opts)
-        |> Conn.put_resp_cookie(config.refresh_cookie_name, rt_signature, refresh_cookie_opts)
+        |> Conn.put_resp_cookie(config.access_cookie_name, access_cookie, access_opts)
+        |> Conn.put_resp_cookie(config.refresh_cookie_name, refresh_cookie, refresh_opts)
     end
   end
 
   defp get_sig_transport!(conn) do
     conn
-    |> Internal.get_private(@token_signature_transport)
+    |> Internal.get_private(@token_transport)
     |> case do
-      nil -> raise "Set token signature transport using Utils.set_token_signature_transport/2"
+      nil -> raise "Set token transport using Utils.set_token_transport/2"
       result -> result
     end
+  end
+
+  defp set_max_age(cookie_opts, ttl), do: Keyword.put(cookie_opts, :max_age, ttl)
+
+  defp split_signature(token) do
+    [header, payload, signature] = String.split(token, ".", parts: 3)
+    token = [header, ?., payload, ?.] |> IO.iodata_to_binary()
+    {token, signature}
   end
 end

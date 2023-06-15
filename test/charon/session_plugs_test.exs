@@ -41,7 +41,7 @@ defmodule Charon.SessionPlugsTest do
     test "should allow sessions with infinite lifespan" do
       conn =
         conn()
-        |> Utils.set_token_signature_transport(:bearer)
+        |> Utils.set_token_transport(:bearer)
         |> Utils.set_user_id(@uid)
         |> upsert_session(%{@config | session_ttl: :infinite})
 
@@ -52,7 +52,7 @@ defmodule Charon.SessionPlugsTest do
     test "should not create tokens that outlive the session" do
       tokens =
         conn()
-        |> Utils.set_token_signature_transport(:bearer)
+        |> Utils.set_token_transport(:bearer)
         |> Utils.set_user_id(@uid)
         |> upsert_session(%{
           @config
@@ -72,7 +72,7 @@ defmodule Charon.SessionPlugsTest do
 
       tokens =
         conn()
-        |> Utils.set_token_signature_transport(:bearer)
+        |> Utils.set_token_transport(:bearer)
         |> Utils.set_session(%{session | lock_version: session.lock_version + 1})
         |> upsert_session(%{
           @config
@@ -89,7 +89,7 @@ defmodule Charon.SessionPlugsTest do
     test "should not create cookies that outlive the session" do
       cookies =
         conn()
-        |> Utils.set_token_signature_transport(:cookie)
+        |> Utils.set_token_transport(:cookie)
         |> Utils.set_user_id(@uid)
         |> upsert_session(%{
           @config
@@ -107,7 +107,7 @@ defmodule Charon.SessionPlugsTest do
       with_mock SessionStore, upsert: fn _, _ -> {:error, "boom"} end do
         assert_raise SessionStorageError, fn ->
           conn()
-          |> Utils.set_token_signature_transport(:bearer)
+          |> Utils.set_token_transport(:bearer)
           |> Utils.set_user_id(@uid)
           |> upsert_session(@config)
         end
@@ -118,7 +118,7 @@ defmodule Charon.SessionPlugsTest do
       with_mock SessionStore, upsert: fn _, _ -> {:error, :conflict} end do
         assert_raise SessionUpdateConflictError, fn ->
           conn()
-          |> Utils.set_token_signature_transport(:bearer)
+          |> Utils.set_token_transport(:bearer)
           |> Utils.set_user_id(@uid)
           |> upsert_session(@config)
         end
