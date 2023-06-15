@@ -19,8 +19,9 @@ defmodule Charon.SessionStore.LocalStore do
   require Logger
 
   @agent_name __MODULE__
+  @initial_state {_count = 0, _sessions = %{}}
 
-  def start_link(_opts \\ []), do: Agent.start_link(fn -> {0, %{}} end, name: @agent_name)
+  def start_link(_opts \\ []), do: Agent.start_link(fn -> @initial_state end, name: @agent_name)
 
   @impl true
   def get(session_id, user_id, type, _config) do
@@ -76,6 +77,12 @@ defmodule Charon.SessionStore.LocalStore do
       delete_matching(state, match_user_and_type(user_id, type))
     end)
   end
+
+  @doc """
+  Drop all sessions (useful in tests).
+  """
+  @spec flush :: :ok
+  def flush(), do: Agent.update(@agent_name, fn _state -> @initial_state end)
 
   ###########
   # Private #

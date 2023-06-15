@@ -160,4 +160,13 @@ defmodule Charon.SessionStore.LocalStoreTest do
       assert {1, %{second_user_key => second_user_session}} == Agent.get(LocalStore, & &1)
     end
   end
+
+  describe "flush/0" do
+    test "works" do
+      LocalStore.upsert(@user_session, @config)
+      refute {0, %{}} == Agent.get(LocalStore, & &1)
+      LocalStore.flush()
+      assert {0, %{}} == Agent.get(LocalStore, & &1)
+    end
+  end
 end
