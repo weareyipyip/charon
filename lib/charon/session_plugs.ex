@@ -96,6 +96,7 @@ defmodule Charon.SessionPlugs do
       nil
 
       # returns token signatures in cookies if token transport is :cookie
+      # cookie options are merged with defaults
       iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :cookie)
       iex> cookies = conn |> Conn.fetch_cookies() |> Map.get(:cookies)
       iex> <<_access_sig::binary>> = Map.get(cookies, @config.access_cookie_name)
@@ -103,6 +104,8 @@ defmodule Charon.SessionPlugs do
       iex> tokens = Utils.get_tokens(conn)
       iex> [_, _] = String.split(tokens.access_token, ".", trim: true)
       iex> [_, _] = String.split(tokens.refresh_token, ".", trim: true)
+      iex> %{http_only: true, path: _, same_site: "Strict", secure: true, max_age: _} = conn.resp_cookies["_refresh_token_signature"]
+
 
       # returns full tokens in cookies if token transport is :cookie_only
       iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :cookie_only)
@@ -314,8 +317,8 @@ defmodule Charon.SessionPlugs do
       end
 
     tokens = %{tokens | access_token: access_token, refresh_token: refresh_token}
-    access_opts = set_max_age(config.access_cookie_opts, access_ttl)
-    refresh_opts = set_max_age(config.refresh_cookie_opts, refresh_ttl)
+    access_opts = create_cookie_opts(config.access_cookie_opts, access_ttl)
+    refresh_opts = create_cookie_opts(config.refresh_cookie_opts, refresh_ttl)
 
     conn
     |> Conn.put_private(@tokens, tokens)
@@ -334,7 +337,10 @@ defmodule Charon.SessionPlugs do
     end
   end
 
-  defp set_max_age(cookie_opts, ttl), do: Keyword.put(cookie_opts, :max_age, ttl)
+  defp create_cookie_opts(cookie_opts, ttl) do
+    [http_only: true, same_site: "Strict", secure: true, max_age: ttl]
+    |> Keyword.merge(cookie_opts)
+  end
 
   defp split_signature(token) do
     [header, payload, signature] = String.split(token, ".", parts: 3)
