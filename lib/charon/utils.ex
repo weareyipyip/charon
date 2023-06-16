@@ -52,35 +52,11 @@ defmodule Charon.Utils do
   def get_token_signature_transport(conn), do: get_private(conn, @token_transport)
 
   @doc """
-  Set token transport mechanism.
-  Must be one of `"bearer"`, `"cookie_only"`, `"cookie"` `:bearer`, `:cookie_only` or `:cookie`.
-
-  ## Examples / doctests
-
-      iex> :bearer = %Conn{} |> set_token_transport("bearer") |> get_token_transport()
-      iex> :bearer = %Conn{} |> set_token_transport(:bearer) |> get_token_transport()
-      iex> :cookie_only = %Conn{} |> set_token_transport("cookie_only") |> get_token_transport()
-      iex> :cookie_only = %Conn{} |> set_token_transport(:cookie_only) |> get_token_transport()
-      iex> :cookie = %Conn{} |> set_token_transport("cookie") |> get_token_transport()
-      iex> :cookie = %Conn{} |> set_token_transport(:cookie) |> get_token_transport()
-
-      iex> set_token_transport(%Conn{}, "anything else")
-      ** (FunctionClauseError) no function clause matching in Charon.Internal.parse_token_transport/1
-  """
-  @doc since: "3.1.0"
-  @spec set_token_transport(Conn.t(), binary() | :cookie | :bearer | :cookie_only) ::
-          Conn.t()
-  def set_token_transport(conn, token_transport) do
-    transport = parse_token_transport(token_transport)
-    put_private(conn, @token_transport, transport)
-  end
-
-  @doc """
   Set token signature transport mechanism.
   Must be one of `"bearer"`, `"cookie_only"`, `"cookie"` `:bearer`, `:cookie_only` or `:cookie`.
 
   This function only results in transports `:bearer` and `:cookie`, never in `:cookie_only`,
-  in contrast with `set_token_transport/2`, to maintain backwards compatibility.
+  in contrast with `set_token_signature_transport/2`, to maintain backwards compatibility.
 
   ## Examples / doctests
 
@@ -91,7 +67,7 @@ defmodule Charon.Utils do
       iex> :cookie = %Conn{} |> set_token_signature_transport("cookie") |> get_token_signature_transport()
       iex> :cookie = %Conn{} |> set_token_signature_transport(:cookie) |> get_token_signature_transport()
   """
-  @deprecated "Use set_token_transport/2."
+  @deprecated "Use SessionPlugs.upsert_session/3 option :token_transport"
   @spec set_token_signature_transport(Conn.t(), binary() | :cookie | :bearer | :cookie_only) ::
           Conn.t()
   def set_token_signature_transport(conn, token_signature_transport) do
@@ -102,6 +78,7 @@ defmodule Charon.Utils do
   @doc """
   Set user id for session creation
   """
+  @deprecated "Use SessionPlugs.upsert_session/3 option :user_id"
   @spec set_user_id(Conn.t(), any) :: Conn.t()
   def set_user_id(conn, user_id), do: put_private(conn, @user_id, user_id)
 

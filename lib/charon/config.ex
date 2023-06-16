@@ -9,6 +9,8 @@ defmodule Charon.Config do
         access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
         # 15 minutes
         access_token_ttl: 15 * 60,
+        enforce_cookie_transport: false,
+        json_module: Jason,
         optional_modules: %{},
         refresh_cookie_name: "_refresh_token_signature",
         refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
@@ -32,6 +34,7 @@ defmodule Charon.Config do
     access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
     # 15 minutes
     access_token_ttl: 15 * 60,
+    enforce_cookie_transport: false,
     json_module: Jason,
     optional_modules: %{},
     refresh_cookie_name: "_refresh_token_signature",
@@ -48,6 +51,7 @@ defmodule Charon.Config do
           access_cookie_name: String.t(),
           access_cookie_opts: keyword(),
           access_token_ttl: pos_integer(),
+          enforce_cookie_transport: boolean,
           get_base_secret: (() -> binary()),
           json_module: module(),
           optional_modules: map(),

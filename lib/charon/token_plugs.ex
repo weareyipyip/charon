@@ -117,9 +117,9 @@ defmodule Charon.TokenPlugs do
 
       # cookie is ignored if a bearer token is present that does not end with "."
       iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> Utils.set_token_transport(:bearer) |> get_token_from_cookie("c")
+      iex> conn = conn |> get_token_from_cookie("c")
       iex> conn |> Utils.get_token_transport()
-      :bearer
+      nil
       iex> conn |> Utils.get_bearer_token()
       "token"
 

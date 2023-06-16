@@ -227,10 +227,13 @@ defmodule MyAppWeb.SessionController do
       # you can do extra checks here, like checking if the user is active, for example
 
       conn
-      |> Utils.set_user_id(user.id)
-      |> Utils.set_token_transport(token_transport)
       # you can add/override claims in the tokens (be careful!)
-      |> SessionPlugs.upsert_session(@config, access_claim_overrides: %{"roles" => user.roles})
+      |> SessionPlugs.upsert_session(
+        @config,
+        user_id: user.id,
+        token_transport: token_transport,
+        access_claim_overrides: %{"roles" => user.roles}
+      )
       |> put_status(201)
       |> send_token_response(user)
     else
