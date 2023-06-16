@@ -44,9 +44,6 @@ defmodule Charon.TestHelpers do
     end)
   end
 
-  @type put_token_opts ::
-          Keyword.merge(SessionPlugs.upsert_session_opts(), token: :access | :refresh)
-
   @doc """
   Create a new test session and put a token (and its cookie when needed) on the conn.
   This is essentially `create_session/3` and `put_token_for/3` combined into one
@@ -57,7 +54,7 @@ defmodule Charon.TestHelpers do
     The upsert_session_opts defined in `t:Charon.SessionPlugs.upsert_session_opts/0` AND
     - `:token` is either `:access` (default) or `:refresh`
   """
-  @spec put_token(Conn.t(), Config.t(), put_token_opts()) :: Conn.t()
+  @spec put_token(Conn.t(), Config.t(), keyword) :: Conn.t()
   def put_token(conn, config, opts \\ []) do
     test_session = create_session(config, Keyword.drop(opts, [:token]))
     put_token_for(conn, test_session, Keyword.take(opts, [:token]))
