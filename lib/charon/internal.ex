@@ -38,23 +38,13 @@ defmodule Charon.Internal do
     do: %{conn_or_res | private: Map.put(priv, key, value)}
 
   @doc """
-  Determine if the token's signature transport mechanism is `:cookie` or `:bearer`.
+  Determine if the token transport mechanism is `:cookie_only`, `:bearer` or `:cookie`.
   """
-  def parse_sig_transport(token_signature_transport)
-  def parse_sig_transport("bearer"), do: :bearer
-  def parse_sig_transport("cookie"), do: :cookie
-  def parse_sig_transport(:bearer), do: :bearer
-  def parse_sig_transport(:cookie), do: :cookie
-
-  @doc """
-  Split the signature from a "header.payload.signature" token.
-  """
-  def split_signature(token, ttl, cookie_opts) do
-    [header, payload, signature] = String.split(token, ".", parts: 3)
-    token = [header, ?., payload, ?.] |> IO.iodata_to_binary()
-    cookie_opts = Keyword.put(cookie_opts, :max_age, ttl)
-    {token, signature, cookie_opts}
-  end
+  def parse_token_transport(token_transport)
+  def parse_token_transport(t) when t in ~w(bearer cookie_only cookie)a, do: t
+  def parse_token_transport("bearer"), do: :bearer
+  def parse_token_transport("cookie_only"), do: :cookie_only
+  def parse_token_transport("cookie"), do: :cookie
 
   def url_encode(data), do: Base.url_encode64(data, @url_enc_opts)
   def url_decode(data), do: Base.url_decode64(data, @url_enc_opts)

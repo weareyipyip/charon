@@ -26,19 +26,15 @@ defmodule Charon.TestHelpers do
 
   ## Options
 
-    - `:token_sig_transport` is either `:bearer` (default) or `:cookie`
     - `:upsert_session_opts` (default `[]`) as defined in `t:Charon.SessionPlugs.upsert_session_opts/0`
   """
-  @spec create_session(any, Charon.Config.t(),
-          token_sig_transport: :bearer | :cookie,
-          upsert_session_opts: SessionPlugs.upsert_session_opts()
-        ) ::
-          test_session
-  def create_session(user_id, config, opts \\ []) do
+  @spec create_session(Config.t(), SessionPlugs.upsert_session_opts()) :: test_session
+  def create_session(config, upsert_session_opts \\ []) do
     Plug.Test.conn(:get, "/")
-    |> Utils.set_user_id(user_id)
-    |> Utils.set_token_signature_transport(opts[:token_sig_transport] || :bearer)
-    |> SessionPlugs.upsert_session(config, opts[:upsert_session_opts] || [])
+    |> SessionPlugs.upsert_session(
+      config,
+      Keyword.merge([token_transport: :bearer], upsert_session_opts)
+    )
     |> then(fn conn ->
       %{
         session: Utils.get_session(conn),
@@ -55,18 +51,12 @@ defmodule Charon.TestHelpers do
 
   ## Options
 
-    - `:token_sig_transport` is either `:bearer` (default) or `:cookie`
+    The upsert_session_opts defined in `t:Charon.SessionPlugs.upsert_session_opts/0` AND
     - `:token` is either `:access` (default) or `:refresh`
-    - `:upsert_session_opts` (default `[]`) as defined in `t:Charon.SessionPlugs.upsert_session_opts/0`
   """
-  @spec put_token(Conn.t(), any, Config.t(),
-          token: :access | :refresh,
-          token_sig_transport: :bearer | :cookie,
-          upsert_session_opts: SessionPlugs.upsert_session_opts()
-        ) :: Conn.t()
-  def put_token(conn, user_id, config, opts \\ []) do
-    create_session_opts = Keyword.take(opts, [:token_sig_transport, :upsert_session_opts])
-    test_session = create_session(user_id, config, create_session_opts)
+  @spec put_token(Conn.t(), Config.t(), keyword) :: Conn.t()
+  def put_token(conn, config, opts \\ []) do
+    test_session = create_session(config, Keyword.drop(opts, [:token]))
     put_token_for(conn, test_session, Keyword.take(opts, [:token]))
   end
 

@@ -17,7 +17,7 @@ defmodule Charon.SessionIntegrationTest do
 
   describe "pipeline" do
     test "successfully validates a SessionPlugs token" do
-      test_session = TestHelpers.create_session(426, @config, token_sig_transport: :cookie)
+      test_session = TestHelpers.create_session(@config, user_id: 426, token_transport: :cookie)
       %{session: %{id: sid, refresh_token_id: rtid}} = test_session
 
       conn =
@@ -54,7 +54,7 @@ defmodule Charon.SessionIntegrationTest do
     end
 
     test "rejects stale refresh token depending on token cycle TTL and iat claim" do
-      %{tokens: %{refresh_token: r1}} = TestHelpers.create_session(1, @config)
+      %{tokens: %{refresh_token: r1}} = TestHelpers.create_session(@config, user_id: 1)
 
       refresher = fn token ->
         conn()

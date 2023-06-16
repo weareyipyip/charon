@@ -6,7 +6,7 @@ defmodule Charon.TestPipeline do
 
   plug(:get_token_from_auth_header)
   plug(:fetch_cookies)
-  plug(:get_token_sig_from_cookie, @config.refresh_cookie_name)
+  plug(:get_token_from_cookie, @config.refresh_cookie_name)
   plug(:verify_token_signature, @config)
   plug(:verify_token_nbf_claim)
   plug(:verify_token_exp_claim)

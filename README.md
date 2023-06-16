@@ -120,11 +120,12 @@ defmodule MyApp.AccessTokenPipeline do
    - must have a "type" claim with value "access"
   """
   use Plug.Builder
+  import Charon.TokenPlugs
 
   @config Application.compile_env(:my_app, :charon) |> Charon.Config.from_enum()
 
   plug :get_token_from_auth_header
-  plug :get_token_sig_from_cookie, @config.access_cookie_name
+  plug :get_token_from_cookie, @config.access_cookie_name
   plug :verify_token_signature, @config
   plug :verify_token_nbf_claim
   plug :verify_token_exp_claim
@@ -143,11 +144,12 @@ defmodule MyApp.RefreshTokenPipeline do
    - must be fresh (see `Charon.TokenPlugs.verify_token_fresh/2` docs)
   """
   use Plug.Builder
+  import Charon.TokenPlugs
 
   @config Application.compile_env(:my_app, :charon) |> Charon.Config.from_enum()
 
   plug :get_token_from_auth_header
-  plug :get_token_sig_from_cookie, @config.refresh_cookie_name
+  plug :get_token_from_cookie, @config.refresh_cookie_name
   plug :verify_token_signature, @config
   plug :verify_token_nbf_claim
   plug :verify_token_exp_claim
@@ -218,17 +220,20 @@ defmodule MyAppWeb.SessionController do
   def login(conn, %{
         "email" => email,
         "password" => password,
-        "token_signature_transport" => signature_transport
+        "token_transport" => token_transport
       })
-      when signature_transport in ~w(bearer cookie) do
+      when token_transport in ~w(bearer cookie_only cookie) do
     with {:ok, user} <- Users.get_by(email: email) |> Users.verify_password(password) do
       # you can do extra checks here, like checking if the user is active, for example
 
       conn
-      |> Utils.set_user_id(user.id)
-      |> Utils.set_token_signature_transport(signature_transport)
       # you can add/override claims in the tokens (be careful!)
-      |> SessionPlugs.upsert_session(@config, access_claim_overrides: %{"roles" => user.roles})
+      |> SessionPlugs.upsert_session(
+        @config,
+        user_id: user.id,
+        token_transport: token_transport,
+        access_claim_overrides: %{"roles" => user.roles}
+      )
       |> put_status(201)
       |> send_token_response(user)
     else
@@ -253,7 +258,7 @@ defmodule MyAppWeb.SessionController do
       # here you can do extra checks again
 
       conn
-      # there's no need to set user_id, token signature transport or extra session payload
+      # there's no need to set user_id, token transport or extra session payload
       # because these are grabbed from the current session
       # but all added/overridden token claims must be passed in again
       |> SessionPlugs.upsert_session(@config, access_claim_overrides: %{"roles" => user.roles})

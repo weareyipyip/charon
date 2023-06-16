@@ -26,40 +26,59 @@ defmodule Charon.Utils do
   def get_auth_error(conn), do: get_private(conn, @auth_error)
 
   @doc """
+  Get the bearer token, if present.
+  """
+  @spec get_bearer_token(Conn.t()) :: map() | nil
+  def get_bearer_token(conn), do: get_private(conn, @bearer_token)
+
+  @doc """
   Get the payload of the bearer token, if present.
   """
   @spec get_bearer_token_payload(Conn.t()) :: map() | nil
   def get_bearer_token_payload(conn), do: get_private(conn, @bearer_token_payload)
 
   @doc """
-  Get token signature transport mechanism, if present.
+  Get token transport mechanism, if present.
   """
-  @spec get_token_signature_transport(Conn.t()) :: atom() | nil
-  def get_token_signature_transport(conn), do: get_private(conn, @token_signature_transport)
+  @doc since: "3.1.0"
+  @spec get_token_transport(Conn.t()) :: atom() | nil
+  def get_token_transport(conn), do: get_private(conn, @token_transport)
 
   @doc """
-  Set token signature transport mechanism. Must be one of
-  `"bearer"`, `"cookie"`, `:bearer` or `:cookie`.
+  Get token signature transport mechanism, if present.
+  """
+  @deprecated "Use get_token_transport/2."
+  @spec get_token_signature_transport(Conn.t()) :: atom() | nil
+  def get_token_signature_transport(conn), do: get_private(conn, @token_transport)
+
+  @doc """
+  Set token signature transport mechanism.
+  Must be one of `"bearer"`, `"cookie_only"`, `"cookie"` `:bearer`, `:cookie_only` or `:cookie`.
+
+  This function only results in transports `:bearer` and `:cookie`, never in `:cookie_only`,
+  in contrast with `set_token_signature_transport/2`, to maintain backwards compatibility.
 
   ## Examples / doctests
 
       iex> :bearer = %Conn{} |> set_token_signature_transport("bearer") |> get_token_signature_transport()
       iex> :bearer = %Conn{} |> set_token_signature_transport(:bearer) |> get_token_signature_transport()
+      iex> :cookie = %Conn{} |> set_token_signature_transport("cookie_only") |> get_token_signature_transport()
+      iex> :cookie = %Conn{} |> set_token_signature_transport(:cookie_only) |> get_token_signature_transport()
       iex> :cookie = %Conn{} |> set_token_signature_transport("cookie") |> get_token_signature_transport()
       iex> :cookie = %Conn{} |> set_token_signature_transport(:cookie) |> get_token_signature_transport()
-
-      iex> set_token_signature_transport(%Conn{}, "anything else")
-      ** (FunctionClauseError) no function clause matching in Charon.Internal.parse_sig_transport/1
   """
-  @spec set_token_signature_transport(Conn.t(), binary() | :bearer | :cookie) :: Conn.t()
+  @deprecated "Use SessionPlugs.upsert_session/3 option :token_transport"
+  @spec set_token_signature_transport(Conn.t(), binary() | :cookie | :bearer | :cookie_only) ::
+          Conn.t()
   def set_token_signature_transport(conn, token_signature_transport) do
-    transport = parse_sig_transport(token_signature_transport)
-    put_private(conn, @token_signature_transport, transport)
+    transport = if token_signature_transport in [:bearer, "bearer"], do: :bearer, else: :cookie
+    put_private(conn, @token_transport, transport)
   end
 
   @doc """
   Set user id for session creation
   """
+  @deprecated "Use SessionPlugs.upsert_session/3 option :user_id"
   @spec set_user_id(Conn.t(), any) :: Conn.t()
   def set_user_id(conn, user_id), do: put_private(conn, @user_id, user_id)
 
