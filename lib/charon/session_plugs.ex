@@ -34,7 +34,7 @@ defmodule Charon.SessionPlugs do
    - `:cookie` - tokens' signatures are split from the tokens and sent as http-only strictly-same-site secure cookies
    - `:bearer` - tokens are left as-is for the implementing application to return to the client
 
-  If config option `:enforce_cookie_transport` is enabled, browser clients will be attempted to be
+  If config option `:enforce_browser_cookies` is enabled, browser clients will be attempted to be
   detected by the presence of (forbidden) header "Sec-Fetch-Mode", in which case only cookie-based
   token transports will be allowed. This feature is experimental and disabled by default,
   although this may change in a future release.
@@ -347,7 +347,7 @@ defmodule Charon.SessionPlugs do
   ###########
 
   defp require_cookie_for_browser(transport, conn, config) do
-    if transport == :bearer and config.enforce_cookie_transport and
+    if transport == :bearer and config.enforce_browser_cookies and
          Conn.get_req_header(conn, "sec-fetch-mode") != [],
        do: raise(InsecureTokenTransportError)
 

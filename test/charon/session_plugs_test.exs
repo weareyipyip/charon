@@ -126,9 +126,9 @@ defmodule Charon.SessionPlugsTest do
       assert %{} == conn.resp_cookies
     end
 
-    @enforce_cookie_config %{@config | enforce_cookie_transport: true}
+    @enforce_cookie_config %{@config | enforce_browser_cookies: true}
 
-    test "cookie token transport is enforced for browser clients when config enforce_cookie_transport is set" do
+    test "cookie token transport is enforced for browser clients when config enforce_browser_cookies is set" do
       # config option not enabled
       conn()
       |> Conn.put_req_header("sec-fetch-mode", "boom")
@@ -141,7 +141,7 @@ defmodule Charon.SessionPlugsTest do
       end
     end
 
-    test "cookie transports are allowed when config enforce_cookie_transport is set" do
+    test "cookie transports are allowed when config enforce_browser_cookies is set" do
       conn()
       |> Conn.put_req_header("sec-fetch-mode", "boom")
       |> upsert_session(@enforce_cookie_config, token_transport: :cookie, user_id: 1)
@@ -151,7 +151,7 @@ defmodule Charon.SessionPlugsTest do
       |> upsert_session(@enforce_cookie_config, token_transport: :cookie_only, user_id: 1)
     end
 
-    test "bearer transport is allowed when config enforce_cookie_transport is set but not a browser" do
+    test "bearer transport is allowed when config enforce_browser_cookies is set but not a browser" do
       upsert_session(conn(), @enforce_cookie_config, token_transport: :bearer, user_id: 1)
     end
   end
