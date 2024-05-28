@@ -4,7 +4,7 @@
     {
       "label": "Start containers",
       "type": "shell",
-      "command": "docker-compose up -d redis"
+      "command": "docker compose up -d redis"
     },
     {
       "label": "IEx",

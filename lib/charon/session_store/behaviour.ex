@@ -22,7 +22,7 @@ defmodule Charon.SessionStore.Behaviour do
   `:lock_version` and proceed with the update. If not, the implementation should abort the update
   and return `{:error, :conflict}`.
   """
-  alias Charon.{Session, Config}
+  alias Charon.{Models.Session, Config}
 
   @optional_callbacks [get_all: 3, delete_all: 3]
 

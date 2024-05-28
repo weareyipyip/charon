@@ -242,10 +242,10 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
 
   defp do_sign(data, {:eddsa_ed25519, {_, privkey}}),
-    do: :crypto.sign(:eddsa, nil, data, [privkey, :ed25519])
+    do: :crypto.sign(:eddsa, :none, data, [privkey, :ed25519])
 
   defp do_sign(data, {:eddsa_ed448, {_, privkey}}),
-    do: :crypto.sign(:eddsa, nil, data, [privkey, :ed448])
+    do: :crypto.sign(:eddsa, :none, data, [privkey, :ed448])
 
   # Verify #
   defp do_verify(data, {:hmac_sha256, key}, signature),
@@ -261,10 +261,10 @@ defmodule Charon.TokenFactory.Jwt do
     do: __MODULE__.Blake3.keyed_hash(key, data) |> constant_time_compare(sig)
 
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
-    do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed25519])
+    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed25519])
 
   defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
-    do: :crypto.verify(:eddsa, nil, data, signature, [pubkey, :ed448])
+    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
 
   # header stuff #
   defp gen_header(alg, kid, jmod) do
