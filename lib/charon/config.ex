@@ -75,7 +75,7 @@ defmodule Charon.Config do
           access_cookie_opts: keyword(),
           access_token_ttl: pos_integer(),
           enforce_browser_cookies: boolean,
-          get_base_secret: (() -> binary()),
+          get_base_secret: (-> binary()),
           json_module: module(),
           optional_modules: map(),
           refresh_cookie_name: String.t(),
