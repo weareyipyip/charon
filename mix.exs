@@ -5,7 +5,7 @@ defmodule Charon.MixProject do
     [
       app: :charon,
       version: "0.0.0+development",
-      elixir: "~> 1.12",
+      elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       elixirc_paths: elixirc_paths(Mix.env()),
