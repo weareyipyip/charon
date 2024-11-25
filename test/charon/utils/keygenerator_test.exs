@@ -4,7 +4,7 @@ defmodule Charon.Utils.KeygeneratorTest do
   import KeyGenerator
 
   setup do
-    FastGlobal.delete(KeyGenerator)
+    :persistent_term.erase(KeyGenerator)
     :ok
   end
 
