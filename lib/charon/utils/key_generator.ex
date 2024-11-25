@@ -32,7 +32,7 @@ defmodule Charon.Utils.KeyGenerator do
   """
   @spec derive_key(binary, binary, opts) :: binary()
   def derive_key(base_secret, salt, opts \\ []) do
-    cache = get_cache()
+    cache = :persistent_term.get(__MODULE__, %{})
 
     if cached = Map.get(cache, {base_secret, salt, opts}) do
       cached
@@ -43,14 +43,6 @@ defmodule Charon.Utils.KeyGenerator do
 
       :crypto.pbkdf2_hmac(digest, base_secret, salt, iterations, length)
       |> tap(&:persistent_term.put(__MODULE__, Map.put(cache, {base_secret, salt, opts}, &1)))
-    end
-  end
-
-  defp get_cache() do
-    try do
-      :persistent_term.get(__MODULE__)
-    rescue
-      _ -> %{}
     end
   end
 end
