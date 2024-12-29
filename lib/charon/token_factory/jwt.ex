@@ -161,7 +161,7 @@ defmodule Charon.TokenFactory.Jwt do
     %{get_keyset: get_keyset, signing_key: kid} = get_mod_config(config)
 
     with {:ok, key = {alg, _secret}} <- config |> get_keyset.() |> get_key(kid),
-         {:ok, json_payload} <- jmod.encode(payload) do
+         json_payload <- jmod.encode!(payload) do
       payload = url_encode(json_payload)
       header = gen_header(alg, kid, jmod)
       data = [header, ?., payload]

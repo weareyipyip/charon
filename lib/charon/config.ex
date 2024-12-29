@@ -58,7 +58,12 @@ defmodule Charon.Config do
     # 15 minutes
     access_token_ttl: 15 * 60,
     enforce_browser_cookies: false,
-    json_module: Jason,
+    json_module:
+      if :erlang.system_info(:otp_release) |> to_string() |> String.to_integer() >= 27 do
+        JSON
+      else
+        Jason
+      end,
     optional_modules: %{},
     refresh_cookie_name: "_refresh_token_signature",
     refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
