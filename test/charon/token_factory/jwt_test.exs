@@ -27,13 +27,6 @@ defmodule Charon.TokenFactory.JwtTest do
       {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
       assert {:ok, _} = verify(jose_token, @charon_config)
     end
-
-    test "Charon and JOSE generate the same token", seeds do
-      {:ok, charon_token} = sign(%{}, @charon_config)
-      jws = %{"alg" => "HS256", "kid" => "default"}
-      {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
-      assert jose_token == charon_token
-    end
   end
 
   describe "Blake3" do
@@ -82,11 +75,33 @@ defmodule Charon.TokenFactory.JwtTest do
       {_, jose_token} = seeds.jwk |> JOSE.JWT.sign(seeds.jws, %{}) |> JOSE.JWS.compact()
       assert {:ok, _} = verify(jose_token, seeds.config)
     end
+  end
 
-    test "Charon and JOSE generate the same token", seeds do
-      {:ok, charon_token} = sign(%{}, seeds.config)
-      {_, jose_token} = seeds.jwk |> JOSE.JWT.sign(seeds.jws, %{}) |> JOSE.JWS.compact()
-      assert jose_token == charon_token
+  describe "Poly1305" do
+    setup do
+      mod_conf = @charon_config |> Config.get_mod_config()
+      base_key = mod_conf.get_keyset.(@charon_config)["default"] |> elem(1)
+      encoded_key = url_encode(base_key)
+      jwk = %{"k" => encoded_key, "kty" => "oct"}
+
+      config =
+        override_opt_mod_conf(@charon_config, Jwt,
+          get_keyset: fn _ -> %{"k1" => {:poly1305, base_key}} end,
+          signing_key: "k1"
+        )
+
+      [config: config, jwk: jwk]
+    end
+
+    test "Charon token can be verified by JOSE", seeds do
+      {:ok, token} = sign(%{}, seeds.config)
+      assert {true, _, _} = JOSE.JWT.verify(seeds.jwk, token)
+    end
+
+    test "JOSE token can be verified by Charon", seeds do
+      jws = %{"alg" => "Poly1305", "kid" => "k1"}
+      {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
+      assert {:ok, _} = verify(jose_token, seeds.config)
     end
   end
 
