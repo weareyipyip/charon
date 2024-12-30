@@ -14,7 +14,7 @@ defmodule Charon.ConfigTest do
       access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
       access_token_ttl: 15 * 60,
       json_module:
-        if :erlang.system_info(:otp_release) |> to_string() |> String.to_integer() >= 27 do
+        if (System.version() |> Version.compare("1.18.0")) in [:eq, :gt] do
           JSON
         else
           Jason

@@ -59,7 +59,7 @@ defmodule Charon.Config do
     access_token_ttl: 15 * 60,
     enforce_browser_cookies: false,
     json_module:
-      if :erlang.system_info(:otp_release) |> to_string() |> String.to_integer() >= 27 do
+      if (System.version() |> Version.compare("1.18.0")) in [:eq, :gt] do
         JSON
       else
         Jason
