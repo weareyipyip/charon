@@ -1,5 +1,3 @@
-version: "3"
-
 services:
   elixir:
     image: elixir:${ELIXIR_VERSION:-1.12}-alpine

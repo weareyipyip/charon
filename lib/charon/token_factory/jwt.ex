@@ -45,7 +45,7 @@ defmodule Charon.TokenFactory.Jwt do
 
   Symmetric signatures are message authentication codes or MACs,
   either HMACs based on SHA256, 384 or 512,
-  or a MAC generated using Blake3's [keyed-hashing mode](https://docs.rs/blake3/latest/blake3/fn.keyed_hash.html),
+  or a MAC generated using Poly1305 or Blake3's [keyed-hashing mode](https://docs.rs/blake3/latest/blake3/fn.keyed_hash.html),
   which can be used directly without using a HMAC wrapper.
   Using Blake3 requires the optional dependency [Blake3](https://hex.pm/packages/blake3)
   and a key of exactly 256 bits.
@@ -144,12 +144,13 @@ defmodule Charon.TokenFactory.Jwt do
     hmac_sha512: "HS512",
     eddsa_ed25519: "EdDSA",
     eddsa_ed448: "EdDSA",
-    blake3_256: "Bl3_256"
+    blake3_256: "Bl3_256",
+    poly1305: "Poly1305"
   }
 
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
-  @type mac_alg :: :blake3_256
+  @type mac_alg :: :blake3_256 | :poly1305
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
   @type symmetric_key :: {hmac_alg() | mac_alg(), binary()}
   @type key :: symmetric_key() | eddsa_keypair()
@@ -160,10 +161,12 @@ defmodule Charon.TokenFactory.Jwt do
     jmod = config.json_module
     %{get_keyset: get_keyset, signing_key: kid} = get_mod_config(config)
 
-    with {:ok, key = {alg, _secret}} <- config |> get_keyset.() |> get_key(kid),
+    with {:ok, _key = {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
          json_payload <- jmod.encode!(payload) do
       payload = url_encode(json_payload)
-      header = gen_header(alg, kid, jmod)
+      nonce = new_poly1305_nonce(alg)
+      key = {alg, gen_otk_for_nonce(secret, nonce)}
+      header = create_header(alg, kid, jmod, nonce)
       data = [header, ?., payload]
       signature = data |> do_sign(key) |> url_encode()
       token = [data, ?., signature] |> IO.iodata_to_binary()
@@ -179,12 +182,13 @@ defmodule Charon.TokenFactory.Jwt do
     %{get_keyset: get_keyset} = get_mod_config(config)
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
-         {:ok, kid} <- process_header(header, jmod),
-         data = [header, ?., payload],
-         {:ok, key} <- config |> get_keyset.() |> get_key(kid),
+         {:ok, kid, nonce} <- process_header(header, jmod),
          {:ok, signature} <- url_decode(signature),
+         {:ok, {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
+         key = {alg, gen_otk_for_nonce(secret, nonce)},
+         data = [header, ?., payload],
          {_, true} <- {:signature_valid, do_verify(data, key, signature)},
-         {:ok, payload} <- to_map(payload, jmod) do
+         {:ok, payload} <- url_json_decode(payload, jmod) do
       {:ok, payload}
     else
       {:signature_valid, _} -> {:error, "signature invalid"}
@@ -237,6 +241,7 @@ defmodule Charon.TokenFactory.Jwt do
 
   # Sign #
   defp do_sign(data, {:hmac_sha256, key}), do: calc_hmac(data, key, :sha256)
+  defp do_sign(data, {:poly1305, otk}), do: :crypto.mac(:poly1305, otk, data)
   defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
   defp do_sign(data, {:hmac_sha512, key}), do: calc_hmac(data, key, :sha512)
   defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
@@ -250,6 +255,9 @@ defmodule Charon.TokenFactory.Jwt do
   # Verify #
   defp do_verify(data, {:hmac_sha256, key}, signature),
     do: data |> calc_hmac(key, :sha256) |> constant_time_compare(signature)
+
+  defp do_verify(data, {:poly1305, otk}, signature),
+    do: :crypto.mac(:poly1305, otk, data) |> constant_time_compare(signature)
 
   defp do_verify(data, {:hmac_sha384, key}, signature),
     do: data |> calc_hmac(key, :sha384) |> constant_time_compare(signature)
@@ -266,14 +274,21 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
 
+  defp new_poly1305_nonce(:poly1305), do: :crypto.strong_rand_bytes(12)
+  defp new_poly1305_nonce(_), do: nil
+
   # header stuff #
-  defp gen_header(alg, kid, jmod) do
-    %{alg: Map.get(@sign_alg_to_header_alg, alg), typ: "JWT", kid: kid}
+  defp create_header(alg, kid, jmod, nonce) do
+    %{alg: Map.fetch!(@sign_alg_to_header_alg, alg), typ: "JWT", kid: kid}
+    |> put_nonce_in_header(nonce)
     |> jmod.encode!()
     |> url_encode()
   end
 
-  defp to_map(encoded, json_mod) do
+  defp put_nonce_in_header(map, nil), do: map
+  defp put_nonce_in_header(map, nonce), do: Map.put(map, :nonce, url_encode(nonce))
+
+  defp url_json_decode(encoded, json_mod) do
     with {_, {:ok, json}} <- {:enc, url_decode(encoded)},
          {:ok, payload} <- json_mod.decode(json) do
       {:ok, payload}
@@ -284,12 +299,36 @@ defmodule Charon.TokenFactory.Jwt do
   end
 
   defp process_header(header, json_mod) do
-    with {:ok, payload} <- to_map(header, json_mod),
-         {_, %{"alg" => alg}} <- {:payload, payload} do
-      {:ok, Map.get(payload, "kid", "kid_not_set.#{alg}")}
+    with {:ok, payload} <- url_json_decode(header, json_mod),
+         {:ok, alg} <- get_header_alg(payload),
+         kid = get_header_kid(payload, alg),
+         {:ok, nonce} <- maybe_get_header_nonce(payload, alg) do
+      {:ok, kid, nonce}
     else
-      {:payload, _} -> {:error, "malformed header"}
       error -> error
     end
+  end
+
+  defp get_header_alg(_header_pl = %{"alg" => alg}), do: {:ok, alg}
+  defp get_header_alg(_), do: {:error, "malformed header"}
+
+  defp get_header_kid(header_pl, alg), do: Map.get(header_pl, "kid", "kid_not_set.#{alg}")
+
+  defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
+    with %{"nonce" => nonce} <- header_pl,
+         {:ok, nonce} <- url_decode(nonce) do
+      {:ok, nonce}
+    else
+      _ -> {:error, "malformed header"}
+    end
+  end
+
+  defp maybe_get_header_nonce(_, _), do: {:ok, nil}
+
+  defp gen_otk_for_nonce(secret, nil), do: secret
+
+  defp gen_otk_for_nonce(secret, nonce) do
+    # after https://github.com/potatosalad/erlang-jose/blob/main/src/jwa/chacha20_poly1305/jose_chacha20_poly1305_crypto.erl#L58
+    :crypto.crypto_one_time(:chacha20, secret, <<0::32, nonce::binary>>, <<0::256>>, true)
   end
 end
