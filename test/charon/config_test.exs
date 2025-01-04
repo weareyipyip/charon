@@ -13,7 +13,12 @@ defmodule Charon.ConfigTest do
       access_cookie_name: "_access_token_signature",
       access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
       access_token_ttl: 15 * 60,
-      json_module: Jason,
+      json_module:
+        if (System.version() |> Version.compare("1.18.0")) in [:eq, :gt] do
+          JSON
+        else
+          Jason
+        end,
       optional_modules: %{},
       refresh_cookie_name: "_refresh_token_signature",
       refresh_cookie_opts: [http_only: true, same_site: "Strict", secure: true],

@@ -138,9 +138,6 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
           |> validate(user_id, type, now)
         end)
         |> Enum.reject(&is_nil/1)
-      else
-        {:ok, []} -> []
-        other -> other
       end
     end
 

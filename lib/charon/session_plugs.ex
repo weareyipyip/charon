@@ -287,7 +287,11 @@ defmodule Charon.SessionPlugs do
 
     refresh_token_payload =
       shared_payload
-      |> Map.merge(%{"jti" => session.refresh_token_id, "exp" => refresh_exp, "type" => "refresh"})
+      |> Map.merge(%{
+        "jti" => session.refresh_token_id,
+        "exp" => refresh_exp,
+        "type" => "refresh"
+      })
       |> Map.merge(opts[:refresh_claim_overrides] || %{})
 
     {access_token_payload, refresh_token_payload}
