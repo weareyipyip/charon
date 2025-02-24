@@ -88,6 +88,7 @@ defmodule Charon.TokenFactory.Jwt do
   The following options are supported:
     - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
+    - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each JWT.
 
   ## Examples / doctests
 
@@ -159,12 +160,13 @@ defmodule Charon.TokenFactory.Jwt do
   @impl true
   def sign(payload, config) do
     jmod = config.json_module
-    %{get_keyset: get_keyset, signing_key: kid} = get_mod_config(config)
+    mod_conf = get_mod_config(config)
+    %{get_keyset: get_keyset, signing_key: kid} = mod_conf
 
     with {:ok, _key = {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
          json_payload <- jmod.encode!(payload) do
       payload = url_encode(json_payload)
-      nonce = new_poly1305_nonce(alg)
+      nonce = new_poly1305_nonce(alg, mod_conf)
       key = {alg, gen_otk_for_nonce(secret, nonce)}
       header = create_header(alg, kid, jmod, nonce)
       data = [header, ?., payload]
@@ -274,8 +276,14 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
 
-  defp new_poly1305_nonce(:poly1305), do: :crypto.strong_rand_bytes(12)
-  defp new_poly1305_nonce(_), do: nil
+  defp new_poly1305_nonce(:poly1305, mod_conf) do
+    case mod_conf.gen_poly1305_nonce do
+      :random -> :crypto.strong_rand_bytes(12)
+      function -> function.()
+    end
+  end
+
+  defp new_poly1305_nonce(_, _), do: nil
 
   # header stuff #
   defp create_header(alg, kid, jmod, nonce) do
