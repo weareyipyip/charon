@@ -87,7 +87,8 @@ defmodule Charon.TokenFactory.JwtTest do
       config =
         override_opt_mod_conf(@charon_config, Jwt,
           get_keyset: fn _ -> %{"k1" => {:poly1305, base_key}} end,
-          signing_key: "k1"
+          signing_key: "k1",
+          gen_poly1305_nonce: :random
         )
 
       [config: config, jwk: jwk]
@@ -102,6 +103,21 @@ defmodule Charon.TokenFactory.JwtTest do
       jws = %{"alg" => "Poly1305", "kid" => "k1"}
       {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
       assert {:ok, _} = verify(jose_token, seeds.config)
+    end
+
+    test "token can use custom nonce generator", seeds do
+      nonce = :crypto.strong_rand_bytes(12)
+      config = override_opt_mod_conf(seeds.config, Jwt, gen_poly1305_nonce: fn -> nonce end)
+      {:ok, token} = sign(%{}, config)
+
+      assert nonce ==
+               token
+               |> String.split(".")
+               |> List.first()
+               |> Base.url_decode64!(padding: false)
+               |> Jason.decode!()
+               |> Map.get("nonce")
+               |> Base.url_decode64!(padding: false)
     end
   end
 
