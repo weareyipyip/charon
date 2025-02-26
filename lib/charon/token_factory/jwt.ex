@@ -246,7 +246,10 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_sign(data, {:poly1305, otk}), do: :crypto.mac(:poly1305, otk, data)
   defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
   defp do_sign(data, {:hmac_sha512, key}), do: calc_hmac(data, key, :sha512)
-  defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
+
+  if Code.ensure_loaded?(Blake3) do
+    defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
+  end
 
   defp do_sign(data, {:eddsa_ed25519, {_, privkey}}),
     do: :crypto.sign(:eddsa, :none, data, [privkey, :ed25519])
@@ -267,8 +270,10 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_verify(data, {:hmac_sha512, key}, signature),
     do: data |> calc_hmac(key, :sha512) |> constant_time_compare(signature)
 
-  defp do_verify(data, {:blake3_256, key}, sig),
-    do: __MODULE__.Blake3.keyed_hash(key, data) |> constant_time_compare(sig)
+  if Code.ensure_loaded?(Blake3) do
+    defp do_verify(data, {:blake3_256, key}, sig),
+      do: __MODULE__.Blake3.keyed_hash(key, data) |> constant_time_compare(sig)
+  end
 
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed25519])
