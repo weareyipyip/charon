@@ -47,7 +47,7 @@ defmodule Charon.Utils do
   @doc """
   Get token signature transport mechanism, if present.
   """
-  @deprecated "Use get_token_transport/2."
+  @deprecated "Use get_token_transport/2"
   @spec get_token_signature_transport(Conn.t()) :: atom() | nil
   def get_token_signature_transport(conn), do: get_private(conn, @token_transport)
 

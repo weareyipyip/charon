@@ -133,7 +133,8 @@ defmodule Charon.TokenPlugs do
   """
   @doc since: "3.1.0"
   @spec get_token_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_from_cookie(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def get_token_from_cookie(conn, _cookie_name) when is_map_key(conn.private, @auth_error),
+    do: conn
 
   def get_token_from_cookie(conn = %{private: private}, cookie_name) do
     with %{^cookie_name => cookie} <- conn.cookies do
@@ -176,9 +177,9 @@ defmodule Charon.TokenPlugs do
       iex> conn |> Utils.get_bearer_token()
       "token"
   """
-  @deprecated "Use get_token_from_cookie/2."
+  @deprecated "Use get_token_from_cookie/2"
   @spec get_token_sig_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_sig_from_cookie(conn, opts), do: get_token_from_cookie(conn, opts)
+  def get_token_sig_from_cookie(conn, cookie_name), do: get_token_from_cookie(conn, cookie_name)
 
   @doc """
   Verify that the bearer token found by `get_token_from_auth_header/2` is signed correctly.
@@ -201,7 +202,8 @@ defmodule Charon.TokenPlugs do
       "bearer token not found"
   """
   @spec verify_token_signature(Conn.t(), Config.t()) :: Conn.t()
-  def verify_token_signature(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def verify_token_signature(conn, _charon_config) when is_map_key(conn.private, @auth_error),
+    do: conn
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
@@ -328,7 +330,7 @@ defmodule Charon.TokenPlugs do
     do: verify_token_claim_in(conn, {claim, [expected]})
 
   @doc """
-  Generically verify that the bearer token payload contains `claim` and that its value matches `func`. The function must return the conn or an error message.
+  Generically verify that the bearer token payload contains `claim` and that its value matches `verifier`. The function must return the conn or an error message.
   Must be used after `verify_token_signature/2`.
 
   ## Doctests
@@ -409,7 +411,7 @@ defmodule Charon.TokenPlugs do
       ** (RuntimeError) must be used after verify_token_signature/2
   """
   @spec load_session(Conn.t(), Config.t()) :: Conn.t()
-  def load_session(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def load_session(conn, _charon_config) when is_map_key(conn.private, @auth_error), do: conn
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
     with %{"sub" => uid, "sid" => sid, "styp" => type} <- payload,
@@ -427,46 +429,48 @@ defmodule Charon.TokenPlugs do
   @doc """
   Verify that the token (either access or refresh) is fresh.
 
-  A token is fresh if it belongs to the current or previous "refresh token generation".
-  A generation is a set of tokens that is created within a "cycle TTL"
-  amount of seconds from when the generation is first created.
-  A new generation is created after the cycle TTL expires.
+  A token is fresh if it belongs to the *current or previous* refresh generation.
+  A generation is a set of tokens that is created within `new_cycle_after` seconds after the first token in the generation is created.
+  A token created after `new_cycle_after` seconds starts a new generation.
 
-  So a token must be "fresh", but because of refresh race conditions caused by
+  It would be simpler to just have a single fresh (refresh) token. However, because of refresh race conditions caused by
   network issues or misbehaving clients, enforcing only a single fresh token causes too many problems in practice.
+
+  In addition to this generation mechanism, 5 seconds of clock drift are allowed.
 
   Must be used after `load_session/2`. Verify the token type with `verify_token_claim_equals/2`.
 
   ## Freshness example
 
   New cycle is created 5 seconds after the generation's first token is created,
-  and token ttl is 24h (so irrelevant in this example).
+  and token TTL is 24h (which is irrelevant in this example).
 
-  | When | New gen | Fresh tokens | Created token | Current gen (timestamp) | Previous gen | Comment                                                                            |
-  |------|---------|--------------|---------------|-------------------------|--------------|------------------------------------------------------------------------------------|
-  | 0    |         | -            | A             | A (0)                   | -            | Login                                                                              |
-  | 10   | y       | A            | B             | B (10)                  | A            | Refresh after cycle TTL of A, [A] becomes prev gen                              |
-  | 11   |         | A, B         | C             | B, C (10)               | A            | Refresh race within cycle TTL of B                                              |
-  | 12   |         | A, B, C      | D             | B, C, D (10)            | A            | Refresh race within cycle TTL of B                                              |
-  | 20   | y       | B, C, D      | E             | E (20)                  | B, C, D      | Refresh after cycle TTL of B, so [A] is now stale, and [B,C,D] becomes prev gen |
-  | 30   | y       | E            | F             | F (30)                  | E            | Refresh after cycle TTL of E, so [B,C,D] is now stale, [E] becomes prev gen     |
-
+  | Time | Token | Current gen   | Previous gen  | Fresh   | Comment                                                           |
+  |------|-------|---------------|---------------|---------|-------------------------------------------------------------------|
+  | 0    | A     | g1 (0): A     | -             | A       | Login, initial token generation g1 of the session is created.     |
+  | 10   | B     | g2 (10): B    | g1 (0): A     | A, B    | Refresh after g1 expires, g1 becomes prev gen                     |
+  | 12   | C     | g2 (10): B, C | g1 (0): A     | A, B, C | Refresh before g2 expires, C added to current gen                 |
+  | 20   | D     | g3 (20): D    | g2 (10): B, C | B, C, D | Refresh after g2 expires, g1 is now stale and g2 becomes prev gen |
+  | 30   | E     | g4 (30): E    | g3 (20): D    | D, E    | Refresh after g3 expires, g2 is now stale and g3 becomes prev gen |
 
   ## Doctests
 
       # some clock drift is allowed
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now, prev_tokens_fresh_from: now - 10}) |> set_token_payload(%{"iat" => now - 11})
-      iex> nil = conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      iex> conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
 
       # if current gen is still within the cycle TTL, tokens from both it and previous gen are "fresh"
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
-      iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
       # tokens are invalid from: iat < now - 10 (*previous* gen age) - 5 (max clock drift)
-      # younger-than-previous-gen-and-clock-drift token is valid
-      iex> nil = conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # older-than-previous-gen-and-clock-drift token is invalid
+      # younger-than-previous-gen-plus-clock-drift token is valid
+      iex> conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # older-than-previous-gen-plus-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
       # no generation cycle will take place
@@ -477,10 +481,12 @@ defmodule Charon.TokenPlugs do
       # tokens are invalid from: iat < now - 10 (*current* gen age) - 5 (max clock drift)
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
-      iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # younger-than-current-gen-and-clock-drift token is valid
-      iex> nil = conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # older-than-current-gen-and-clock-drift token is invalid
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # younger-than-current-gen-plus-clock-drift token is valid
+      iex> conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # older-than-current-gen-plus-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
       # a generation cycle will occur
@@ -513,7 +519,7 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Generically verify the bearer token payload.
-  The validation function `func` must return the conn or an error message.
+  The validation function `verifier` must return the conn or an error message.
   Must be used after `load_session/2`.
 
   ## Doctests
@@ -530,7 +536,7 @@ defmodule Charon.TokenPlugs do
       ** (RuntimeError) must be used after load_session/2
   """
   @spec verify_session_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
-  def verify_session_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+  def verify_session_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
   def verify_session_payload(conn = %{private: %{@session => session}}, func) do
     func.(conn, session) |> maybe_add_error(conn)
@@ -540,7 +546,7 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Generically verify the bearer token payload.
-  The validation function `func` must return the conn or an error message.
+  The validation function `verifier` must return the conn or an error message.
   Must be used after `verify_token_signature/2`.
 
   ## Doctests
@@ -557,7 +563,7 @@ defmodule Charon.TokenPlugs do
       ** (RuntimeError) must be used after verify_token_signature/2
   """
   @spec verify_token_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
-  def verify_token_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+  def verify_token_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
   def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, func) do
     func.(conn, payload) |> maybe_add_error(conn)
