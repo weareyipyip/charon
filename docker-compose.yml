@@ -1,20 +1,20 @@
 services:
   elixir:
-    image: elixir:${ELIXIR_VERSION:-1.12}-alpine
-    working_dir: /application/${ELIXIR_VERSION:-1.12}
+    image: elixir:${ELIXIR_VERSION:-1.14}-alpine
+    working_dir: /application/${ELIXIR_VERSION:-1.14}
     volumes:
-      - .:/application/${ELIXIR_VERSION:-1.12}:cached
-      - /application/${ELIXIR_VERSION:-1.12}/.elixir_ls
-      - /application/${ELIXIR_VERSION:-1.12}/cover
-      - build:/application/${ELIXIR_VERSION:-1.12}/_build
-      - deps:/application/${ELIXIR_VERSION:-1.12}/deps
+      - .:/application/${ELIXIR_VERSION:-1.14}:cached
+      - /application/${ELIXIR_VERSION:-1.14}/.elixir_ls
+      - /application/${ELIXIR_VERSION:-1.14}/cover
+      - build:/application/${ELIXIR_VERSION:-1.14}/_build
+      - deps:/application/${ELIXIR_VERSION:-1.14}/deps
       - mix:/root/.mix
     entrypoint: tail -f /dev/null
     environment:
       REDIS_HOSTNAME: redis
 
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     ports:
       - 6379:6379
 
