@@ -157,31 +157,6 @@ defmodule Charon.TokenPlugs do
   end
 
   @doc """
-  Appends the specified cookie's content to the bearer token, if the cookie is present and the token ends with a "." character.
-  Must be used after `get_token_from_auth_header/2`.
-
-  ## Doctests
-
-      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      :cookie
-      iex> conn |> Utils.get_bearer_token()
-      "token.sig"
-
-      # cookie is ignored if bearer token does not end with .
-      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      nil
-      iex> conn |> Utils.get_bearer_token()
-      "token"
-  """
-  @deprecated "Use get_token_from_cookie/2"
-  @spec get_token_sig_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_sig_from_cookie(conn, cookie_name), do: get_token_from_cookie(conn, cookie_name)
-
-  @doc """
   Verify that the bearer token found by `get_token_from_auth_header/2` is signed correctly.
 
   ## Doctests
