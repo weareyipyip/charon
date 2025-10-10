@@ -212,6 +212,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     def lock_set_key({uid, type, prefix}), do: to_key(uid, type, prefix, "l")
 
     # create a key from a user_id, sessions type, prefix, and separator
+    @compile {:inline, [to_key: 4]}
     defp to_key(uid, type, prefix, sep), do: [prefix, ?., sep, ?., uid, ?., type]
 
     # the prune lock makes sure that expired sessions are only pruned once an hour
