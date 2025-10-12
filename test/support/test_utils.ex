@@ -2,8 +2,7 @@ defmodule Charon.TestUtils do
   alias Charon.SessionStore.RedisStore.StoreImpl
 
   def session_set_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.session_set_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
+    StoreImpl.session_set_key(user_id, type, %{key_prefix: prefix}) |> IO.iodata_to_binary()
   end
 
   def lock_key(sid), do: StoreImpl.lock_key(sid) |> IO.iodata_to_binary()

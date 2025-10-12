@@ -4,6 +4,10 @@
 
 ### Breaking
 
+- `Charon.TokenFactory.Jwt`
+
+  - Dropped support for Blake3 (keyed hashing) signed JWTs, because the Elixir Blake3 lib is unmaintained. The factory now only support OTP `:crypto`-backed algorithms.
+
 - `Charon.SessionStore.RedisStore`
 
   - Requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-API-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands.

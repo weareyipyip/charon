@@ -26,7 +26,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @impl SessionStoreBehaviour
     def get(session_id, user_id, type, config) do
       mod_conf = get_mod_config(config)
-      session_set_key = key_data(user_id, type, mod_conf) |> session_set_key()
+      session_set_key = session_set_key(user_id, type, mod_conf)
       signing_key = get_signing_key(mod_conf, config)
 
       ["HGET", session_set_key, session_id]
@@ -50,8 +50,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
         )
         when exp >= now do
       mod_conf = get_mod_config(config)
-      key_data = key_data(session.user_id, session.type, mod_conf)
-      session_set_key = session_set_key(key_data)
+      session_set_key = session_set_key(session.user_id, session.type, mod_conf)
       lock_key = lock_key(sid)
       signing_key = get_signing_key(mod_conf, config)
 
@@ -73,8 +72,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @impl SessionStoreBehaviour
     def delete(session_id, user_id, type, config) do
       mod_conf = get_mod_config(config)
-      key_data = key_data(user_id, type, mod_conf)
-      session_set_key = session_set_key(key_data)
+      session_set_key = session_set_key(user_id, type, mod_conf)
       lock_key = lock_key(session_id)
 
       ["HDEL", session_set_key, session_id, lock_key]
@@ -88,8 +86,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @impl SessionStoreBehaviour
     def get_all(user_id, type, config) do
       mod_conf = get_mod_config(config)
-      key_data = key_data(user_id, type, mod_conf)
-      session_set_key = session_set_key(key_data)
+      session_set_key = session_set_key(user_id, type, mod_conf)
       signing_key = get_signing_key(mod_conf, config)
       now = Internal.now()
 
@@ -110,8 +107,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @impl SessionStoreBehaviour
     def delete_all(user_id, type, config) do
       mod_conf = get_mod_config(config)
-      key_data = key_data(user_id, type, mod_conf)
-      session_set_key = session_set_key(key_data)
+      session_set_key = session_set_key(user_id, type, mod_conf)
 
       with {:ok, _} <- RedisClient.command(["DEL", session_set_key], true) do
         :ok
@@ -123,10 +119,6 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     ###########
     # Private #
     ###########
-
-    # create redis key data
-    defp key_data(uid, type, mod_conf),
-      do: {to_string(uid), Atom.to_string(type), mod_conf.key_prefix}
 
     defp serialize(session), do: :erlang.term_to_binary(session)
 
@@ -162,13 +154,12 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     end
 
     @doc false
-    # the session set maps sid's to sessions
-    @compile {:inline, [session_set_key: 1]}
-    def session_set_key({uid, type, prefix}), do: to_key(uid, type, prefix)
+    @compile {:inline, [session_set_key: 3]}
+    def session_set_key(uid, type, mod_conf) when is_binary(uid) do
+      [mod_conf.key_prefix, ?., uid, ?., Atom.to_string(type)]
+    end
 
-    # create a key from a user_id, sessions type, prefix, and separator
-    @compile {:inline, [to_key: 3]}
-    defp to_key(uid, type, prefix), do: [prefix, ?., uid, ?., type]
+    def session_set_key(uid, type, mod_conf), do: session_set_key(to_string(uid), type, mod_conf)
 
     @doc false
     @compile {:inline, [lock_key: 1]}
