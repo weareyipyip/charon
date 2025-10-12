@@ -1,5 +1,21 @@
 # Changelog
 
+## 4.x
+
+### Breaking
+
+- `Charon.SessionStore.RedisStore`
+
+  - Requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-API-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands.
+  - Simplified implementation that relies on expiring hash fields. This means a single datastructure (instead of 3) now holds a user's sessions, and only a single Redis function is needed instead of several.
+
+- 3.x marked-deprecated functions have been removed:
+
+  - `Charon.Utils.get_token_signature_transport/1`
+  - `Charon.Utils.set_token_signature_transport/2`
+  - `Charon.Utils.set_user_id/2`
+  - `Charon.TokenPlugs.get_token_sig_from_cookie/2`
+
 ## 3.x
 
 ### Breaking

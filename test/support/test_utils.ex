@@ -6,15 +6,7 @@ defmodule Charon.TestUtils do
     |> IO.iodata_to_binary()
   end
 
-  def exp_oset_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.exp_oset_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
-  end
-
-  def lock_set_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.lock_set_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
-  end
+  def lock_key(sid), do: StoreImpl.lock_key(sid) |> IO.iodata_to_binary()
 
   def conn(), do: Plug.Test.conn(:get, "/")
 

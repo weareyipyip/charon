@@ -7,24 +7,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
                     |> Keyword.fetch!(:version)
                     |> :erlang.phash2(Integer.pow(2, 32))
                     |> to_string()
-    @resolve_set_exps_function_name "resolve_set_exps_#{@hashed_version}"
     @upsert_function_name "opt_lock_upsert_#{@hashed_version}"
-    @prune_expired_function_name "maybe_prune_expired_#{@hashed_version}"
-
-    @doc """
-    Returns the Redis command to call Redis function "charon_resolve_set_exps",
-    which sets all set expiration timestamps to that of the max-exp session.
-
-    Returns `[n1, n2, n3]` with `n` being the EXPIREAT result.
-    """
-    @spec resolve_set_exps_cmd(iodata, iodata, iodata) :: [integer]
-    def resolve_set_exps_cmd(session_set_key, exp_oset_key, lock_set_key) do
-      call_redis_function_cmd(
-        @resolve_set_exps_function_name,
-        [session_set_key, exp_oset_key, lock_set_key],
-        []
-      )
-    end
 
     @doc """
     Returns the Redis command to call Redis function "charon_opt_lock_upsert",
@@ -40,47 +23,20 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     Returns: `[n1, n2, n3, m1, m2, m3]` with n being the number of elements added to a respective set,
     and m being the result of calling EXPIREAT (with GT modifier) on that set.
     """
-    @spec opt_lock_upsert_cmd(iodata, iodata, iodata, iodata, integer, iodata, integer) ::
+    @spec opt_lock_upsert_cmd(iodata, iodata, iodata, integer, iodata, integer) ::
             [integer] | binary()
-    def opt_lock_upsert_cmd(
-          session_set_key,
-          exp_oset_key,
-          lock_set_key,
-          sid,
-          lock_version,
-          session,
-          expires_at
-        ) do
-      call_redis_function_cmd(
+    def opt_lock_upsert_cmd(session_set_key, sid, lock_key, lock_version, session, expires_at) do
+      [
+        "FCALL",
         @upsert_function_name,
-        [session_set_key, exp_oset_key, lock_set_key],
-        [sid, lock_version, session, expires_at]
-      )
-    end
-
-    @doc """
-    Returns the Redis command to call Redis function "charon_maybe_prune_expired",
-    which prunes expired sessions from all session sets, once an hour max.
-
-    Returns `"SKIPPED"` when run again within an hour,
-    otherwise returns `[n1, n2, n3]` with `n` being the number of elements removed from a respective set.
-    """
-    @spec maybe_prune_expired_cmd(iodata, iodata, iodata, iodata, integer) :: [integer] | binary
-    def maybe_prune_expired_cmd(session_set_key, exp_oset_key, lock_set_key, prune_lock_key, now) do
-      call_redis_function_cmd(
-        @prune_expired_function_name,
-        [session_set_key, exp_oset_key, lock_set_key, prune_lock_key],
-        [now]
-      )
-    end
-
-    @doc """
-    Returns the Redis command to call a Redis function with keys and args.
-    """
-    @spec call_redis_function_cmd(binary, list, list) :: any
-    def call_redis_function_cmd(name, keys, args) do
-      key_count = keys |> Enum.count() |> Integer.to_string()
-      ["FCALL", name, key_count] ++ keys ++ args
+        _key_count = 1,
+        session_set_key,
+        sid,
+        lock_key,
+        lock_version,
+        session,
+        expires_at
+      ]
     end
 
     @doc """
