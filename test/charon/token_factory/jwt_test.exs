@@ -1,6 +1,7 @@
 defmodule Charon.TokenFactory.JwtTest do
   use ExUnit.Case, async: true
   import Charon.{Internal, TestHelpers}
+  import Charon.TestUtils
   alias Charon.TokenFactory.Jwt
   alias Jwt.Config
   import Jwt
@@ -91,13 +92,7 @@ defmodule Charon.TokenFactory.JwtTest do
       {:ok, token} = sign(%{}, config)
 
       assert nonce ==
-               token
-               |> String.split(".")
-               |> List.first()
-               |> Base.url_decode64!(padding: false)
-               |> Jason.decode!()
-               |> Map.get("nonce")
-               |> Base.url_decode64!(padding: false)
+               token |> peek_header() |> Map.get("nonce") |> Base.url_decode64!(padding: false)
     end
   end
 

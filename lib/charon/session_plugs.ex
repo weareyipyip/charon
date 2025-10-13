@@ -152,7 +152,7 @@ defmodule Charon.SessionPlugs do
     existing_session = Internal.get_private(conn, @session)
     timestamps = conn |> Internal.now() |> calc_timestamps(existing_session, config)
 
-    new_session = create_or_update_session(conn, existing_session, timestamps, opts)
+    new_session = create_or_update_session(conn, existing_session, timestamps, config, opts)
     new_session |> SessionStore.upsert(config) |> raise_on_store_error()
 
     {access_tok_pl, refresh_tok_pl} = create_token_payloads(new_session, timestamps, config, opts)
@@ -217,8 +217,9 @@ defmodule Charon.SessionPlugs do
   defp calc_session_exp_ttl(%{expires_at: :infinite}, _, _), do: {:infinite, :infinite}
   defp calc_session_exp_ttl(%{expires_at: exp}, _, now), do: {exp, exp - now}
 
-  defp create_or_update_session(conn, session, {now, session_exp, refresh_exp, _, _, _}, opts) do
-    refresh_token_id = random_url_encoded(16)
+  defp create_or_update_session(conn, session, timestamps, config, opts) do
+    {now, session_exp, refresh_exp, _, _, _} = timestamps
+    refresh_token_id = gen_id(config)
     extra_session_payload = opts[:extra_session_payload] || %{}
 
     if session do
@@ -236,7 +237,7 @@ defmodule Charon.SessionPlugs do
         created_at: now,
         expires_at: session_exp,
         extra_payload: extra_session_payload,
-        id: random_url_encoded(16),
+        id: gen_id(config),
         prev_tokens_fresh_from: now,
         refresh_expires_at: refresh_exp,
         refresh_token_id: refresh_token_id,
@@ -282,7 +283,7 @@ defmodule Charon.SessionPlugs do
 
     access_token_payload =
       shared_payload
-      |> Map.merge(%{"jti" => random_url_encoded(16), "exp" => access_exp, "type" => "access"})
+      |> Map.merge(%{"jti" => gen_id(config), "exp" => access_exp, "type" => "access"})
       |> Map.merge(opts[:access_claim_overrides] || %{})
 
     refresh_token_payload =
@@ -352,9 +353,9 @@ defmodule Charon.SessionPlugs do
     {token, signature}
   end
 
-  ###########
-  # Private #
-  ###########
+  defp gen_id(config)
+  defp gen_id(%{gen_id: :random}), do: random_url_encoded(16)
+  defp gen_id(%{gen_id: fun}), do: fun.()
 
   defp require_cookie_for_browser(transport, conn, config) do
     if transport == :bearer and config.enforce_browser_cookies and

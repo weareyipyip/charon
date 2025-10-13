@@ -20,6 +20,7 @@ defmodule Charon.Config do
         # 15 minutes
         access_token_ttl: 15 * 60,
         enforce_browser_cookies: false,
+        gen_id: :random,
         json_module: Jason,
         optional_modules: %{},
         refresh_cookie_name: "_refresh_token_signature",
@@ -38,6 +39,7 @@ defmodule Charon.Config do
    - `:access_cookie_opts` Options passed to `Plug.Conn.put_resp_cookie/3`. Note that `:max_age` is set by `Charon.SessionPlugs` based on the token TTL. Overrides are merged into the defaults.
    - `:access_token_ttl` Time in seconds until a new access token expires. This time may be reduced so that the token does not outlive its session.
    - `:enforce_browser_cookies` If a browser client is detected, enforce that tokens are not returned to it as fully valid bearer tokens, but are transported (wholly or in part) as cookies.
+   - `:gen_id` Either `:random` or a function that returns a binary. Generated IDs must be unique.
    - `:get_base_secret` Getter for Charon's base secret from which other keys are derived. Make sure it has large entropy (>= 256 bits). For example `fn -> Application.get_env(:my_app, :charon_secret) end`.
    - `:json_module` The JSON module, like `Jason` or `Poison`.
    - `:optional_modules` Configuration for optional modules, like `Charon.TokenFactory.Jwt` or `CharonOauth2`. See the optional module's docs for info on its configuration options.
@@ -58,6 +60,7 @@ defmodule Charon.Config do
     # 15 minutes
     access_token_ttl: 15 * 60,
     enforce_browser_cookies: false,
+    gen_id: :random,
     json_module:
       if (System.version() |> Version.compare("1.18.0")) in [:eq, :gt] do
         JSON
@@ -80,6 +83,7 @@ defmodule Charon.Config do
           access_cookie_opts: keyword(),
           access_token_ttl: pos_integer(),
           enforce_browser_cookies: boolean,
+          gen_id: :random | (-> binary),
           get_base_secret: (-> binary()),
           json_module: module(),
           optional_modules: map(),

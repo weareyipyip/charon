@@ -28,4 +28,15 @@ defmodule Charon.TestUtils do
     }
     |> Map.merge(Map.new(overrides))
   end
+
+  def peek_header(token), do: peek_token_part(token, 0)
+  def peek_payload(token), do: peek_token_part(token, 1)
+
+  defp peek_token_part(token, part) do
+    token
+    |> String.split(".")
+    |> Enum.at(part)
+    |> Base.url_decode64!(padding: false)
+    |> Jason.decode!()
+  end
 end

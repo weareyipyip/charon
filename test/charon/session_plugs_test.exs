@@ -154,5 +154,18 @@ defmodule Charon.SessionPlugsTest do
     test "bearer transport is allowed when config enforce_browser_cookies is set but not a browser" do
       upsert_session(conn(), @enforce_cookie_config, token_transport: :bearer, user_id: 1)
     end
+
+    test "should allow use :gen_id config option for session/refresh/access id" do
+      conn =
+        conn()
+        |> upsert_session(
+          %{@config | gen_id: fn -> "123" end},
+          user_id: @uid,
+          token_transport: :bearer
+        )
+
+      assert %{id: "123", refresh_token_id: "123"} = Utils.get_session(conn)
+      assert %{"jti" => "123"} = Utils.get_tokens(conn).access_token |> peek_payload()
+    end
   end
 end
