@@ -196,7 +196,8 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert :ok = RedisStore.delete("b", @uid, :full, @config)
 
-      assert [@user_session |> serialize() |> sign(), "0"] == get_all(@session_set_key)
+      assert ["0", @user_session |> serialize() |> sign()] ==
+               get_all(@session_set_key) |> Enum.sort()
     end
 
     test "all sets removed if deleted session was last session" do
