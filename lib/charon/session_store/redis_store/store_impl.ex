@@ -122,17 +122,20 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     defp serialize(session), do: :erlang.term_to_binary(session)
 
-    defp get_signing_key(%{get_signing_key: get_key}, config), do: get_key.(config)
+    @doc false
+    def get_signing_key(%{get_signing_key: get_key}, config), do: get_key.(config)
 
+    @doc false
     # verify the prefixed hmac of a binary
-    defp verify_signature(nil, _), do: nil
-    defp verify_signature(serialized, key), do: verify_hmac(serialized, key)
+    def verify_signature(nil, _), do: nil
+    def verify_signature(serialized, key), do: verify_hmac(serialized, key)
 
+    @doc false
     # deserialize the result of verify/3, when valid
-    defp maybe_deserialize({:ok, verified}), do: :erlang.binary_to_term(verified)
-    defp maybe_deserialize(nil), do: nil
+    def maybe_deserialize({:ok, verified}), do: :erlang.binary_to_term(verified)
+    def maybe_deserialize(nil), do: nil
 
-    defp maybe_deserialize(_) do
+    def maybe_deserialize(_) do
       Logger.warning("Ignored Redis session with invalid signature.")
       nil
     end

@@ -1,0 +1,127 @@
+defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
+  use ExUnit.Case
+  alias Charon.SessionStore.RedisStore.MigrateV3
+  alias Charon.SessionStore.RedisStore
+  import Charon.{TestUtils, Internal}
+  import Charon.Internal.Crypto
+  alias Charon.{TestConfig}
+  alias RedisStore.{RedisClient}
+
+  @ttl 10
+  @now now()
+  @exp @now + @ttl
+  @mod_conf %{} |> RedisStore.init_config()
+  @config %{
+    TestConfig.get()
+    | session_ttl: :infinite,
+      refresh_token_ttl: @ttl,
+      optional_modules: %{RedisStore => @mod_conf}
+  }
+  @sid "a"
+  @uid 426
+  @user_session test_session(
+                  id: @sid,
+                  user_id: @uid,
+                  refresh_expires_at: @exp,
+                  refreshed_at: @now
+                )
+
+  setup_all do
+    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
+    start_supervised!({RedisStore, redix_opts: redix_opts})
+    :ok
+  end
+
+  setup do
+    RedisClient.command(~w(FLUSHDB))
+    :ok
+  end
+
+  defp serialize(session), do: session |> :erlang.term_to_binary()
+  defp sign(binary), do: sign_hmac(binary, RedisStore.default_signing_key(@config))
+  defp to_result({:ok, result}), do: result
+
+  defp add_to_oset(set_k, score, v),
+    do: 1 = RedisClient.command(["ZADD", set_k, score, v]) |> to_result()
+
+  defp add_to_hash_set(set_k, k, v),
+    do: 1 = RedisClient.command(["HSET", set_k, k, v]) |> to_result()
+
+  # the expiration ordered set stores sids and expiration timestamps sorted by the timestamp
+  defp exp_oset_key(uid, type), do: to_key(uid, type, @mod_conf.key_prefix, "e")
+
+  # the session set maps sid's to sessions
+  defp old_session_set_key(uid, type), do: to_key(uid, type, @mod_conf.key_prefix, "se")
+
+  # the lock set maps sid's to session lock_version values
+  defp lock_set_key(uid, type), do: to_key(uid, type, @mod_conf.key_prefix, "l")
+
+  # create a key from a user_id, sessions type, prefix, and separator
+  defp to_key(uid, type, prefix, sep), do: "#{prefix}.#{sep}.#{uid}.#{type}"
+
+  defp insert(
+         session = %{
+           id: sid,
+           user_id: uid,
+           type: type,
+           lock_version: lock,
+           refresh_expires_at: exp
+         }
+       ) do
+    serialized_signed = session |> serialize() |> sign()
+    add_to_hash_set(old_session_set_key(uid, type), sid, serialized_signed)
+    add_to_hash_set(lock_set_key(uid, type), sid, lock)
+    add_to_oset(exp_oset_key(uid, type), exp, sid)
+  end
+
+  describe "migrate/1" do
+    setup do
+      u1_s1 = @user_session
+      u1_s2 = %{u1_s1 | id: "b", refresh_expires_at: @exp + 10, lock_version: 200}
+      # expired
+      u1_s3 = %{u1_s1 | id: "c", refresh_expires_at: @now}
+      u2_s1 = %{@user_session | id: "d", user_id: @uid + 1, lock_version: 300}
+      u2_s2 = %{u2_s1 | id: "e", refresh_expires_at: @exp + 20, lock_version: 400}
+
+      Enum.map([u1_s1, u1_s2, u1_s3, u2_s1, u2_s2], &insert/1)
+
+      [
+        u1_key: session_set_key(@uid, @user_session.type),
+        u2_key: session_set_key(@uid + 1, @user_session.type)
+      ]
+    end
+
+    test "all non-expired sessions are migrated", seeds do
+      assert :ok = MigrateV3.migrate_v3_to_v4(@config)
+
+      {:ok, keys} = RedisClient.command(["HKEYS", seeds.u1_key])
+      assert ["a", "b", "l.a", "l.b"] == Enum.sort(keys)
+
+      {:ok, keys} = RedisClient.command(["HKEYS", seeds.u2_key])
+      assert ["d", "e", "l.d", "l.e"] == Enum.sort(keys)
+    end
+
+    test "exp values are set", seeds do
+      assert :ok = MigrateV3.migrate_v3_to_v4(@config)
+
+      {:ok, exps} = RedisClient.command(["HEXPIRETIME", seeds.u1_key, "FIELDS", "2", "a", "b"])
+      assert [@exp, @exp + 10] == exps
+
+      {:ok, exps} = RedisClient.command(["HEXPIRETIME", seeds.u2_key, "FIELDS", "2", "d", "e"])
+      assert [@exp, @exp + 20] == exps
+    end
+
+    test "locks are set", seeds do
+      assert :ok = MigrateV3.migrate_v3_to_v4(@config)
+
+      {:ok, ~w(1 201)} = RedisClient.command(["HMGET", seeds.u1_key, "l.a", "l.b"])
+      {:ok, ~w(301 401)} = RedisClient.command(["HMGET", seeds.u2_key, "l.d", "l.e"])
+    end
+
+    test "all old datastructures are deleted" do
+      assert :ok = MigrateV3.migrate_v3_to_v4(@config)
+      {:ok, keys} = RedisClient.command(~w(KEYS *))
+      assert ["charon_.426.full", "charon_.427.full"] == Enum.sort(keys)
+    end
+  end
+end

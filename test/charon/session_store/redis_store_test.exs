@@ -45,7 +45,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   defp sign(binary), do: sign_hmac(binary, RedisStore.default_signing_key(@config))
   defp to_result({:ok, result}), do: result
   defp get_exp(key), do: command(["EXPIRETIME", key]) |> to_result()
-  defp add_to_hash_set(set_k, k, v), do: 1 = command(["HSET", set_k, k, v]) |> to_result()
+  defp add_to_hash_set(set_k, k, v), do: command(["HSET", set_k, k, v]) |> to_result()
   defp add_session_set(k, v), do: add_to_hash_set(@session_set_key, k, v)
   defp get_hash_set(set_k, k), do: command(["HGET", set_k, k]) |> to_result()
   defp get_session_set(k), do: get_hash_set(@session_set_key, k)
@@ -92,6 +92,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "returns deserialized session" do
       insert(@user_session)
       assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
+    end
+
+    test "returns deserialized session when lock not found" do
+      session = %{@user_session | lock_version: 100}
+      insert(session)
+      assert 1 = command(["HDEL", @session_set_key, @lock_key]) |> to_result()
+      assert session == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "ignores unsigned session" do
@@ -223,6 +230,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert capture_log(fn ->
                assert [@user_session] == RedisStore.get_all(@uid, :full, @config)
              end) =~ "Ignored Redis session"
+    end
+
+    test "returns deserialized session when lock not found" do
+      session = %{@user_session | lock_version: 100}
+      insert(session)
+      assert 1 = command(["HDEL", @session_set_key, @lock_key]) |> to_result()
+      assert [session] == RedisStore.get_all(@uid, :full, @config)
     end
   end
 
