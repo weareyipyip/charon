@@ -183,6 +183,12 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert "1" == get_session_set(@lock_key)
       assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
+
+    test "get-update passes opt locking" do
+      assert :ok = RedisStore.upsert(@user_session, @config)
+      session = RedisStore.get(@sid, @uid, :full, @config)
+      assert :ok = RedisStore.upsert(session, @config)
+    end
   end
 
   describe "delete/4" do

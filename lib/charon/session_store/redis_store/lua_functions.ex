@@ -16,12 +16,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     On a locking success:
      - the serialized `session` is stored under its `sid` in `session_set_key`
-     - the session's `expires_at` value is stored under the session's `sid` in `exp_oset_key`
-     - the session's `lock_version` is stored under the session's `sid` in `lock_set_key`
-     - the expiration timestamp of all sets is increased to `expires_at`
-
-    Returns: `[n1, n2, n3, m1, m2, m3]` with n being the number of elements added to a respective set,
-    and m being the result of calling EXPIREAT (with GT modifier) on that set.
+     - `lock_version` is stored under `l.sid` in `session_set_key`
     """
     @spec opt_lock_upsert_cmd(iodata, iodata, iodata, integer, iodata, integer) ::
             [integer] | binary()
