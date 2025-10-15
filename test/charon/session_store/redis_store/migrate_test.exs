@@ -1,12 +1,13 @@
-defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
+defmodule Charon.SessionStore.RedisStore.MigrateTest do
   use ExUnit.Case
   import ExUnit.CaptureLog
-  alias Charon.SessionStore.RedisStore.MigrateV3
+  alias Charon.SessionStore.RedisStore.Migrate
   alias Charon.SessionStore.RedisStore
   import Charon.{TestUtils, Internal}
   import Charon.Internal.Crypto
   alias Charon.{TestConfig}
   alias RedisStore.{RedisClient}
+  require Logger
 
   @ttl 100
   @now now()
@@ -92,7 +93,7 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
     end
 
     test "all non-expired sessions are migrated", seeds do
-      assert %{count: 5, failed: 0} = MigrateV3.migrate_v3_to_v4(@config)
+      assert %{count: 5, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
 
       {:ok, keys} = RedisClient.command(["HKEYS", seeds.u1_key])
       assert ["a", "b", "l.a", "l.b"] == Enum.sort(keys)
@@ -105,7 +106,7 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
     end
 
     test "exp values are set", seeds do
-      assert %{count: 5, failed: 0} = MigrateV3.migrate_v3_to_v4(@config)
+      assert %{count: 5, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
 
       {:ok, exps} = RedisClient.command(["HEXPIRETIME", seeds.u1_key, "FIELDS", "2", "a", "b"])
       assert [@exp, @exp + 10] == exps
@@ -115,16 +116,27 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
     end
 
     test "locks are set", seeds do
-      assert %{count: 5, failed: 0} = MigrateV3.migrate_v3_to_v4(@config)
+      assert %{count: 5, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
 
-      {:ok, ~w(1 201)} = RedisClient.command(["HMGET", seeds.u1_key, "l.a", "l.b"])
-      {:ok, ~w(301 401)} = RedisClient.command(["HMGET", seeds.u2_key, "l.d", "l.e"])
+      {:ok, ~w(0 200)} = RedisClient.command(["HMGET", seeds.u1_key, "l.a", "l.b"])
+      {:ok, ~w(300 400)} = RedisClient.command(["HMGET", seeds.u2_key, "l.d", "l.e"])
     end
 
     test "all old datastructures are deleted" do
-      assert %{count: 5, failed: 0} = MigrateV3.migrate_v3_to_v4(@config)
+      assert %{count: 5, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
       {:ok, keys} = RedisClient.command(~w(KEYS *))
       assert ["charon_.426.full", "charon_.427.full"] == Enum.sort(keys)
+    end
+
+    test "is idempotent", seeds do
+      assert %{count: 5, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
+      assert %{count: 0, failed: 0} = Migrate.migrate_v3_to_v4!(@config)
+
+      {:ok, keys} = RedisClient.command(["HKEYS", seeds.u1_key])
+      assert ["a", "b", "l.a", "l.b"] == Enum.sort(keys)
+
+      {:ok, keys} = RedisClient.command(["HKEYS", seeds.u2_key])
+      assert ["d", "e", "l.d", "l.e"] == Enum.sort(keys)
     end
 
     test "handles invalid sessions gracefully", seeds do
@@ -135,7 +147,7 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
       add_to_oset(exp_oset_key(u2_s3.user_id, u2_s3.type), @exp, "f")
 
       assert capture_log(fn ->
-               assert %{count: 6, failed: 1} = MigrateV3.migrate_v3_to_v4(@config)
+               assert %{count: 6, failed: 1} = Migrate.migrate_v3_to_v4!(@config)
              end) =~ "Ignored Redis session"
 
       {:ok, keys} = RedisClient.command(["HKEYS", seeds.u2_key])
@@ -147,9 +159,10 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
   end
 
   describe "migrate/1 bulk" do
-    test "works with 10k sessions" do
-      uids = 1000
-      sids_per_user = 10
+    test "works with many users and sessions" do
+      uids = 5000
+      sids_per_user = 5
+      session_n = uids * sids_per_user
 
       for uid <- 1..uids,
           sid <- 1..sids_per_user do
@@ -159,7 +172,13 @@ defmodule Charon.SessionStore.RedisStore.MigrateV3Test do
       |> Stream.chunk_every(1000)
       |> Enum.each(&insert/1)
 
-      assert %{count: uids * sids_per_user, failed: 0} == MigrateV3.migrate_v3_to_v4(@config)
+      start = System.monotonic_time(:millisecond)
+
+      assert %{count: session_n, failed: 0} == Migrate.migrate_v3_to_v4!(@config)
+
+      stop = System.monotonic_time(:millisecond)
+      Logger.debug("Migrated #{session_n} sessions in #{stop - start}ms")
+
       {:ok, keys} = RedisClient.command(~w(KEYS *))
       assert Enum.count(keys) == uids
     end

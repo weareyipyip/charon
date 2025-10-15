@@ -8,7 +8,7 @@
 
   - Requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands.
   - Simplified implementation that relies on expiring hash fields. This means a single datastructure (instead of 3) now holds a user's sessions, and only a single Redis function is needed instead of several.
-  - Added `Charon.SessionStore.RedisStore.MigrateV3.migrate_v3_to_v4/1` to facilitate the upgrade. The function should be called during a maintenance window to avoid losing sessions.
+  - Added `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4/1` to facilitate the upgrade. The function should be called during a maintenance window to avoid losing sessions.
 
 - `Charon.TokenFactory.Jwt`
 

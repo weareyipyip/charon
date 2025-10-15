@@ -333,8 +333,8 @@ defmodule Charon.TokenPlugs do
   """
   @spec verify_token_claim(Conn.t(), {String.t(), (Conn.t(), any() -> Conn.t() | binary())}) ::
           Conn.t()
-  def verify_token_claim(conn, _claim_and_verifier = {claim, func}),
-    do: verify_claim(conn, claim, func)
+  def verify_token_claim(conn, _claim_and_verifier = {claim, verifier}),
+    do: verify_claim(conn, claim, verifier)
 
   @doc """
   Make sure that no previous plug of this module added an auth error.
@@ -513,8 +513,8 @@ defmodule Charon.TokenPlugs do
   @spec verify_session_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
   def verify_session_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
-  def verify_session_payload(conn = %{private: %{@session => session}}, func) do
-    func.(conn, session) |> maybe_add_error(conn)
+  def verify_session_payload(conn = %{private: %{@session => session}}, verifier) do
+    verifier.(conn, session) |> maybe_add_error(conn)
   end
 
   def verify_session_payload(_, _opts), do: raise("must be used after load_session/2")
@@ -540,8 +540,8 @@ defmodule Charon.TokenPlugs do
   @spec verify_token_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
   def verify_token_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
-  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, func) do
-    func.(conn, payload) |> maybe_add_error(conn)
+  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, verifier) do
+    verifier.(conn, payload) |> maybe_add_error(conn)
   end
 
   def verify_token_payload(_, _), do: raise("must be used after verify_token_signature/2")
@@ -601,10 +601,10 @@ defmodule Charon.TokenPlugs do
   defp auth_header_to_token(["Bearer: " <> token | _]), do: token
   defp auth_header_to_token(_), do: nil
 
-  defp verify_claim(conn, claim, func) do
+  defp verify_claim(conn, claim, verifier) do
     verify_token_payload(conn, fn _conn, payload ->
       case payload do
-        %{^claim => value} -> func.(conn, value)
+        %{^claim => value} -> verifier.(conn, value)
         _ -> "bearer token claim #{claim} not found"
       end
     end)

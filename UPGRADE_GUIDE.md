@@ -9,7 +9,7 @@ If you use `Charon.SessionStore.RedisStore` you must do the following before upg
 1. Prepare a maintenance window during which no session write operations take place (or risk an in-place data migration, with the possibility of some sessions being lost).
 1. Update Charon to 4.x.
 1. Upgrade your Redis instance to 8.x.x or Valkey to 9.x.x.
-1. Run `Charon.SessionStore.RedisStore.MigrateV3.migrate_v3_to_v4/1`.
+1. Run `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4/1`.
 
 ### JWT changes
 
