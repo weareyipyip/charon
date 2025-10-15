@@ -48,15 +48,13 @@ defmodule Charon.SessionStore.RedisStore.Migrate do
     |> Stream.chunk_every(sessions_per_user * batch_size)
     |> Enum.reduce(%{count: 0, failed: 0}, fn sessions, acc ->
       sessions
-      |> Enum.reduce({acc, _to_del = %{}, _to_ins = []}, fn serialized, {acc, to_del, to_ins} ->
+      |> Enum.reduce({acc, _to_migrate = %{}}, fn serialized, {acc, to_migrate} ->
         acc = inc_map(acc, :count)
 
         with s = %{} <- serialized |> verify_signature(signing_key) |> maybe_deserialize() do
-          to_del = put_map_group(to_del, {s.user_id, s.type}, s.id)
-          to_ins = [{s, serialized} | to_ins]
-          {acc, to_del, to_ins}
+          {acc, put_map_group(to_migrate, {s.user_id, s.type}, {s, serialized})}
         else
-          _ -> {inc_map(acc, :failed), to_del, to_ins}
+          _ -> {inc_map(acc, :failed), to_migrate}
         end
       end)
       |> then(&migrate(&1, prefix, conn))
@@ -71,32 +69,35 @@ defmodule Charon.SessionStore.RedisStore.Migrate do
   defp inc_map(map, key), do: %{map | key => Map.fetch!(map, key) + 1}
   defp put_map_group(map, k, v), do: Map.update(map, k, [v], &[v | &1])
 
-  defp migrate({acc, to_delete, to_insert}, prefix, conn) do
-    delete_cmds = delete_cmds(to_delete, prefix)
-    insert_cmds = insert_cmds(to_insert, prefix)
-    cmds = delete_cmds ++ insert_cmds
-    {:ok, _} = RedisClient.conn_transaction_pipeline(cmds, conn, true)
+  defp migrate({acc, to_migrate}, prefix, conn) do
+    {:ok, _} =
+      to_migrate
+      |> Enum.flat_map(fn {{uid, type}, sessions} ->
+        uid = to_string(uid)
+        type = Atom.to_string(type)
+        ssk = [prefix, ?., uid, ?., type]
+        old_ssk = [prefix, ".se.", uid, ?., type]
+        old_locks_key = [prefix, ".l.", uid, ?., type]
+        old_exps_key = [prefix, ".e.", uid, ?., type]
+
+        insert_cmds = Enum.map(sessions, &insert_cmds(&1, ssk))
+        sids = Enum.map(sessions, fn {s, _} -> s.id end)
+
+        [
+          ["HDEL", old_ssk | sids],
+          ["HDEL", old_locks_key | sids],
+          ["ZREM", old_exps_key | sids]
+          | insert_cmds
+        ]
+      end)
+      |> RedisClient.conn_transaction_pipeline(conn, true)
+
     acc
   end
 
-  defp delete_cmds(to_delete, prefix) do
-    Enum.flat_map(to_delete, fn {{uid, type}, ids} ->
-      uid = to_string(uid)
-      type = Atom.to_string(type)
-      ssk = [prefix, ".se.", uid, ?., type]
-      locks_key = [prefix, ".l.", uid, ?., type]
-      exps_key = [prefix, ".e.", uid, ?., type]
-
-      [["HDEL", ssk | ids], ["HDEL", locks_key | ids], ["ZREM", exps_key | ids]]
-    end)
-  end
-
-  defp insert_cmds(to_insert, prefix) do
-    Enum.map(to_insert, fn {session = %{id: sid}, serialized} ->
-      ssk = [prefix, ?., to_string(session.user_id), ?., Atom.to_string(session.type)]
-      exp = Integer.to_string(session.refresh_expires_at)
-      lock = Integer.to_string(session.lock_version)
-      ["HSETEX", ssk, "EXAT", exp, "FIELDS", "2", sid, serialized, "l.#{sid}", lock]
-    end)
+  defp insert_cmds({session = %{id: sid}, serialized}, ssk) do
+    exp = Integer.to_string(session.refresh_expires_at)
+    lock = Integer.to_string(session.lock_version)
+    ["HSETEX", ssk, "EXAT", exp, "FIELDS", "2", sid, serialized, ["l.", sid], lock]
   end
 end
