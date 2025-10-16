@@ -45,7 +45,8 @@ defmodule Charon.MixProject do
       {:plug, "~> 1.11"},
       {:poolboy, "~> 1.5", optional: true},
       {:redix, "~> 1.1", optional: true},
-      {:jason, "~> 1.0", only: [:test]}
+      {:jason, "~> 1.0", only: [:test]},
+      {:telemetry, "~> 1.0", optional: true}
     ]
   end
 

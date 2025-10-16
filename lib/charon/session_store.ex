@@ -8,10 +8,19 @@ defmodule Charon.SessionStore do
   """
   @behaviour __MODULE__.Behaviour
   alias Charon.Models.Session
+  alias Charon.Telemetry
 
   @impl true
   def delete(session_id, user_id, type, config) do
     config.session_store_module.delete(session_id, user_id, type, config)
+    |> tap(fn
+      :ok ->
+        %{session_id: session_id, user_id: user_id, session_type: type}
+        |> Telemetry.emit_session_delete()
+
+      _ ->
+        :ok
+    end)
   end
 
   @impl true
@@ -40,5 +49,9 @@ defmodule Charon.SessionStore do
   @impl true
   def delete_all(user_id, type, config) do
     config.session_store_module.delete_all(user_id, type, config)
+    |> tap(fn
+      :ok -> Telemetry.emit_session_delete_all(%{user_id: user_id, session_type: type})
+      _ -> :ok
+    end)
   end
 end

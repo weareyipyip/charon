@@ -18,6 +18,8 @@ Charon is an extensible auth framework for Elixir. The base package provides tok
     - [Protecting routes](#protecting-routes)
     - [Logging in, logging out and refreshing](#logging-in-logging-out-and-refreshing)
     - [Testing](#testing)
+    - [CSRF protection](#csrf-protection)
+    - [Telemetry](#telemetry)
   - [Copyright and License](#copyright-and-license)
 
 <!-- /TOC -->
@@ -35,6 +37,7 @@ Charon is an extensible auth framework for Elixir. The base package provides tok
 - Sessions are managed by a session store behaviour with a default implementation using Redis / Valkey.
 - Flexible configuration that does not (have to) depend on the application environment.
 - Small number of dependencies.
+- Built-in `:telemetry` integration for monitoring session lifecycle events.
 
 ## Child packages
 
@@ -318,7 +321,22 @@ The need for CSRF protection depends on your usecase:
 
 **For WebSockets**: Make sure you check the socket origin (Phoenix takes care of this by default).
 
-Last but not least, Charon defaults to using `SameSite=strict` cookies to provide defense-in-depth, but this is not sufficient by itself to prevent all CSRF attacks.
+Charon defaults to using `SameSite=strict` cookies to provide defense-in-depth, but this is not sufficient by itself to prevent all CSRF attacks.
+
+### Telemetry
+
+Charon emits [`:telemetry`](https://hexdocs.pm/telemetry) events for session lifecycle operations, allowing you to monitor and track authentication activity in your application.
+
+The following events are available:
+
+- `[:charon, :session, :create]` - Emitted when a new session is created
+- `[:charon, :session, :refresh]` - Emitted when an existing session is refreshed
+- `[:charon, :session, :delete]` - Emitted when a session is deleted
+- `[:charon, :session, :delete_all]` - Emitted when all sessions of a user are deleted
+
+All events include a `count` measurement (always 1) and metadata such as `session_id`, `user_id`, `session_type`, and `token_transport`.
+
+For more details, see the `Charon.Telemetry` module documentation.
 
 ## Copyright and License
 
