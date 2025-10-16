@@ -9,11 +9,15 @@ If you use `Charon.SessionStore.RedisStore` you must do the following before upg
 1. Prepare a maintenance window during which no session write operations take place (or risk an in-place data migration, with the possibility of some sessions being lost).
 1. Update Charon to 4.x.
 1. Upgrade your Redis instance to 8.x.x or Valkey to 9.x.x.
-1. Run `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4/1`.
+1. Run `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4!/1`.
 
 ### JWT changes
 
 JWT's signed with Blake3 keyed hashing are no longer supported because the Elixir Blake3 library is unmaintained. If you use this algorithm to sign your JWTs, you must migrate away from it. This can be done by replacing the key in the keyset, but that means you log out all existing sessions, which may or may not be a problem. However, Charon support cycling your keys gracefully: take a look at `Charon.TokenFactory.Jwt`.
+
+### Browser clients using `:bearer` token transport
+
+Config option `:enforce_browser_cookies` has been flipped to true, as a secure default. This can cause problems if you have browser clients that use `:bearer` token transport (which they shouldn't). Make sure your browser clients request `:cookie` or `:cookie_only` tokens, and protect them against [CSRF](./README.md#csrf-protection).
 
 ### Deprecated functions
 

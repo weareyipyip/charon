@@ -30,14 +30,15 @@ defmodule Charon.SessionPlugs do
   If a new session is created, options `:user_id` and `:token_transport` must be provided or an error will be raised.
 
   The token transport can be:
-   - `:cookie_only` - tokens are returned to the client as cookies
-   - `:cookie` - tokens' signatures are split from the tokens and sent as http-only strictly-same-site secure cookies
-   - `:bearer` - tokens are left as-is for the implementing application to return to the client
+   - `:cookie_only` - *full* tokens are returned to the client as cookies
+   - `:cookie` - *partial* tokens are returned to the client as cookies (only the tokens' signature, the rest should be sent in the response body)
+   - `:bearer` - no cookies are sent to the client, the tokens should be sent in the response body
+
+  Please read up on CSRF protection in [README](README.md#csrf-protection) when using cookies. The slightly awkward naming of `:cookie` and `:cookie_only` exists for legacy reasons and is kept for backwards compatibility.
 
   If config option `:enforce_browser_cookies` is enabled, browser clients will be attempted to be
   detected by the presence of (forbidden) header "Sec-Fetch-Mode", in which case only cookie-based
-  token transports will be allowed. This feature is experimental and disabled by default,
-  although this may change in a future release.
+  token transports will be allowed.
 
   Optionally, it is possible to add extra claims to the access- and refresh tokens or to store extra payload in the server-side session.
 
