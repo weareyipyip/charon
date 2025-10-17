@@ -3,10 +3,5 @@ defmodule Charon.Utils.KeygeneratorTest do
   alias Charon.Utils.KeyGenerator
   import KeyGenerator
 
-  setup do
-    :persistent_term.erase(KeyGenerator)
-    :ok
-  end
-
   doctest KeyGenerator
 end

@@ -4,17 +4,17 @@
 
 ### Breaking
 
-- Config option `:enforce_browser_cookies` has been flipped to true, as a secure default. This can cause problems if you have browser clients that use `:bearer` token transport (which they shouldn't).
-
 - `Charon.SessionStore.RedisStore`
 
   - Requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands.
   - Simplified implementation that relies on expiring hash fields. This means a single datastructure (instead of 3) now holds a user's sessions, and only a single Redis function is needed instead of several.
   - Added `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4!/1` to facilitate the upgrade. The function should be called during a maintenance window to avoid losing sessions.
 
-- `Charon.TokenFactory.Jwt`
+- `Charon.TokenFactory.Jwt` dropped support for Blake3 (keyed hashing) signed JWTs, because the Elixir Blake3 lib is unmaintained. The factory now only support OTP `m::crypto`-backed algorithms.
 
-  - Dropped support for Blake3 (keyed hashing) signed JWTs, because the Elixir Blake3 lib is unmaintained. The factory now only support OTP `m::crypto`-backed algorithms.
+- Config option `:enforce_browser_cookies` has been flipped to true, as a secure default. This can cause problems if you have browser clients that use `:bearer` token transport (which they shouldn't).
+
+- `Charon.Utils.KeyGenerator` no longer caches keys in `m::persistent_term`. A simple cache helper has been added as `Charon.Utils.PersistentTermCache`. While caching of derived keys is often desirable, caching using `m::persistent_term` is not always appropriate; this should not be used for dynamically generated keys, for example, but only for create-once-use-often keys. Calling code should decide this for itself.
 
 - 3.x marked-deprecated functions have been removed:
 

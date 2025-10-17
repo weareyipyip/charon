@@ -131,7 +131,7 @@ defmodule Charon.TokenFactory.Jwt do
       iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
       iex> {:ok, _} = verify(token, config)
   """
-  import Charon.Utils.KeyGenerator
+  alias Charon.Utils.{KeyGenerator, PersistentTermCache}
   import __MODULE__.Config, only: [get_mod_config: 1]
   import Charon.Internal
   import Charon.Internal.Crypto
@@ -221,7 +221,10 @@ defmodule Charon.TokenFactory.Jwt do
   """
   @spec default_keyset(Charon.Config.t()) :: keyset()
   def default_keyset(config) do
-    %{"default" => {:hmac_sha256, derive_key(config.get_base_secret.(), "charon_jwt_default")}}
+    PersistentTermCache.get_or_create(__MODULE__, fn ->
+      default_key = KeyGenerator.derive_key(config.get_base_secret.(), "charon_jwt_default")
+      %{"default" => {_default_alg = :hmac_sha256, default_key}}
+    end)
   end
 
   ###########

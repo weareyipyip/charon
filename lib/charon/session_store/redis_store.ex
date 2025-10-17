@@ -95,7 +95,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @behaviour SessionStoreBehaviour
     alias Charon.{Config, Utils}
     alias __MODULE__.{LuaFunctions, ConnectionPool, StoreImpl}
-    import Utils.{KeyGenerator}
+    alias Utils.{KeyGenerator, PersistentTermCache}
     require Logger
 
     @doc """
@@ -153,7 +153,11 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     Get the default session signing key that is used if config option `:get_signing_key` is not set explicitly.
     """
     @spec default_signing_key(Config.t()) :: binary
-    def default_signing_key(config), do: derive_key(config.get_base_secret.(), "RedisStore HMAC")
+    def default_signing_key(config) do
+      PersistentTermCache.get_or_create(__MODULE__, fn ->
+        KeyGenerator.derive_key(config.get_base_secret.(), "RedisStore HMAC")
+      end)
+    end
   end
 else
   defmodule Charon.SessionStore.RedisStore do

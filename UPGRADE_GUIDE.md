@@ -7,7 +7,7 @@
 If you use `Charon.SessionStore.RedisStore` you must do the following before upgrading to 4.x:
 
 1. Prepare a maintenance window during which no session write operations take place (or risk an in-place data migration, with the possibility of some sessions being lost).
-1. Update Charon to 4.x.
+1. Upgrade Charon to 4.x.
 1. Upgrade your Redis instance to 8.x.x or Valkey to 9.x.x.
 1. Run `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4!/1`.
 
@@ -17,7 +17,11 @@ JWT's signed with Blake3 keyed hashing are no longer supported because the Elixi
 
 ### Browser clients using `:bearer` token transport
 
-Config option `:enforce_browser_cookies` has been flipped to true, as a secure default. This can cause problems if you have browser clients that use `:bearer` token transport (which they shouldn't). Make sure your browser clients request `:cookie` or `:cookie_only` tokens, and protect them against [CSRF](./README.md#csrf-protection).
+Config option `:enforce_browser_cookies` has been flipped to true, as a secure default. This can cause problems if you have browser clients that use `:bearer` token transport (which they shouldn't). Make sure your browser clients request `:cookie` or `:cookie_only` tokens, and protect them against [CSRF](./README.md#csrf-protection), or opt-out of the new, more secure default.
+
+### `Charon.Utils.KeyGenerator` no longer caches keys
+
+A simple cache helper has been added as `Charon.Utils.PersistentTermCache`. If you use `KeyGenerator`, be sure to cache the resulting keys using an appropriate mechanism. Caching using `m::persistent_term` should only be used for create-once-use-often keys, not dynamically generated keys.
 
 ### Deprecated functions
 
