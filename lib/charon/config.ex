@@ -8,13 +8,13 @@ defmodule Charon.Config do
   That being said, config that HAS to be read at runtime, like secrets,
   is stored as a getter to emphasize the fact and prevent you from accidentally setting
   a compile-time value even if you put the config struct in a module attribute.
-  That is why the base secret has to be passed in via `:get_base_secret`.
+  That is why the base secret has to be passed in via `:base_secret`.
 
   ## Keys & defaults
 
       [
         :token_issuer,
-        :get_base_secret,
+        :base_secret,
         access_cookie_name: "_access_token_signature",
         access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
         # 15 minutes
@@ -40,7 +40,7 @@ defmodule Charon.Config do
    - `:access_token_ttl` Time in seconds until a new access token expires. This time may be reduced so that the token does not outlive its session.
    - `:enforce_browser_cookies` If a browser client is detected, enforce that tokens are not returned to it as fully valid bearer tokens, but are transported (wholly or in part) as cookies. Please read up on CSRF protection in [README](README.md#csrf-protection) when using cookies.
    - `:gen_id` Either `:random` or a function that returns a binary. Generated IDs must be unique.
-   - `:get_base_secret` Getter for Charon's base secret from which other keys are derived. Make sure it has large entropy (>= 256 bits). For example `fn -> Application.get_env(:my_app, :charon_secret) end`.
+   - `:base_secret` Charon's base secret from which other keys are derived. Make sure it has large entropy (>= 256 bits secure random string). For example `Application.get_env(:my_app, :charon_secret)`.
    - `:json_module` The JSON module, like `Jason` or `Poison`.
    - `:optional_modules` Configuration for optional modules, like `Charon.TokenFactory.Jwt` or `CharonOauth2`. See the optional module's docs for info on its configuration options.
    - `:refresh_cookie_name` Name of the cookie in which the refresh token or its signature is stored.
@@ -51,10 +51,10 @@ defmodule Charon.Config do
    - `:token_factory_module` A module that implements `Charon.TokenFactory.Behaviour`, used to create and verify authentication tokens.
    - `:token_issuer` Value of the "iss" claim in tokens, for example "https://myapp.com"
   """
-  @enforce_keys [:token_issuer, :get_base_secret]
+  @enforce_keys [:token_issuer, :base_secret]
   defstruct [
     :token_issuer,
-    :get_base_secret,
+    :base_secret,
     access_cookie_name: "_access_token_signature",
     access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
     # 15 minutes
@@ -84,7 +84,7 @@ defmodule Charon.Config do
           access_token_ttl: pos_integer(),
           enforce_browser_cookies: boolean,
           gen_id: :random | (-> binary),
-          get_base_secret: (-> binary()),
+          base_secret: binary(),
           json_module: module(),
           optional_modules: map(),
           refresh_cookie_name: String.t(),
@@ -104,9 +104,9 @@ defmodule Charon.Config do
   ## Examples / doctests
 
       iex> from_enum([])
-      ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer, :get_base_secret]
+      ** (ArgumentError) the following keys must also be given when building struct Charon.Config: [:token_issuer, :base_secret]
 
-      iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp", get_base_secret: "supersecure")
+      iex> %Charon.Config{} = from_enum(token_issuer: "https://myapp", base_secret: "supersecure")
   """
   @spec from_enum(Enum.t()) :: t()
   def from_enum(enum) do
@@ -117,9 +117,19 @@ defmodule Charon.Config do
   # Private #
   ###########
 
-  defp process_optional_modules(config = %{optional_modules: opt_mods}) do
-    opt_mods
-    |> Map.new(fn {module, config} -> {module, module.init_config(config)} end)
-    |> then(fn initialized_opt_mods -> %{config | optional_modules: initialized_opt_mods} end)
+  defp process_optional_modules(config) do
+    config
+    |> add_store_defaults()
+    |> add_factory_defaults()
+    |> Map.get(:optional_modules, %{})
+    |> Enum.reduce(config, fn {module, _}, config -> module.init_config(config) end)
+  end
+
+  defp add_store_defaults(config = %{session_store_module: mod, optional_modules: opt_mods}) do
+    %{config | optional_modules: Map.put_new(opt_mods, mod, %{})}
+  end
+
+  defp add_factory_defaults(config = %{token_factory_module: mod, optional_modules: opt_mods}) do
+    %{config | optional_modules: Map.put_new(opt_mods, mod, %{})}
   end
 end

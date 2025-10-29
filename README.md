@@ -73,6 +73,7 @@ Configuration has been made easy using a config helper struct `Charon.Config`, w
 # Charon itself only requires a token issuer and a base secret getter.
 @my_config Charon.Config.from_enum(
              token_issuer: "MyApp",
+             # TODO: update
              get_base_secret: &MyApp.get_base_secret/0
            )
 

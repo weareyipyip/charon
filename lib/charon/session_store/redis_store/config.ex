@@ -4,25 +4,23 @@ defmodule Charon.SessionStore.RedisStore.Config do
   """
   alias Charon.SessionStore.RedisStore
   @enforce_keys []
-  defstruct key_prefix: "charon_",
-            get_signing_key: &RedisStore.default_signing_key/1
+  defstruct [
+    :redis_client_module,
+    key_prefix: "charon_",
+    get_signing_key: &RedisStore.default_signing_key/1
+  ]
 
   @type t :: %__MODULE__{
           key_prefix: String.t(),
           get_signing_key: (Charon.Config.t() -> binary())
         }
 
-  @doc """
-  Build config struct from enumerable (useful for passing in application environment).
-  Raises for missing mandatory keys and sets defaults for optional keys.
-  """
-  @spec from_enum(Enum.t()) :: t()
-  def from_enum(enum), do: struct!(__MODULE__, enum)
+  # def compile_init!(config) do
+  #   mod_conf = RedisStore.get_mod_conf(config)
+  #   mod_conf = struct!(__MODULE__, mod_conf) |> Map.from_struct()
+  #   if(!mod_conf.redis_client_module, do: raise(":redis_client_module must be set"))
+  #   Charon.OptMod.put_mod_conf(config, RedisStore, mod_conf)
+  # end
 
-  @doc """
-  Get the config for this module from the parent `Charon.Config` struct.
-  """
-  @spec get_mod_config(Charon.Config.t()) :: t()
-  def get_mod_config(_charon_config = %{optional_modules: %{RedisStore => config}}), do: config
-  def get_mod_config(_), do: from_enum([])
+  # def runtime_init!(config), do: compile_init!(config)
 end

@@ -2,6 +2,7 @@ defmodule Charon.SessionStore.DummyStore do
   @moduledoc """
   A dummy session store that can be used if fully stateless tokens are desired.
   """
+  use Charon.OptMod
   @behaviour Charon.SessionStore.Behaviour
 
   @impl true

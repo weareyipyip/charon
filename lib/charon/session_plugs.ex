@@ -184,8 +184,8 @@ defmodule Charon.SessionPlugs do
       ...> |> Map.get(:cookies)
       %{}
   """
-  @spec delete_session(Conn.t(), Config.t()) :: Conn.t()
-  def delete_session(conn, config) do
+  @spec delete_session(Conn.t(), Config.t(), keyword()) :: Conn.t()
+  def delete_session(conn, config, _opts \\ []) do
     conn
     |> tap(fn
       %{private: %{@bearer_token_payload => %{"sub" => uid, "sid" => sid, "styp" => type}}} ->

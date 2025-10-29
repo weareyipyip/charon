@@ -12,6 +12,7 @@ defmodule Charon.SessionStore.LocalStore do
       ]
 
   """
+  use Charon.OptMod
   use Agent
   @behaviour Charon.SessionStore.Behaviour
 

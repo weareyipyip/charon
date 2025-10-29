@@ -23,7 +23,8 @@ defmodule Charon.MixProject do
         source_ref: "main",
         extras: ~w(./README.md ./LICENSE.md ./UPGRADE_GUIDE.md ./CHANGELOG.md),
         main: "readme",
-        skip_undefined_reference_warnings_on: ~w(./UPGRADE_GUIDE.md ./CHANGELOG.md)
+        skip_undefined_reference_warnings_on: ~w(./UPGRADE_GUIDE.md ./CHANGELOG.md),
+        filter_modules: ~r(^Elixir.Charon.*)
       ]
     ]
   end
@@ -45,11 +46,12 @@ defmodule Charon.MixProject do
       {:plug, "~> 1.11"},
       {:poolboy, "~> 1.5", optional: true},
       {:redix, "~> 1.1", optional: true},
-      {:jason, "~> 1.0", only: [:test]},
+      {:jason, "~> 1.0", only: [:test, :dev]},
       {:telemetry, "~> 1.0", optional: true}
     ]
   end
 
+  defp elixirc_paths(:dev), do: ["lib", "test/support"]
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 end

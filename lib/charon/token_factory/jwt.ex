@@ -131,8 +131,8 @@ defmodule Charon.TokenFactory.Jwt do
       iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
       iex> {:ok, _} = verify(token, config)
   """
+  use Charon.OptMod
   alias Charon.Utils.{KeyGenerator, PersistentTermCache}
-  import __MODULE__.Config, only: [get_mod_config: 1]
   import Charon.Internal
   import Charon.Internal.Crypto
   @behaviour Charon.TokenFactory.Behaviour
@@ -152,12 +152,15 @@ defmodule Charon.TokenFactory.Jwt do
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
   @type symmetric_key :: {hmac_alg() | mac_alg(), binary()}
   @type key :: symmetric_key() | eddsa_keypair()
-  @type keyset :: %{required(String.t()) => key()}
+  @type keyset :: %{
+          required(:keys) => %{required(String.t()) => key()},
+          required(:signing_key) => String.t()
+        }
 
   @impl true
   def sign(payload, config) do
     jmod = config.json_module
-    mod_conf = get_mod_config(config)
+    mod_conf = get_mod_conf!(config)
     %{get_keyset: get_keyset, signing_key: kid} = mod_conf
 
     with {:ok, _key = {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
@@ -178,7 +181,7 @@ defmodule Charon.TokenFactory.Jwt do
   @impl true
   def verify(token, config) do
     jmod = config.json_module
-    %{get_keyset: get_keyset} = get_mod_config(config)
+    %{get_keyset: get_keyset} = get_mod_conf!(config)
 
     with [header, payload, signature] <- String.split(token, ".", parts: 3),
          {:ok, kid, nonce} <- process_header(header, jmod),
@@ -195,9 +198,6 @@ defmodule Charon.TokenFactory.Jwt do
       _ -> {:error, "malformed token"}
     end
   end
-
-  @doc false
-  def init_config(enum), do: __MODULE__.Config.from_enum(enum)
 
   @doc """
   Generate a new keypair for an asymmetrically signed JWT.
@@ -222,9 +222,16 @@ defmodule Charon.TokenFactory.Jwt do
   @spec default_keyset(Charon.Config.t()) :: keyset()
   def default_keyset(config) do
     PersistentTermCache.get_or_create(__MODULE__, fn ->
-      default_key = KeyGenerator.derive_key(config.get_base_secret.(), "charon_jwt_default")
+      default_key = KeyGenerator.derive_key(config.base_secret, "charon_jwt_default")
       %{"default" => {_default_alg = :hmac_sha256, default_key}}
     end)
+  end
+
+  @impl OptMod
+  def init_config(config) do
+    mod_conf = get_mod_conf(config)
+    mod_conf = struct!(__MODULE__.Config, mod_conf)
+    Charon.OptMod.put_mod_conf(config, __MODULE__, mod_conf)
   end
 
   ###########

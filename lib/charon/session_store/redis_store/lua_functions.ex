@@ -34,22 +34,14 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
       ]
     end
 
-    @doc """
-    Create a separate, out-of-pool redix connection and register the Redis Lua functions with it.
-    """
-    @spec register_functions(keyword) :: :ok
-    def register_functions(redix_opts) do
+    def register_functions_cmd() do
       with <<priv_dir::binary>> <- :code.priv_dir(:charon) |> to_string(),
-           {:ok, script} <- File.read(priv_dir <> "/redis_functions.lua"),
-           script = String.replace(script, "0.0.0+development", @hashed_version),
-           {:ok, temp_redix} <- Redix.start_link(redix_opts),
-           load_function_command = ["FUNCTION", "LOAD", "REPLACE", script],
-           {:ok, "charon_redis_store_#{@hashed_version}"} <-
-             Redix.command(temp_redix, load_function_command) do
-        Process.exit(temp_redix, :normal)
-        Logger.info("Redis functions registered successfully.")
+           {:ok, script} <- File.read(priv_dir <> "/redis_functions.lua") do
+        script = String.replace(script, "0.0.0+development", @hashed_version)
+        load_function_command = ["FUNCTION", "LOAD", "REPLACE", script]
+        %{expected_result: "charon_redis_store_#{@hashed_version}", cmd: load_function_command}
       else
-        error -> raise "Could not register Redis functions: #{inspect(error)}"
+        error -> raise "Could not read Redis functions: #{inspect(error)}"
       end
     end
   end
