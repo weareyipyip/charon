@@ -45,7 +45,9 @@ defmodule Charon.SessionStore.RedisStore.LuaFunctionsTest do
                )
                |> exec_cmd()
 
-      assert [@lock_key, "0", @sid, "session"] == exec_cmd(["HGETALL", @session_set_key])
+      assert %{@sid => "session", @lock_key => "0"} ==
+               exec_cmd(["HGETALL", @session_set_key]) |> get_all_to_map()
+
       assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
 
@@ -64,7 +66,9 @@ defmodule Charon.SessionStore.RedisStore.LuaFunctionsTest do
                )
                |> exec_cmd()
 
-      assert [@lock_key, "0", @sid, "session"] == exec_cmd(["HGETALL", @session_set_key])
+      assert %{@sid => "session", @lock_key => "0"} ==
+               exec_cmd(["HGETALL", @session_set_key]) |> get_all_to_map()
+
       assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
 
@@ -83,7 +87,9 @@ defmodule Charon.SessionStore.RedisStore.LuaFunctionsTest do
                )
                |> exec_cmd()
 
-      assert [@lock_key, "1", @sid, "new_session"] == exec_cmd(["HGETALL", @session_set_key])
+      assert %{@sid => "new_session", @lock_key => "1"} ==
+               exec_cmd(["HGETALL", @session_set_key]) |> get_all_to_map()
+
       assert [@exp + 10, @exp + 10] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
 
@@ -102,4 +108,6 @@ defmodule Charon.SessionStore.RedisStore.LuaFunctionsTest do
       assert -1 == get_exp(@session_set_key)
     end
   end
+
+  defp get_all_to_map(res), do: res |> Stream.chunk_every(2) |> Map.new(fn [k, v] -> {k, v} end)
 end

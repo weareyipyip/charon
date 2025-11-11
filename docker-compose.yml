@@ -14,7 +14,7 @@ services:
       REDIS_HOSTNAME: redis
 
   redis:
-    image: redis:8-alpine
+    image: valkey/valkey:9-alpine
     ports:
       - 6379:6379
 
