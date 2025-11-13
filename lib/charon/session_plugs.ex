@@ -5,7 +5,7 @@ defmodule Charon.SessionPlugs do
   """
   alias Plug.Conn
   require Logger
-  alias Charon.{Config, Internal, TokenFactory, SessionStore, Models, Telemetry}
+  alias Charon.{Config, Internal, TokenFactory, SessionStore, Models}
   use Internal.Constants
   import Internal.Crypto
   alias Models.{Session, Tokens}
@@ -232,7 +232,7 @@ defmodule Charon.SessionPlugs do
           refreshed_at: now
       }
       |> maybe_cycle_token_generation(conn, now)
-      |> on_upsert("REFRESHED", &Telemetry.emit_session_refresh/1)
+      |> on_upsert("REFRESHED")
     else
       %Session{
         created_at: now,
@@ -247,13 +247,12 @@ defmodule Charon.SessionPlugs do
         type: opts[:session_type] || :full,
         user_id: get_user_id!(conn, opts)
       }
-      |> on_upsert("CREATED", &Telemetry.emit_session_create/1)
+      |> on_upsert("CREATED")
     end
   end
 
-  defp on_upsert(session, event, telemetry_fun) do
+  defp on_upsert(session, event) do
     Logger.debug("#{event} session: #{inspect(session)}")
-    telemetry_fun.(session)
     session
   end
 

@@ -13,14 +13,7 @@ defmodule Charon.SessionStore do
   @impl true
   def delete(session_id, user_id, type, config) do
     config.session_store_module.delete(session_id, user_id, type, config)
-    |> tap(fn
-      :ok ->
-        %{session_id: session_id, user_id: user_id, session_type: type}
-        |> Telemetry.emit_session_delete()
-
-      _ ->
-        :ok
-    end)
+    |> emit_delete(session_id, user_id, type)
   end
 
   @impl true
@@ -43,15 +36,48 @@ defmodule Charon.SessionStore do
 
   @impl true
   def upsert(session, config) do
-    config.session_store_module.upsert(session, config)
+    config.session_store_module.upsert(session, config) |> emit_upsert(session)
   end
 
   @impl true
   def delete_all(user_id, type, config) do
     config.session_store_module.delete_all(user_id, type, config)
-    |> tap(fn
-      :ok -> Telemetry.emit_session_delete_all(%{user_id: user_id, session_type: type})
-      _ -> :ok
-    end)
+    |> emit_delete_all(user_id, type)
   end
+
+  ###########
+  # Private #
+  ###########
+
+  @compile {:inline, [emit_delete: 4, emit_upsert: 2, to_metadata: 1, emit_delete_all: 3]}
+
+  defp emit_delete(:ok = res, id, uid, type) do
+    %{session_id: id, user_id: uid, session_type: type} |> Telemetry.emit_session_delete()
+    res
+  end
+
+  defp emit_delete(res, _, _, _), do: res
+
+  defp emit_upsert(:ok = res, session) when session.created_at == session.refreshed_at do
+    session |> to_metadata() |> Telemetry.emit_session_create()
+    res
+  end
+
+  defp emit_upsert(:ok = res, session) do
+    session |> to_metadata() |> Telemetry.emit_session_refresh()
+    res
+  end
+
+  defp emit_upsert(res, _), do: res
+
+  defp to_metadata(session) do
+    %{session_id: session.id, user_id: session.user_id, session_type: session.type}
+  end
+
+  defp emit_delete_all(:ok = res, uid, type) do
+    %{user_id: uid, session_type: type} |> Telemetry.emit_session_delete_all()
+    res
+  end
+
+  defp emit_delete_all(res, _, _), do: res
 end

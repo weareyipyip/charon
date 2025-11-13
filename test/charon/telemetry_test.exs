@@ -61,8 +61,7 @@ defmodule Charon.TelemetryTest do
 
   describe "session refresh telemetry" do
     test "should emit refresh event when refreshing an existing session" do
-      # Create a session first
-      session = test_session(user_id: 1, id: "test-session", refresh_expires_at: 9_999_999_999)
+      session = test_session(user_id: 1, id: "test-session", created_at: 1)
 
       conn()
       |> Conn.put_private(@session, session)
@@ -79,7 +78,7 @@ defmodule Charon.TelemetryTest do
   describe "session delete telemetry" do
     test "should emit delete event when deleting a session" do
       # Create and store a session
-      session = test_session(user_id: 1, id: "test-session", refresh_expires_at: 9_999_999_999)
+      session = test_session(user_id: 1, id: "test-session")
       Charon.SessionStore.upsert(session, @config)
 
       conn()

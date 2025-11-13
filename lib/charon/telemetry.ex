@@ -87,24 +87,15 @@ defmodule Charon.Telemetry do
         end
       end
   """
-  alias Charon.Models.Session
 
   @doc false
-  # Emits a telemetry event for session creation.
-  def emit_session_create(session = %Session{}) do
-    session |> session_to_metadata() |> emit_session_create()
-  end
-
+  # Emits a telemetry event for session creation
   def emit_session_create(metadata) do
     :telemetry.execute([:charon, :session, :create], %{count: 1}, metadata)
   end
 
   @doc false
   # Emits a telemetry event for session refresh.
-  def emit_session_refresh(session = %Session{}) do
-    session |> session_to_metadata() |> emit_session_refresh()
-  end
-
   def emit_session_refresh(metadata) do
     :telemetry.execute([:charon, :session, :refresh], %{count: 1}, metadata)
   end
@@ -119,14 +110,5 @@ defmodule Charon.Telemetry do
   # Emits a telemetry event for bulk session deletion.
   def emit_session_delete_all(metadata) do
     :telemetry.execute([:charon, :session, :delete_all], %{count: 1}, metadata)
-  end
-
-  ###########
-  # Private #
-  ###########
-
-  @compile {:inline, [session_to_metadata: 1]}
-  defp session_to_metadata(session) do
-    %{session_id: session.id, user_id: session.user_id, session_type: session.type}
   end
 end
