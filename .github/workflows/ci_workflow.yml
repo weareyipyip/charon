@@ -13,7 +13,7 @@ jobs:
 
     services:
       redis:
-        image: valkey/valkey:alpine
+        image: valkey/valkey:9-alpine
         ports:
           - 6379:6379
 
