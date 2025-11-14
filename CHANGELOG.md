@@ -29,6 +29,10 @@
 
   - Config option `:gen_id` now allows overriding the session / access token / refresh token ID generator. The default remains the same - a 128-bits random url64-encoded string. Generated IDs _must_ be unique and must be a binary.
 
+- `Charon.TokenPlugs`
+
+  - `get_token_from_cookie/2` no longer checks if a previously found bearer token ends in a dot. If both the authorization-header and the cookie are set, the cookie contents are always appended to the bearer token. Because signature verification will fail if the result is not a valid JWT, there was no added security benefit to the check.
+
 ## 3.4.1
 
 - Fix a Blake3-related compiler warning.

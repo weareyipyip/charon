@@ -95,7 +95,11 @@ defmodule Charon.TokenPlugs do
   def get_token_from_auth_header(conn, _opts) do
     conn
     |> get_req_header("authorization")
-    |> auth_header_to_token()
+    |> case do
+      ["Bearer " <> token | _] -> token
+      ["Bearer: " <> token | _] -> token
+      _ -> nil
+    end
     |> case do
       not_found when not_found in [nil, ""] -> conn
       token -> put_private(conn, %{@bearer_token => token, @token_transport => :bearer})
@@ -103,27 +107,25 @@ defmodule Charon.TokenPlugs do
   end
 
   @doc """
-  Get the token or token signature from a cookie, if:
-   - no bearer token was previously found by `get_token_from_auth_header/2`
-   - OR the bearer token ends with ".", in which case the cookie contents are appended to it
+  Get the token or token signature from a cookie.
+  If a bearer token was previously found by `get_token_from_auth_header/2`, the cookie contents are appended to it.
 
   ## Doctests
 
-      # cookie is appended to a bearer token that ends with "."
-      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
+      # if no cookie is set, the bearer token is left unmolested
+      iex> conn = conn() |> set_token("token") |> put_private(@token_transport, :bearer)
+      iex> conn = conn |> get_token_from_cookie("c")
+      iex> conn |> Utils.get_token_transport()
+      :bearer
+      iex> conn |> Utils.get_bearer_token()
+      "token"
+      # cookie is appended to a bearer token
+      iex> conn = conn |> put_req_cookie("c", ".sig") |> fetch_cookies()
       iex> conn = conn |> get_token_from_cookie("c")
       iex> conn |> Utils.get_token_transport()
       :cookie
       iex> conn |> Utils.get_bearer_token()
       "token.sig"
-
-      # cookie is ignored if a bearer token is present that does not end with "."
-      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      nil
-      iex> conn |> Utils.get_bearer_token()
-      "token"
 
       # cookie contents are used as token if no bearer token was found previously
       iex> conn = conn() |> put_req_cookie("c", "cookie token") |> fetch_cookies()
@@ -138,23 +140,15 @@ defmodule Charon.TokenPlugs do
   def get_token_from_cookie(conn, _cookie_name) when is_map_key(conn.private, @auth_error),
     do: conn
 
-  def get_token_from_cookie(conn = %{private: private}, cookie_name) do
-    with %{^cookie_name => cookie} <- conn.cookies do
-      bearer_token = Map.get(private, @bearer_token)
-
-      cond do
-        bearer_token && String.ends_with?(bearer_token, ".") ->
-          token = bearer_token <> cookie
-          put_private(conn, %{@token_transport => :cookie, @bearer_token => token})
-
-        bearer_token ->
-          conn
-
-        true ->
-          put_private(conn, %{@token_transport => :cookie_only, @bearer_token => cookie})
+  def get_token_from_cookie(conn, cookie_name) do
+    if cookie = Map.get(conn.cookies, cookie_name) do
+      if bearer_token = Map.get(conn.private, @bearer_token) do
+        put_private(conn, %{@token_transport => :cookie, @bearer_token => bearer_token <> cookie})
+      else
+        put_private(conn, %{@token_transport => :cookie_only, @bearer_token => cookie})
       end
     else
-      _ -> conn
+      conn
     end
   end
 
@@ -635,10 +629,6 @@ defmodule Charon.TokenPlugs do
   ###########
   # Private #
   ###########
-
-  defp auth_header_to_token(["Bearer " <> token | _]), do: token
-  defp auth_header_to_token(["Bearer: " <> token | _]), do: token
-  defp auth_header_to_token(_), do: nil
 
   defp verify_claim(conn, claim, verifier) do
     verify_token_payload(conn, fn _conn, payload ->

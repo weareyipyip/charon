@@ -123,7 +123,9 @@ defmodule Charon.SessionPlugsTest do
         |> put_private(%{@token_transport => :bearer})
         |> upsert_session(@config, token_transport: :cookie)
 
-      assert %{} == conn.resp_cookies
+      # Cookies are deleted when bearer transport is used
+      assert %{max_age: 0} = conn.resp_cookies[@config.access_cookie_name]
+      assert %{max_age: 0} = conn.resp_cookies[@config.refresh_cookie_name]
     end
 
     @dont_enforce_cookie_cfg %{@config | enforce_browser_cookies: false}
@@ -166,6 +168,56 @@ defmodule Charon.SessionPlugsTest do
 
       assert %{id: "123", refresh_token_id: "123"} = Utils.get_session(conn)
       assert %{"jti" => "123"} = Utils.get_tokens(conn).access_token |> peek_payload()
+    end
+
+    test "should delete cookies when creating new bearer token session" do
+      conn =
+        conn()
+        |> Plug.Test.put_req_cookie(@config.access_cookie_name, "old_access_sig")
+        |> Plug.Test.put_req_cookie(@config.refresh_cookie_name, "old_refresh_sig")
+        |> upsert_session(@config, user_id: @uid, token_transport: :bearer)
+
+      # Cookies should be deleted (max_age: 0)
+      assert %{max_age: 0} = conn.resp_cookies[@config.access_cookie_name]
+      assert %{max_age: 0} = conn.resp_cookies[@config.refresh_cookie_name]
+    end
+
+    test "should delete cookies when refreshing bearer token session" do
+      conn =
+        conn()
+        |> Plug.Test.put_req_cookie(@config.access_cookie_name, "old_access_sig")
+        |> Plug.Test.put_req_cookie(@config.refresh_cookie_name, "old_refresh_sig")
+        |> Utils.set_session(@user_session)
+        |> put_private(%{@token_transport => :bearer})
+        |> upsert_session(@config)
+
+      # Cookies should be deleted (max_age: 0)
+      assert %{max_age: 0} = conn.resp_cookies[@config.access_cookie_name]
+      assert %{max_age: 0} = conn.resp_cookies[@config.refresh_cookie_name]
+    end
+
+    test "should set cookies when creating cookie token session" do
+      conn =
+        conn()
+        |> upsert_session(@config, user_id: @uid, token_transport: :cookie)
+
+      # Cookies should be set with positive max_age
+      assert %{max_age: max_age_access} = conn.resp_cookies[@config.access_cookie_name]
+      assert %{max_age: max_age_refresh} = conn.resp_cookies[@config.refresh_cookie_name]
+      assert max_age_access > 0
+      assert max_age_refresh > 0
+    end
+
+    test "should set cookies when creating cookie_only token session" do
+      conn =
+        conn()
+        |> upsert_session(@config, user_id: @uid, token_transport: :cookie_only)
+
+      # Cookies should be set with positive max_age
+      assert %{max_age: max_age_access} = conn.resp_cookies[@config.access_cookie_name]
+      assert %{max_age: max_age_refresh} = conn.resp_cookies[@config.refresh_cookie_name]
+      assert max_age_access > 0
+      assert max_age_refresh > 0
     end
   end
 end
