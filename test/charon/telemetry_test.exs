@@ -9,6 +9,10 @@ defmodule Charon.TelemetryTest do
 
   @config Charon.TestConfig.get()
 
+  def telemetry_handler(event_name, measurements, metadata, _config) do
+    send(self(), {:telemetry, event_name, measurements, metadata})
+  end
+
   setup do
     start_supervised!(Charon.SessionStore.LocalStore)
 
@@ -19,11 +23,12 @@ defmodule Charon.TelemetryTest do
         [:charon, :session, :create],
         [:charon, :session, :refresh],
         [:charon, :session, :delete],
-        [:charon, :session, :delete_all]
+        [:charon, :session, :delete_all],
+        [:charon, :session, :lock_conflict],
+        [:charon, :token, :valid],
+        [:charon, :token, :invalid]
       ],
-      fn event_name, measurements, metadata, _config ->
-        send(self(), {:telemetry, event_name, measurements, metadata})
-      end,
+      &__MODULE__.telemetry_handler/4,
       nil
     )
 
@@ -115,6 +120,29 @@ defmodule Charon.TelemetryTest do
     end
   end
 
+  describe "session lock_conflict telemetry" do
+    test "should emit lock_conflict event when session update conflicts" do
+      # Create a session with lock_version 0
+      session = test_session(user_id: 1, id: "test-session", lock_version: 0)
+
+      # Store it (this increments lock_version to 1 in the store)
+      assert :ok = Charon.SessionStore.upsert(session, @config)
+
+      # Clear the create event from mailbox
+      assert_receive {:telemetry, [:charon, :session, :create], _, _}
+
+      # Try to upsert the same session with outdated lock_version (0)
+      # This should cause a conflict and emit the lock_conflict event
+      assert {:error, :conflict} = Charon.SessionStore.upsert(session, @config)
+
+      assert_receive {:telemetry, [:charon, :session, :lock_conflict], measurements, metadata}
+      assert measurements == %{count: 1}
+      assert metadata.session_id == "test-session"
+      assert metadata.user_id == 1
+      assert metadata.session_type == :full
+    end
+  end
+
   describe "telemetry module functions" do
     test "emit_session_create/1 executes telemetry event" do
       metadata = %{
@@ -166,6 +194,77 @@ defmodule Charon.TelemetryTest do
       Charon.Telemetry.emit_session_delete_all(metadata)
 
       assert_receive {:telemetry, [:charon, :session, :delete_all], measurements, ^metadata}
+      assert measurements == %{count: 1}
+    end
+
+    test "emit_session_lock_conflict/1 executes telemetry event" do
+      metadata = %{
+        session_id: "test-session-id",
+        user_id: 123,
+        session_type: :full
+      }
+
+      Charon.Telemetry.emit_session_lock_conflict(metadata)
+
+      assert_receive {:telemetry, [:charon, :session, :lock_conflict], measurements, ^metadata}
+      assert measurements == %{count: 1}
+    end
+
+    test "emit_token_valid/1 executes telemetry event with minimal metadata" do
+      metadata = %{
+        session_loaded: false,
+        token_transport: :bearer
+      }
+
+      Charon.Telemetry.emit_token_valid(metadata)
+
+      assert_receive {:telemetry, [:charon, :token, :valid], measurements, ^metadata}
+      assert measurements == %{count: 1}
+    end
+
+    test "emit_token_valid/1 executes telemetry event with full metadata" do
+      metadata = %{
+        session_loaded: true,
+        token_transport: :cookie,
+        token_type: "access",
+        user_id: 123,
+        session_id: "test-session-id",
+        session_type: "full"
+      }
+
+      Charon.Telemetry.emit_token_valid(metadata)
+
+      assert_receive {:telemetry, [:charon, :token, :valid], measurements, ^metadata}
+      assert measurements == %{count: 1}
+    end
+
+    test "emit_token_invalid/1 executes telemetry event with error" do
+      metadata = %{
+        session_loaded: false,
+        token_transport: :bearer,
+        error: "bearer token signature invalid"
+      }
+
+      Charon.Telemetry.emit_token_invalid(metadata)
+
+      assert_receive {:telemetry, [:charon, :token, :invalid], measurements, ^metadata}
+      assert measurements == %{count: 1}
+    end
+
+    test "emit_token_invalid/1 executes telemetry event with full metadata" do
+      metadata = %{
+        session_loaded: true,
+        token_transport: :cookie_only,
+        error: "bearer token expired",
+        token_type: "refresh",
+        user_id: 456,
+        session_id: "expired-session-id",
+        session_type: "oauth2"
+      }
+
+      Charon.Telemetry.emit_token_invalid(metadata)
+
+      assert_receive {:telemetry, [:charon, :token, :invalid], measurements, ^metadata}
       assert measurements == %{count: 1}
     end
   end

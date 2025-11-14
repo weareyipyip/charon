@@ -32,6 +32,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
         plug :verify_token_claim_equals, {"type", "access"}
+        plug :emit_telemetry
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
       end
@@ -51,6 +52,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_claim_equals, {"type", "refresh"}
         plug :load_session, @config
         plug :verify_token_fresh, 10
+        plug :emit_telemetry
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
       end
@@ -335,6 +337,43 @@ defmodule Charon.TokenPlugs do
           Conn.t()
   def verify_token_claim(conn, _claim_and_verifier = {claim, verifier}),
     do: verify_claim(conn, claim, verifier)
+
+  @doc """
+  Emit telemetry events after token verification.
+  Should be placed immediately before `verify_no_auth_error/2` in the pipeline.
+  See `m:Charon.Telemetry#module-token-events` for details on the emitted events.
+  """
+  @doc since: "4.0.0"
+  @spec emit_telemetry(Conn.t(), Plug.opts()) :: Conn.t()
+  def emit_telemetry(conn = %{private: private}, _opts) do
+    %{
+      session_loaded: is_map_key(private, @session),
+      token_transport: Map.get(private, @token_transport)
+    }
+    |> add_token_metadata(private)
+    |> do_emit_telemetry(private)
+
+    conn
+  end
+
+  defp add_token_metadata(
+         metadata,
+         _private = %{
+           @bearer_token_payload => %{"type" => type, "sub" => uid, "sid" => sid, "styp" => stype}
+         }
+       ) do
+    Map.merge(metadata, %{token_type: type, user_id: uid, session_id: sid, session_type: stype})
+  end
+
+  defp add_token_metadata(metadata, _), do: metadata
+
+  defp do_emit_telemetry(metadata, _private = %{@auth_error => error}) do
+    metadata |> Map.put(:error, error) |> Charon.Telemetry.emit_token_invalid()
+  end
+
+  defp do_emit_telemetry(metadata, _) do
+    Charon.Telemetry.emit_token_valid(metadata)
+  end
 
   @doc """
   Make sure that no previous plug of this module added an auth error.

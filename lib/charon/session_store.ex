@@ -68,6 +68,11 @@ defmodule Charon.SessionStore do
     res
   end
 
+  defp emit_upsert({:error, :conflict} = res, session) do
+    session |> to_metadata() |> Telemetry.emit_session_lock_conflict()
+    res
+  end
+
   defp emit_upsert(res, _), do: res
 
   defp to_metadata(session) do
