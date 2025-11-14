@@ -16,7 +16,7 @@ defmodule Charon.SessionStore.RedisStore.Migrate do
 
   This is a (relatively) slow operation that iterates keys in the instance and does not guarantee atomicity.
   The function IS atomic for each batch, i.e. not all data may be migrated if new sessions are created during a migration run, but users whose sessions ARE migrated, are migrated completely.
-  Regardless, it is recommeded that this function is executed during a maintenance window.
+  Regardless, it is recommended that this function is executed during a maintenance window.
 
   ## Options
 

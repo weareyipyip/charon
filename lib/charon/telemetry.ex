@@ -1,4 +1,5 @@
 defmodule Charon.Telemetry do
+  @moduledoc since: "4.0.0"
   @moduledoc """
   Telemetry integration for Charon.
 

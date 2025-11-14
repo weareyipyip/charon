@@ -59,6 +59,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @doc """
     Execute a list of Redis commands as a MULTI/EXEC transaction using any connection from `Charon.SessionStore.RedisStore.ConnectionPool`.
     """
+    @doc since: "4.0.0"
     @spec transaction_pipeline([command], boolean, keyword) :: redix_result
     def transaction_pipeline(commands, debug_log? \\ false, redix_opts \\ []) do
       ConnectionPool.transaction(&conn_transaction_pipeline(commands, &1, debug_log?, redix_opts))
@@ -73,6 +74,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     combined with `Charon.SessionStore.RedisStore.ConnectionPool.checkin/1`
     to return the connection to the pool.
     """
+    @doc since: "4.0.0"
     @spec conn_transaction_pipeline([command], connection, boolean, keyword) :: redix_result
     def conn_transaction_pipeline(commands, conn, debug_log? \\ false, redix_opts \\ []) do
       Redix.transaction_pipeline(conn, commands, redix_opts)
@@ -83,7 +85,13 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     Execute Redis' SCAN command and stream the results.
 
     Options `:type`, `:count` and `:match` can be passed in and map to the command's [options](https://redis.io/docs/latest/commands/scan/). Note that using count only influences the batch size in which results are returned by Redis, and results are streamed one-by-one regardless.
+
+    ## Examples
+
+        iex> stream_scan(match: "myprefix.*") |> Enum.map(&Function.identity/1)
+        ["myprefix.a", "myprefix.b"]
     """
+    @doc since: "4.0.0"
     @spec stream_scan(keyword()) :: Enum.t()
     def stream_scan(opts \\ []) do
       cmd_opts = prefix_opts(opts, ~w(type count match)a)

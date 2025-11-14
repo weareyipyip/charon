@@ -1,4 +1,5 @@
 defmodule Charon.Utils.PersistentTermCache do
+  @moduledoc since: "4.0.0"
   @moduledoc """
   Cache things using `m::persistent_term`. Be careful when using this; `m::persistent_term` is only suitable for very read-heavy storage, to the point the cached item should probably be write-once-read-often.
   """

@@ -19,7 +19,7 @@ defmodule Charon.Config do
         access_cookie_opts: [http_only: true, same_site: "Strict", secure: true],
         # 15 minutes
         access_token_ttl: 15 * 60,
-        enforce_browser_cookies: false,
+        enforce_browser_cookies: true,
         gen_id: :random,
         json_module: Jason,
         optional_modules: %{},

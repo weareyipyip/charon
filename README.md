@@ -310,7 +310,7 @@ end
 
 ### CSRF protection
 
-The need for CSRF protection depends on your usecase:
+The need for CSRF protection depends on your use case:
 
 - Only applicable for browser clients
 - Only applicable when returning the full tokens in cookies (`Charon.SessionPlugs.upsert_session/3` option `token_transport: :cookie_only`)

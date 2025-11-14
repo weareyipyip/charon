@@ -17,7 +17,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     ## Redis requirements
 
-    This module needs a Redis >= 7.0.0 instance and needs permissions to create Redis functions.
+    This module requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands, and needs permissions to create Redis functions.
     The optimistic-locking functionality of the store was not designed with a Redis cluster in mind
     and will behave unpredictably when used with a distributed Redis deployment.
     Using a failover-replica should be fine, however.
