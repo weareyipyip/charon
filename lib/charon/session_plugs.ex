@@ -355,7 +355,7 @@ defmodule Charon.SessionPlugs do
   end
 
   defp split_signature(token) do
-    [header, payload, signature] = String.split(token, ".", parts: 3)
+    [header, payload, signature] = Internal.dot_split(token, parts: 3)
     {"#{header}.#{payload}", ".#{signature}"}
   end
 

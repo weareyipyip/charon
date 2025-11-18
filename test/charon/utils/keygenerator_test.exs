@@ -12,7 +12,7 @@ defmodule Charon.Utils.KeygeneratorTest do
     test "logs function calls at specified level" do
       for lvl <- ~w(info warning error)a do
         log = capture_log(fn -> derive_key("secret", "test", iterations: 1, log: lvl) end)
-        assert log =~ "deriving key (salt: test)"
+        assert log =~ "Deriving key (salt: test)"
       end
     end
 

@@ -180,7 +180,7 @@ defmodule Charon.TokenFactory.Jwt do
     jmod = config.json_module
     %{get_keyset: get_keyset} = get_mod_config(config)
 
-    with [header, payload, signature] <- String.split(token, ".", parts: 3),
+    with [header, payload, signature] <- dot_split(token, parts: 3),
          {:ok, kid, nonce} <- process_header(header, jmod),
          {:ok, signature} <- url_decode(signature),
          {:ok, {alg, secret}} <- config |> get_keyset.() |> get_key(kid),

@@ -18,10 +18,6 @@ defmodule Charon.Utils.PersistentTermCache do
   """
   @spec get_or_create(term(), (-> term())) :: term()
   def get_or_create(key, create) do
-    if cached = :persistent_term.get(key, nil) do
-      cached
-    else
-      create.() |> tap(&:persistent_term.put(key, &1))
-    end
+    :persistent_term.get(key, nil) || create.() |> tap(&:persistent_term.put(key, &1))
   end
 end

@@ -28,10 +28,19 @@ defmodule Charon.Utils.KeyGenerator do
   """
   @spec derive_key(binary(), binary(), opts()) :: binary()
   def derive_key(base_secret, salt, opts \\ []) do
-    if l = Keyword.get(opts, :log, :warning), do: Logger.log(l, "deriving key (salt: #{salt})")
+    Keyword.get(opts, :log, :warning) |> maybe_log(salt)
     length = opts[:length] || 32
     digest = opts[:digest] || :sha256
     iterations = opts[:iterations] || 250_000
     :crypto.pbkdf2_hmac(digest, base_secret, salt, iterations, length)
+  end
+
+  defp maybe_log(false, _), do: :ok
+
+  defp maybe_log(level, salt) do
+    message =
+      "Deriving key (salt: #{salt}). Key derivation is expensive and you should cache the result. Call with `log: false` to silence this warning."
+
+    Logger.log(level, message)
   end
 end
