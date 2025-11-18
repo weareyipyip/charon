@@ -43,7 +43,7 @@
 
 ## 3.3.0
 
-- Require Elixir 1.14
+- Require Elixir 1.16
 - Support Poly1305-signed JWTs by passing a key with type `:poly1305` to `Charon.TokenFactory.Jwt`.
 - Default to `JSON` instead of `Jason` on Elixir >= 1.18
 
