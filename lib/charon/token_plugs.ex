@@ -32,6 +32,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
         plug :verify_token_claim_equals, {"type", "access"}
+        plug :emit_telemetry
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
       end
@@ -51,6 +52,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_claim_equals, {"type", "refresh"}
         plug :load_session, @config
         plug :verify_token_fresh, 10
+        plug :emit_telemetry
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
       end
@@ -68,32 +70,32 @@ defmodule Charon.TokenPlugs do
 
   ## Doctests
 
-      iex> conn = conn() |> put_req_header("authorization", "Bearer aaa")
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      nil
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_token_transport()
-      :bearer
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_bearer_token()
-      "aaa"
+      iex> conn = conn() |> put_req_header("authorization", "Bearer aaa") |> get_token_from_auth_header([])
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {"aaa", :bearer}
 
       # missing auth header
-      iex> conn = conn()
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      nil
+      iex> conn = conn() |> get_token_from_auth_header([])
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {nil, nil}
 
       # auth header format must be correct
-      iex> conn = conn() |> put_req_header("authorization", "boom")
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_bearer_token()
-      nil
-      iex> conn = conn() |> put_req_header("authorization", "Bearer ")
-      iex> conn |> get_token_from_auth_header([]) |> Utils.get_auth_error()
-      nil
+      iex> conn = conn() |> put_req_header("authorization", "boom") |> get_token_from_auth_header([])
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {nil, nil}
+      iex> conn = conn() |> put_req_header("authorization", "Bearer ") |> get_token_from_auth_header([])
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {nil, nil}
   """
   @spec get_token_from_auth_header(Conn.t(), any) :: Conn.t()
   def get_token_from_auth_header(conn, _opts) do
     conn
     |> get_req_header("authorization")
-    |> auth_header_to_token()
+    |> case do
+      ["Bearer " <> token | _] -> token
+      ["Bearer: " <> token | _] -> token
+      _ -> nil
+    end
     |> case do
       not_found when not_found in [nil, ""] -> conn
       token -> put_private(conn, %{@bearer_token => token, @token_transport => :bearer})
@@ -101,84 +103,57 @@ defmodule Charon.TokenPlugs do
   end
 
   @doc """
-  Get the token or token signature from a cookie, if:
-   - no bearer token was previously found by `get_token_from_auth_header/2`
-   - OR the bearer token ends with ".", in which case the cookie contents are appended to it
+  Get the token or token signature from a cookie.
+
+  If a bearer token was previously found by `get_token_from_auth_header/2`, the cookie contents are appended to it if:
+  - the cookie starts with a dot
+  - the token ends in a dot (for backwards compatibility)
 
   ## Doctests
 
-      # cookie is appended to a bearer token that ends with "."
-      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      :cookie
-      iex> conn |> Utils.get_bearer_token()
-      "token.sig"
-
-      # cookie is ignored if a bearer token is present that does not end with "."
-      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      nil
-      iex> conn |> Utils.get_bearer_token()
-      "token"
+      # if no cookie is set the bearer token is left unchanged
+      iex> conn = conn() |> put_req_header("authorization", "Bearer token") |> get_token_from_auth_header([]) |> fetch_cookies() |> get_token_from_cookie("c")
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {"token", :bearer}
 
       # cookie contents are used as token if no bearer token was found previously
-      iex> conn = conn() |> put_req_cookie("c", "cookie token") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      :cookie_only
-      iex> conn |> Utils.get_bearer_token()
-      "cookie token"
+      iex> conn = conn() |> put_req_cookie("c", "cookie token") |> fetch_cookies() |> get_token_from_cookie("c")
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {"cookie token", :cookie_only}
+
+      # the bearer token and cookie are concatenated if they respectively end in or start with a dot
+      iex> conn = conn() |> put_req_header("authorization", "Bearer token") |> get_token_from_auth_header([]) |> put_req_cookie("c", ".sig") |> fetch_cookies() |> get_token_from_cookie("c")
+      iex> {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+      {"token.sig", :cookie}
   """
   @doc since: "3.1.0"
   @spec get_token_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_from_cookie(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def get_token_from_cookie(conn, _cookie_name) when is_map_key(conn.private, @auth_error),
+    do: conn
 
-  def get_token_from_cookie(conn = %{private: private}, cookie_name) do
-    with %{^cookie_name => cookie} <- conn.cookies do
-      bearer_token = Map.get(private, @bearer_token)
+  def get_token_from_cookie(conn, cookie_name) do
+    cookie = Map.get(conn.cookies, cookie_name)
+    bearer_token = Map.get(conn.private, @bearer_token)
 
-      cond do
-        bearer_token && String.ends_with?(bearer_token, ".") ->
-          token = bearer_token <> cookie
-          put_private(conn, %{@token_transport => :cookie, @bearer_token => token})
+    cond do
+      # there's no cookie
+      !cookie ->
+        conn
 
-        bearer_token ->
-          conn
+      # there's only a cookie
+      !bearer_token ->
+        put_private(conn, %{@token_transport => :cookie_only, @bearer_token => cookie})
 
-        true ->
-          put_private(conn, %{@token_transport => :cookie_only, @bearer_token => cookie})
-      end
-    else
-      _ -> conn
+      # both a cookie and a token present, check to see if we need to concatenate
+      # TODO: remove String.ends_with?/2 call after 18-11-2026 (it's there for backwards compatibility)
+      match?(<<".", _::binary>>, cookie) or String.ends_with?(bearer_token, ".") ->
+        put_private(conn, %{@token_transport => :cookie, @bearer_token => bearer_token <> cookie})
+
+      # ignore the cookie
+      true ->
+        conn
     end
   end
-
-  @doc """
-  Appends the specified cookie's content to the bearer token, if the cookie is present and the token ends with a "." character.
-  Must be used after `get_token_from_auth_header/2`.
-
-  ## Doctests
-
-      iex> conn = conn() |> set_token("token.") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      :cookie
-      iex> conn |> Utils.get_bearer_token()
-      "token.sig"
-
-      # cookie is ignored if bearer token does not end with .
-      iex> conn = conn() |> set_token("token") |> put_req_cookie("c", "sig") |> fetch_cookies()
-      iex> conn = conn |> get_token_from_cookie("c")
-      iex> conn |> Utils.get_token_transport()
-      nil
-      iex> conn |> Utils.get_bearer_token()
-      "token"
-  """
-  @deprecated "Use get_token_from_cookie/2."
-  @spec get_token_sig_from_cookie(Conn.t(), String.t()) :: Conn.t()
-  def get_token_sig_from_cookie(conn, opts), do: get_token_from_cookie(conn, opts)
 
   @doc """
   Verify that the bearer token found by `get_token_from_auth_header/2` is signed correctly.
@@ -201,7 +176,8 @@ defmodule Charon.TokenPlugs do
       "bearer token not found"
   """
   @spec verify_token_signature(Conn.t(), Config.t()) :: Conn.t()
-  def verify_token_signature(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def verify_token_signature(conn, _charon_config) when is_map_key(conn.private, @auth_error),
+    do: conn
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
     with {:ok, payload} <- TokenFactory.verify(token, config) do
@@ -328,7 +304,7 @@ defmodule Charon.TokenPlugs do
     do: verify_token_claim_in(conn, {claim, [expected]})
 
   @doc """
-  Generically verify that the bearer token payload contains `claim` and that its value matches `func`. The function must return the conn or an error message.
+  Verify that the bearer token payload contains `claim` and that its value matches `verifier`. The function must return the conn or an error message.
   Must be used after `verify_token_signature/2`.
 
   ## Doctests
@@ -356,8 +332,45 @@ defmodule Charon.TokenPlugs do
   """
   @spec verify_token_claim(Conn.t(), {String.t(), (Conn.t(), any() -> Conn.t() | binary())}) ::
           Conn.t()
-  def verify_token_claim(conn, _claim_and_verifier = {claim, func}),
-    do: verify_claim(conn, claim, func)
+  def verify_token_claim(conn, _claim_and_verifier = {claim, verifier}),
+    do: verify_claim(conn, claim, verifier)
+
+  @doc """
+  Emit telemetry events after token verification.
+  Should be placed immediately before `verify_no_auth_error/2` in the pipeline.
+  See `m:Charon.Telemetry#module-token-events` for details on the emitted events.
+  """
+  @doc since: "4.0.0"
+  @spec emit_telemetry(Conn.t(), Plug.opts()) :: Conn.t()
+  def emit_telemetry(conn = %{private: private}, _opts) do
+    %{
+      session_loaded: is_map_key(private, @session),
+      token_transport: Map.get(private, @token_transport)
+    }
+    |> add_token_metadata(private)
+    |> do_emit_telemetry(private)
+
+    conn
+  end
+
+  defp add_token_metadata(
+         metadata,
+         _private = %{
+           @bearer_token_payload => %{"type" => type, "sub" => uid, "sid" => sid, "styp" => stype}
+         }
+       ) do
+    Map.merge(metadata, %{token_type: type, user_id: uid, session_id: sid, session_type: stype})
+  end
+
+  defp add_token_metadata(metadata, _), do: metadata
+
+  defp do_emit_telemetry(metadata, _private = %{@auth_error => error}) do
+    metadata |> Map.put(:error, error) |> Charon.Telemetry.emit_token_invalid()
+  end
+
+  defp do_emit_telemetry(metadata, _) do
+    Charon.Telemetry.emit_token_valid(metadata)
+  end
 
   @doc """
   Make sure that no previous plug of this module added an auth error.
@@ -409,7 +422,7 @@ defmodule Charon.TokenPlugs do
       ** (RuntimeError) must be used after verify_token_signature/2
   """
   @spec load_session(Conn.t(), Config.t()) :: Conn.t()
-  def load_session(conn = %{private: %{@auth_error => _}}, _), do: conn
+  def load_session(conn, _charon_config) when is_map_key(conn.private, @auth_error), do: conn
 
   def load_session(conn = %{private: %{@bearer_token_payload => payload}}, config) do
     with %{"sub" => uid, "sid" => sid, "styp" => type} <- payload,
@@ -427,46 +440,48 @@ defmodule Charon.TokenPlugs do
   @doc """
   Verify that the token (either access or refresh) is fresh.
 
-  A token is fresh if it belongs to the current or previous "refresh token generation".
-  A generation is a set of tokens that is created within a "cycle TTL"
-  amount of seconds from when the generation is first created.
-  A new generation is created after the cycle TTL expires.
+  A token is fresh if it belongs to the *current or previous* refresh generation.
+  A generation is a set of tokens that is created within `new_cycle_after` seconds after the first token in the generation is created.
+  A token created after `new_cycle_after` seconds starts a new generation.
 
-  So a token must be "fresh", but because of refresh race conditions caused by
+  It would be simpler to just have a single fresh (refresh) token. However, because of refresh race conditions caused by
   network issues or misbehaving clients, enforcing only a single fresh token causes too many problems in practice.
+
+  In addition to this generation mechanism, 5 seconds of clock drift are allowed.
 
   Must be used after `load_session/2`. Verify the token type with `verify_token_claim_equals/2`.
 
   ## Freshness example
 
   New cycle is created 5 seconds after the generation's first token is created,
-  and token ttl is 24h (so irrelevant in this example).
+  and token TTL is 24h (which is irrelevant in this example).
 
-  | When | New gen | Fresh tokens | Created token | Current gen (timestamp) | Previous gen | Comment                                                                            |
-  |------|---------|--------------|---------------|-------------------------|--------------|------------------------------------------------------------------------------------|
-  | 0    |         | -            | A             | A (0)                   | -            | Login                                                                              |
-  | 10   | y       | A            | B             | B (10)                  | A            | Refresh after cycle TTL of A, [A] becomes prev gen                              |
-  | 11   |         | A, B         | C             | B, C (10)               | A            | Refresh race within cycle TTL of B                                              |
-  | 12   |         | A, B, C      | D             | B, C, D (10)            | A            | Refresh race within cycle TTL of B                                              |
-  | 20   | y       | B, C, D      | E             | E (20)                  | B, C, D      | Refresh after cycle TTL of B, so [A] is now stale, and [B,C,D] becomes prev gen |
-  | 30   | y       | E            | F             | F (30)                  | E            | Refresh after cycle TTL of E, so [B,C,D] is now stale, [E] becomes prev gen     |
-
+  | Time | Token | Current gen   | Previous gen  | Fresh   | Comment                                                           |
+  |------|-------|---------------|---------------|---------|-------------------------------------------------------------------|
+  | 0    | A     | g1 (0): A     | -             | A       | Login, initial token generation g1 of the session is created.     |
+  | 10   | B     | g2 (10): B    | g1 (0): A     | A, B    | Refresh after g1 expires, g1 becomes prev gen                     |
+  | 12   | C     | g2 (10): B, C | g1 (0): A     | A, B, C | Refresh before g2 expires, C added to current gen                 |
+  | 20   | D     | g3 (20): D    | g2 (10): B, C | B, C, D | Refresh after g2 expires, g1 is now stale and g2 becomes prev gen |
+  | 30   | E     | g4 (30): E    | g3 (20): D    | D, E    | Refresh after g3 expires, g2 is now stale and g3 becomes prev gen |
 
   ## Doctests
 
       # some clock drift is allowed
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now, prev_tokens_fresh_from: now - 10}) |> set_token_payload(%{"iat" => now - 11})
-      iex> nil = conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      iex> conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
 
       # if current gen is still within the cycle TTL, tokens from both it and previous gen are "fresh"
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
-      iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
       # tokens are invalid from: iat < now - 10 (*previous* gen age) - 5 (max clock drift)
-      # younger-than-previous-gen-and-clock-drift token is valid
-      iex> nil = conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # older-than-previous-gen-and-clock-drift token is invalid
+      # younger-than-previous-gen-plus-clock-drift token is valid
+      iex> conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # older-than-previous-gen-plus-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
       # no generation cycle will take place
@@ -477,10 +492,12 @@ defmodule Charon.TokenPlugs do
       # tokens are invalid from: iat < now - 10 (*current* gen age) - 5 (max clock drift)
       iex> now = Internal.now()
       iex> conn = conn() |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
-      iex> nil = conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # younger-than-current-gen-and-clock-drift token is valid
-      iex> nil = conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
-      # older-than-current-gen-and-clock-drift token is invalid
+      iex> conn |> set_token_payload(%{"iat" => now}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # younger-than-current-gen-plus-clock-drift token is valid
+      iex> conn |> set_token_payload(%{"iat" => now - 15}) |> verify_token_fresh(5) |> Utils.get_auth_error()
+      nil
+      # older-than-current-gen-plus-clock-drift token is invalid
       iex> conn |> set_token_payload(%{"iat" => now - 16}) |> verify_token_fresh(5) |> Utils.get_auth_error()
       "token stale"
       # a generation cycle will occur
@@ -512,8 +529,8 @@ defmodule Charon.TokenPlugs do
   end
 
   @doc """
-  Generically verify the bearer token payload.
-  The validation function `func` must return the conn or an error message.
+  Verify the session payload.
+  The validation function `verifier` must return the conn or an error message.
   Must be used after `load_session/2`.
 
   ## Doctests
@@ -530,17 +547,17 @@ defmodule Charon.TokenPlugs do
       ** (RuntimeError) must be used after load_session/2
   """
   @spec verify_session_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
-  def verify_session_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+  def verify_session_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
-  def verify_session_payload(conn = %{private: %{@session => session}}, func) do
-    func.(conn, session) |> maybe_add_error(conn)
+  def verify_session_payload(conn = %{private: %{@session => session}}, verifier) do
+    verifier.(conn, session) |> maybe_add_error(conn)
   end
 
   def verify_session_payload(_, _opts), do: raise("must be used after load_session/2")
 
   @doc """
-  Generically verify the bearer token payload.
-  The validation function `func` must return the conn or an error message.
+  Verify the bearer token payload.
+  The validation function `verifier` must return the conn or an error message.
   Must be used after `verify_token_signature/2`.
 
   ## Doctests
@@ -556,17 +573,18 @@ defmodule Charon.TokenPlugs do
       iex> conn() |> verify_token_payload(fn conn, _pl -> conn end)
       ** (RuntimeError) must be used after verify_token_signature/2
   """
+  @compile {:inline, verify_token_payload: 2}
   @spec verify_token_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
-  def verify_token_payload(conn = %{private: %{@auth_error => _}}, _func), do: conn
+  def verify_token_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
-  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, func) do
-    func.(conn, payload) |> maybe_add_error(conn)
+  def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, verifier) do
+    verifier.(conn, payload) |> maybe_add_error(conn)
   end
 
   def verify_token_payload(_, _), do: raise("must be used after verify_token_signature/2")
 
   @doc """
-  Verify that the bearer token payload contains `claim`, *which is assumed to be an `:ordset`*,
+  Verify that the bearer token payload contains `claim`, *which is assumed to be an `m::ordsets`*,
   and that `ordset` (*which is also assumed to be either an ordset or a single element*)
    is a subset of that ordset.
 
@@ -616,14 +634,10 @@ defmodule Charon.TokenPlugs do
   # Private #
   ###########
 
-  defp auth_header_to_token(["Bearer " <> token | _]), do: token
-  defp auth_header_to_token(["Bearer: " <> token | _]), do: token
-  defp auth_header_to_token(_), do: nil
-
-  defp verify_claim(conn, claim, func) do
+  defp verify_claim(conn, claim, verifier) do
     verify_token_payload(conn, fn _conn, payload ->
       case payload do
-        %{^claim => value} -> func.(conn, value)
+        %{^claim => value} -> verifier.(conn, value)
         _ -> "bearer token claim #{claim} not found"
       end
     end)

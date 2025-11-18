@@ -126,33 +126,46 @@ defmodule Charon.SessionPlugsTest do
       assert %{} == conn.resp_cookies
     end
 
-    @enforce_cookie_config %{@config | enforce_browser_cookies: true}
+    @dont_enforce_cookie_cfg %{@config | enforce_browser_cookies: false}
 
     test "cookie token transport is enforced for browser clients when config enforce_browser_cookies is set" do
       # config option not enabled
       conn()
       |> Conn.put_req_header("sec-fetch-mode", "boom")
-      |> upsert_session(@config, token_transport: :bearer, user_id: 1)
+      |> upsert_session(@dont_enforce_cookie_cfg, token_transport: :bearer, user_id: 1)
 
       assert_raise InsecureTokenTransportError, fn ->
         conn()
         |> Conn.put_req_header("sec-fetch-mode", "boom")
-        |> upsert_session(@enforce_cookie_config, token_transport: :bearer, user_id: 1)
+        |> upsert_session(@config, token_transport: :bearer, user_id: 1)
       end
     end
 
     test "cookie transports are allowed when config enforce_browser_cookies is set" do
       conn()
       |> Conn.put_req_header("sec-fetch-mode", "boom")
-      |> upsert_session(@enforce_cookie_config, token_transport: :cookie, user_id: 1)
+      |> upsert_session(@config, token_transport: :cookie, user_id: 1)
 
       conn()
       |> Conn.put_req_header("sec-fetch-mode", "boom")
-      |> upsert_session(@enforce_cookie_config, token_transport: :cookie_only, user_id: 1)
+      |> upsert_session(@config, token_transport: :cookie_only, user_id: 1)
     end
 
     test "bearer transport is allowed when config enforce_browser_cookies is set but not a browser" do
-      upsert_session(conn(), @enforce_cookie_config, token_transport: :bearer, user_id: 1)
+      upsert_session(conn(), @config, token_transport: :bearer, user_id: 1)
+    end
+
+    test "should allow use :gen_id config option for session/refresh/access id" do
+      conn =
+        conn()
+        |> upsert_session(
+          %{@config | gen_id: fn -> "123" end},
+          user_id: @uid,
+          token_transport: :bearer
+        )
+
+      assert %{id: "123", refresh_token_id: "123"} = Utils.get_session(conn)
+      assert %{"jti" => "123"} = Utils.get_tokens(conn).access_token |> peek_payload()
     end
   end
 end

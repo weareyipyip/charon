@@ -17,7 +17,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
 
     ## Redis requirements
 
-    This module needs a Redis >= 7.0.0 instance and needs permissions to create Redis functions.
+    This module requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands, and needs permissions to create Redis functions.
     The optimistic-locking functionality of the store was not designed with a Redis cluster in mind
     and will behave unpredictably when used with a distributed Redis deployment.
     Using a failover-replica should be fine, however.
@@ -95,7 +95,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @behaviour SessionStoreBehaviour
     alias Charon.{Config, Utils}
     alias __MODULE__.{LuaFunctions, ConnectionPool, StoreImpl}
-    import Utils.{KeyGenerator}
+    alias Utils.{KeyGenerator, PersistentTermCache}
     require Logger
 
     @doc """
@@ -153,7 +153,11 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     Get the default session signing key that is used if config option `:get_signing_key` is not set explicitly.
     """
     @spec default_signing_key(Config.t()) :: binary
-    def default_signing_key(config), do: derive_key(config.get_base_secret.(), "RedisStore HMAC")
+    def default_signing_key(config) do
+      PersistentTermCache.get_or_create(__MODULE__, fn ->
+        KeyGenerator.derive_key(config.get_base_secret.(), "RedisStore HMAC", log: false)
+      end)
+    end
   end
 else
   defmodule Charon.SessionStore.RedisStore do

@@ -1,6 +1,7 @@
 defmodule Charon.TokenFactory.JwtTest do
   use ExUnit.Case, async: true
   import Charon.{Internal, TestHelpers}
+  import Charon.TestUtils
   alias Charon.TokenFactory.Jwt
   alias Jwt.Config
   import Jwt
@@ -26,26 +27,6 @@ defmodule Charon.TokenFactory.JwtTest do
       jws = %{"alg" => "HS256", "kid" => "default"}
       {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
       assert {:ok, _} = verify(jose_token, @charon_config)
-    end
-  end
-
-  describe "Blake3" do
-    setup do
-      mod_conf = @charon_config |> Config.get_mod_config()
-      base_key = mod_conf.get_keyset.(@charon_config)["default"] |> elem(1)
-
-      config =
-        override_opt_mod_conf(@charon_config, Jwt,
-          get_keyset: fn _ -> %{"k1" => {:blake3_256, base_key}} end,
-          signing_key: "k1"
-        )
-
-      [config: config]
-    end
-
-    test "Charon token can be verified by Charon", seeds do
-      {:ok, charon_token} = sign(%{}, seeds.config)
-      assert {:ok, _} = verify(charon_token, seeds.config)
     end
   end
 
@@ -111,13 +92,7 @@ defmodule Charon.TokenFactory.JwtTest do
       {:ok, token} = sign(%{}, config)
 
       assert nonce ==
-               token
-               |> String.split(".")
-               |> List.first()
-               |> Base.url_decode64!(padding: false)
-               |> Jason.decode!()
-               |> Map.get("nonce")
-               |> Base.url_decode64!(padding: false)
+               token |> peek_header() |> Map.get("nonce") |> Base.url_decode64!(padding: false)
     end
   end
 

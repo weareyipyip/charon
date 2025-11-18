@@ -13,26 +13,18 @@ jobs:
 
     services:
       redis:
-        image: redis:7-alpine
+        image: valkey/valkey:9-alpine
         ports:
           - 6379:6379
 
     strategy:
-      # https://hexdocs.pm/elixir/1.14/compatibility-and-deprecations.html#compatibility-between-elixir-and-erlang-otp
+      # https://hexdocs.pm/elixir/1.19/compatibility-and-deprecations.html#between-elixir-and-erlang-otp
       matrix:
-        elixir: [1.14.x, 1.17.x, 1.18.x]
-        otp: [24.x, 25.x, 27.x]
-        exclude:
-          - elixir: 1.14.x
-            otp: 27.x
-          - elixir: 1.14.x
-            otp: 25.x
-          - elixir: 1.18.x
-            otp: 24.x
-          - elixir: 1.17.x
-            otp: 24.x
-          - elixir: 1.17.x
-            otp: 25.x
+        include:
+          - elixir: 1.16.x
+            otp: 26.x
+          - elixir: 1.19.x
+            otp: 28.x
 
     steps:
       - name: Checkout code
@@ -57,7 +49,7 @@ jobs:
         run: |
           mix deps.get
       - name: Check code formatting
-        if: matrix.elixir == '1.18.x'
+        if: matrix.elixir == '1.19.x'
         run: mix format --check-formatted
       - name: Compile dependencies
         run: mix deps.compile

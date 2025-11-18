@@ -33,13 +33,6 @@
       }
     },
     {
-      "label": "Test watch",
-      "dependsOn": ["Start containers"],
-      "type": "shell",
-      "command": "docker compose exec elixir mix test.watch",
-      "group": "test"
-    },
-    {
       "label": "Install dependencies",
       "dependsOn": ["Start containers"],
       "type": "shell",

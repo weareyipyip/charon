@@ -45,10 +45,8 @@ defmodule Charon.TokenFactory.Jwt do
 
   Symmetric signatures are message authentication codes or MACs,
   either HMACs based on SHA256, 384 or 512,
-  or a MAC generated using Poly1305 or Blake3's [keyed-hashing mode](https://docs.rs/blake3/latest/blake3/fn.keyed_hash.html),
+  or a MAC generated using Poly1305,
   which can be used directly without using a HMAC wrapper.
-  Using Blake3 requires the optional dependency [Blake3](https://hex.pm/packages/blake3)
-  and a key of exactly 256 bits.
 
   By default, a SHA256-based HMAC is used.
 
@@ -88,7 +86,7 @@ defmodule Charon.TokenFactory.Jwt do
   The following options are supported:
     - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
-    - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each JWT.
+    - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each invocation. The default random generation provides adequate security for most applications (collision risk becomes significant only after ~2^48 tokens). For extremely high-volume applications, consider using a counter-based approach via this option, for example using [NoNoncense](`e:no_noncense:NoNoncense.html`).
 
   ## Examples / doctests
 
@@ -133,7 +131,7 @@ defmodule Charon.TokenFactory.Jwt do
       iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
       iex> {:ok, _} = verify(token, config)
   """
-  import Charon.Utils.KeyGenerator
+  alias Charon.Utils.{KeyGenerator, PersistentTermCache}
   import __MODULE__.Config, only: [get_mod_config: 1]
   import Charon.Internal
   import Charon.Internal.Crypto
@@ -145,13 +143,12 @@ defmodule Charon.TokenFactory.Jwt do
     hmac_sha512: "HS512",
     eddsa_ed25519: "EdDSA",
     eddsa_ed448: "EdDSA",
-    blake3_256: "Bl3_256",
     poly1305: "Poly1305"
   }
 
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
-  @type mac_alg :: :blake3_256 | :poly1305
+  @type mac_alg :: :poly1305
   @type eddsa_keypair :: {eddsa_alg(), {binary(), binary()}}
   @type symmetric_key :: {hmac_alg() | mac_alg(), binary()}
   @type key :: symmetric_key() | eddsa_keypair()
@@ -183,7 +180,7 @@ defmodule Charon.TokenFactory.Jwt do
     jmod = config.json_module
     %{get_keyset: get_keyset} = get_mod_config(config)
 
-    with [header, payload, signature] <- String.split(token, ".", parts: 3),
+    with [header, payload, signature] <- dot_split(token, parts: 3),
          {:ok, kid, nonce} <- process_header(header, jmod),
          {:ok, signature} <- url_decode(signature),
          {:ok, {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
@@ -224,7 +221,11 @@ defmodule Charon.TokenFactory.Jwt do
   """
   @spec default_keyset(Charon.Config.t()) :: keyset()
   def default_keyset(config) do
-    %{"default" => {:hmac_sha256, derive_key(config.get_base_secret.(), "charon_jwt_default")}}
+    PersistentTermCache.get_or_create(__MODULE__, fn ->
+      base_secret = config.get_base_secret.()
+      default_key = KeyGenerator.derive_key(base_secret, "charon_jwt_default", log: false)
+      %{"default" => {_default_alg = :hmac_sha256, default_key}}
+    end)
   end
 
   ###########
@@ -247,10 +248,6 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
   defp do_sign(data, {:hmac_sha512, key}), do: calc_hmac(data, key, :sha512)
 
-  if Code.ensure_loaded?(Blake3) do
-    defp do_sign(data, {:blake3_256, key}), do: __MODULE__.Blake3.keyed_hash(key, data)
-  end
-
   defp do_sign(data, {:eddsa_ed25519, {_, privkey}}),
     do: :crypto.sign(:eddsa, :none, data, [privkey, :ed25519])
 
@@ -269,11 +266,6 @@ defmodule Charon.TokenFactory.Jwt do
 
   defp do_verify(data, {:hmac_sha512, key}, signature),
     do: data |> calc_hmac(key, :sha512) |> constant_time_compare(signature)
-
-  if Code.ensure_loaded?(Blake3) do
-    defp do_verify(data, {:blake3_256, key}, sig),
-      do: __MODULE__.Blake3.keyed_hash(key, data) |> constant_time_compare(sig)
-  end
 
   defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed25519])

@@ -30,14 +30,15 @@ defmodule Charon.SessionPlugs do
   If a new session is created, options `:user_id` and `:token_transport` must be provided or an error will be raised.
 
   The token transport can be:
-   - `:cookie_only` - tokens are returned to the client as cookies
-   - `:cookie` - tokens' signatures are split from the tokens and sent as http-only strictly-same-site secure cookies
-   - `:bearer` - tokens are left as-is for the implementing application to return to the client
+   - `:cookie_only` - *full* tokens are returned to the client as cookies
+   - `:cookie` - *partial* tokens are returned to the client as cookies (only the tokens' signature, the rest should be sent in the response body)
+   - `:bearer` - no cookies are sent to the client, the tokens should be sent in the response body
+
+  Please read up on CSRF protection in [README](README.md#csrf-protection) when using cookies. The slightly awkward naming of `:cookie` and `:cookie_only` exists for legacy reasons and is kept for backwards compatibility.
 
   If config option `:enforce_browser_cookies` is enabled, browser clients will be attempted to be
   detected by the presence of (forbidden) header "Sec-Fetch-Mode", in which case only cookie-based
-  token transports will be allowed. This feature is experimental and disabled by default,
-  although this may change in a future release.
+  token transports will be allowed.
 
   Optionally, it is possible to add extra claims to the access- and refresh tokens or to store extra payload in the server-side session.
 
@@ -152,7 +153,7 @@ defmodule Charon.SessionPlugs do
     existing_session = Internal.get_private(conn, @session)
     timestamps = conn |> Internal.now() |> calc_timestamps(existing_session, config)
 
-    new_session = create_or_update_session(conn, existing_session, timestamps, opts)
+    new_session = create_or_update_session(conn, existing_session, timestamps, config, opts)
     new_session |> SessionStore.upsert(config) |> raise_on_store_error()
 
     {access_tok_pl, refresh_tok_pl} = create_token_payloads(new_session, timestamps, config, opts)
@@ -185,14 +186,15 @@ defmodule Charon.SessionPlugs do
   """
   @spec delete_session(Conn.t(), Config.t()) :: Conn.t()
   def delete_session(conn, config) do
-    conn
-    |> tap(fn
+    case conn do
       %{private: %{@bearer_token_payload => %{"sub" => uid, "sid" => sid, "styp" => type}}} ->
         SessionStore.delete(sid, uid, String.to_atom(type), config) |> raise_on_store_error()
 
       _ ->
         :ok
-    end)
+    end
+
+    conn
     |> Conn.delete_resp_cookie(config.refresh_cookie_name, config.refresh_cookie_opts)
     |> Conn.delete_resp_cookie(config.access_cookie_name, config.access_cookie_opts)
   end
@@ -217,8 +219,9 @@ defmodule Charon.SessionPlugs do
   defp calc_session_exp_ttl(%{expires_at: :infinite}, _, _), do: {:infinite, :infinite}
   defp calc_session_exp_ttl(%{expires_at: exp}, _, now), do: {exp, exp - now}
 
-  defp create_or_update_session(conn, session, {now, session_exp, refresh_exp, _, _, _}, opts) do
-    refresh_token_id = random_url_encoded(16)
+  defp create_or_update_session(conn, session, timestamps, config, opts) do
+    {now, session_exp, refresh_exp, _, _, _} = timestamps
+    refresh_token_id = gen_id(config)
     extra_session_payload = opts[:extra_session_payload] || %{}
 
     if session do
@@ -230,13 +233,13 @@ defmodule Charon.SessionPlugs do
           refreshed_at: now
       }
       |> maybe_cycle_token_generation(conn, now)
-      |> tap(&Logger.debug("REFRESHED session: #{inspect(&1)}"))
+      |> on_upsert("REFRESHED")
     else
       %Session{
         created_at: now,
         expires_at: session_exp,
         extra_payload: extra_session_payload,
-        id: random_url_encoded(16),
+        id: gen_id(config),
         prev_tokens_fresh_from: now,
         refresh_expires_at: refresh_exp,
         refresh_token_id: refresh_token_id,
@@ -245,8 +248,13 @@ defmodule Charon.SessionPlugs do
         type: opts[:session_type] || :full,
         user_id: get_user_id!(conn, opts)
       }
-      |> tap(&Logger.debug("CREATED session: #{inspect(&1)}"))
+      |> on_upsert("CREATED")
     end
+  end
+
+  defp on_upsert(session, event) do
+    Logger.debug("#{event} session: #{inspect(session)}")
+    session
   end
 
   defp maybe_cycle_token_generation(session, %{private: %{@cycle_token_generation => true}}, now) do
@@ -282,7 +290,7 @@ defmodule Charon.SessionPlugs do
 
     access_token_payload =
       shared_payload
-      |> Map.merge(%{"jti" => random_url_encoded(16), "exp" => access_exp, "type" => "access"})
+      |> Map.merge(%{"jti" => gen_id(config), "exp" => access_exp, "type" => "access"})
       |> Map.merge(opts[:access_claim_overrides] || %{})
 
     refresh_token_payload =
@@ -347,14 +355,13 @@ defmodule Charon.SessionPlugs do
   end
 
   defp split_signature(token) do
-    [header, payload, signature] = String.split(token, ".", parts: 3)
-    token = [header, ?., payload, ?.] |> IO.iodata_to_binary()
-    {token, signature}
+    [header, payload, signature] = Internal.dot_split(token, parts: 3)
+    {"#{header}.#{payload}", ".#{signature}"}
   end
 
-  ###########
-  # Private #
-  ###########
+  defp gen_id(config)
+  defp gen_id(%{gen_id: :random}), do: random_url_encoded(16)
+  defp gen_id(%{gen_id: fun}), do: fun.()
 
   defp require_cookie_for_browser(transport, conn, config) do
     if transport == :bearer and config.enforce_browser_cookies and

@@ -10,8 +10,26 @@ defmodule Charon.SessionIntegrationTest do
   @moduletag :capture_log
   @config Charon.TestConfig.get()
 
+  def telemetry_handler(event_name, measurements, metadata, _config) do
+    send(self(), {:telemetry, event_name, measurements, metadata})
+  end
+
   setup do
     start_supervised!(Charon.SessionStore.LocalStore)
+
+    # Subscribe to token telemetry events
+    :telemetry.attach_many(
+      "token-test-handler",
+      [
+        [:charon, :token, :valid],
+        [:charon, :token, :invalid]
+      ],
+      &__MODULE__.telemetry_handler/4,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach("token-test-handler") end)
+
     :ok
   end
 
@@ -51,6 +69,19 @@ defmodule Charon.SessionIntegrationTest do
                  "type" => "refresh"
                }
              } = conn.assigns
+
+      # Verify telemetry event was emitted
+      assert_receive {:telemetry, [:charon, :token, :valid], measurements, metadata}
+      assert measurements == %{count: 1}
+
+      assert metadata == %{
+               session_loaded: true,
+               token_transport: :cookie,
+               token_type: "refresh",
+               user_id: 426,
+               session_id: sid,
+               session_type: "full"
+             }
     end
 
     test "rejects stale refresh token depending on token cycle TTL and iat claim" do
@@ -73,8 +104,17 @@ defmodule Charon.SessionIntegrationTest do
         with_mock Internal, [:passthrough], now: fn -> now + 10 end do
           # token r1, now "previous gen" should still be usable, multiple times
           assert %{private: %{@tokens => %{refresh_token: r2}}} = refresher.(r1)
+          # Verify valid token telemetry
+          assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, metadata}
+          assert metadata.session_loaded == true
+          assert metadata.token_type == "refresh"
+
           assert %{private: %{@tokens => %{refresh_token: r3}}} = refresher.(r1)
+          assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
           assert %{private: %{@tokens => %{refresh_token: _r4}}} = refresher.(r1)
+          assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
           {r2, r3}
         end
 
@@ -82,18 +122,32 @@ defmodule Charon.SessionIntegrationTest do
       with_mock Internal, [:passthrough], now: fn -> now + 20 end do
         # token r1, now discarded, is no longer usable
         assert "token stale" == refresher.(r1)
+        # Verify invalid token telemetry
+        assert_receive {:telemetry, [:charon, :token, :invalid], %{count: 1}, metadata}
+        assert metadata.session_loaded == true
+        assert metadata.error == "token stale"
+
         # tokens r2 and r3, now "previous gen", are still usable
         assert %{private: %{@tokens => %{refresh_token: r5}}} = refresher.(r2)
+        assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
         assert %{private: %{@tokens => %{refresh_token: _r6}}} = refresher.(r2)
+        assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
         assert %{private: %{@tokens => %{refresh_token: _r7}}} = refresher.(r3)
+        assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
         assert %{private: %{@tokens => %{refresh_token: _r8}}} = refresher.(r3)
+        assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
+
         # token r5, "current gen", is usable too
         assert %{private: %{@tokens => %{refresh_token: _r9}}} = refresher.(r5)
+        assert_receive {:telemetry, [:charon, :token, :valid], %{count: 1}, _metadata}
       end
     end
 
     test "rejects wrong claims" do
-      %{
+      test_cases = %{
         %{hi: "boom"} => "bearer token claim nbf not found",
         %{nbf: now() + 10} => "bearer token not yet valid",
         %{nbf: now(), exp: now() - 10} => "bearer token expired",
@@ -104,6 +158,8 @@ defmodule Charon.SessionIntegrationTest do
         %{nbf: now(), exp: now(), type: "refresh", sub: 1, sid: "a", styp: "full"} =>
           "session not found"
       }
+
+      test_cases
       |> Enum.each(fn {payload, exp_error} ->
         {:ok, token} = Charon.TokenFactory.Jwt.sign(payload, @config)
 
@@ -114,6 +170,12 @@ defmodule Charon.SessionIntegrationTest do
 
         assert exp_error == Utils.get_auth_error(conn)
         assert conn.halted
+
+        # Verify invalid token telemetry was emitted
+        assert_receive {:telemetry, [:charon, :token, :invalid], measurements, metadata}
+        assert measurements == %{count: 1}
+        assert metadata.error == exp_error
+        assert metadata.token_transport == :bearer
       end)
     end
   end

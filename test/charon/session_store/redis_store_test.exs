@@ -11,7 +11,6 @@ defmodule Charon.SessionStore.RedisStoreTest do
   @ttl 10
   @now now()
   @exp @now + @ttl
-  @exp_str to_string(@exp)
   @mod_conf %{} |> RedisStore.init_config()
   @config %{
     TestConfig.get()
@@ -28,9 +27,8 @@ defmodule Charon.SessionStore.RedisStoreTest do
                   refreshed_at: @now
                 )
   @session_set_key session_set_key(@uid)
-  @exp_oset_key exp_oset_key(@uid)
-  @lock_set_key lock_set_key(@uid)
   @lock_incr_user_session %{@user_session | lock_version: 1}
+  @lock_key lock_key(@sid)
 
   setup_all do
     redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
@@ -45,20 +43,16 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
   defp serialize(session), do: session |> :erlang.term_to_binary()
   defp sign(binary), do: sign_hmac(binary, RedisStore.default_signing_key(@config))
-  # defp get(key), do: command(["GET", key]) |> to_result()
-  defp list_oset_values(key), do: command(["ZRANGE", key, 0, -1, "WITHSCORES"]) |> to_result()
-  defp list_hset_values(key), do: command(["HGETALL", key]) |> to_result()
   defp to_result({:ok, result}), do: result
   defp get_exp(key), do: command(["EXPIRETIME", key]) |> to_result()
-  defp set_exp(key, exp), do: 1 = command(["EXPIREAT", key, exp]) |> to_result()
-  defp add_to_oset(set_k, score, v), do: 1 = command(["ZADD", set_k, score, v]) |> to_result()
-  defp add_to_hash_set(set_k, k, v), do: 1 = command(["HSET", set_k, k, v]) |> to_result()
+  defp add_to_hash_set(set_k, k, v), do: command(["HSET", set_k, k, v]) |> to_result()
   defp add_session_set(k, v), do: add_to_hash_set(@session_set_key, k, v)
   defp get_hash_set(set_k, k), do: command(["HGET", set_k, k]) |> to_result()
   defp get_session_set(k), do: get_hash_set(@session_set_key, k)
-  defp get_lock_set(k), do: get_hash_set(@lock_set_key, k)
+  defp get_all(set_k), do: command(["HVALS", set_k]) |> to_result()
 
-  # defp insert(key, value), do: "OK" = command(["SET", key, value]) |> to_result()
+  defp hget_exp(set_k, keys),
+    do: command(["HEXPIRETIME", set_k, "FIELDS", Enum.count(keys)] ++ keys) |> to_result()
 
   defp insert(
          session = %{
@@ -70,9 +64,19 @@ defmodule Charon.SessionStore.RedisStoreTest do
          }
        ) do
     serialized_signed = session |> serialize() |> sign()
-    add_to_hash_set(session_set_key(uid, type), sid, serialized_signed)
-    add_to_hash_set(lock_set_key(uid, type), sid, lock)
-    add_to_oset(exp_oset_key(uid, type), exp, sid)
+
+    command([
+      "HSETEX",
+      session_set_key(uid, type),
+      "EXAT",
+      to_string(exp),
+      "FIELDS",
+      "2",
+      sid,
+      serialized_signed,
+      lock_key(sid),
+      to_string(lock)
+    ])
   end
 
   describe "get/4" do
@@ -88,6 +92,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "returns deserialized session" do
       insert(@user_session)
       assert @user_session == RedisStore.get(@sid, @uid, :full, @config)
+    end
+
+    test "returns deserialized session when lock not found" do
+      session = %{@user_session | lock_version: 100}
+      insert(session)
+      assert 1 = command(["HDEL", @session_set_key, @lock_key]) |> to_result()
+      assert session == RedisStore.get(@sid, @uid, :full, @config)
     end
 
     test "ignores unsigned session" do
@@ -119,15 +130,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "stores session, lock and exp" do
       assert :ok = RedisStore.upsert(@user_session, @config)
       assert @lock_incr_user_session |> serialize() |> sign() == get_session_set(@sid)
-      assert "1" == get_lock_set(@sid)
-      assert [@sid, @exp_str] == list_oset_values(@exp_oset_key)
+      assert "1" == get_session_set(@lock_key)
+      assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
 
     test "sets session sets ttl / exp score" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-      assert @exp = get_exp(@exp_oset_key)
-      assert @exp = get_exp(@lock_set_key)
-      assert @exp = get_exp(@session_set_key)
+      assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
     end
 
     test "separates by type" do
@@ -151,59 +160,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       assert "signed." <> <<_::256>> <> "." <> new_session = get_session_set(@sid)
 
-      assert new_exp == get_exp(@exp_oset_key)
-      assert new_exp == get_exp(@lock_set_key)
-      assert new_exp == get_exp(@session_set_key)
-      assert [@sid, to_string(new_exp)] == list_oset_values(@exp_oset_key)
-
+      assert [new_exp, new_exp] == hget_exp(@session_set_key, [@sid, @lock_key])
       assert %{extra_payload: %{new: "key"}} = new_session |> :erlang.binary_to_term()
     end
 
-    test "does not reduce set expirations" do
+    test "does not set set exp" do
       assert :ok = RedisStore.upsert(@user_session, @config)
-
-      far_future = @now + 10000
-      set_exp(@exp_oset_key, far_future)
-      set_exp(@lock_set_key, far_future)
-      set_exp(@session_set_key, far_future)
-
-      assert :ok = RedisStore.upsert(%{@user_session | id: "b"}, @config)
-
-      assert far_future == get_exp(@exp_oset_key)
-      assert far_future == get_exp(@lock_set_key)
-      assert far_future == get_exp(@session_set_key)
-    end
-
-    test "prunes expired sessions" do
-      # unexpired, present
-      add_to_oset(@exp_oset_key, @exp, "a")
-      # expired, present
-      add_to_oset(@exp_oset_key, 0, "c")
-      add_to_hash_set(@lock_set_key, "c", "12")
-
-      add_session_set(
-        "c",
-        %{@user_session | id: "c", refresh_expires_at: @now - 5} |> serialize() |> sign()
-      )
-
-      assert :ok = RedisStore.upsert(@user_session, @config)
-
-      assert "c" not in list_oset_values(@exp_oset_key)
-      assert "c" not in list_hset_values(@session_set_key)
-      assert "c" not in list_hset_values(@lock_set_key)
-    end
-
-    test "only prunes once per hour" do
-      assert :ok = RedisStore.upsert(@user_session, @config)
-
-      # expired, present
-      add_to_oset(@exp_oset_key, 0, "c")
-      add_to_hash_set(@lock_set_key, "c", "12")
-
-      assert :ok = RedisStore.upsert(@lock_incr_user_session, @config)
-
-      assert "c" in list_oset_values(@exp_oset_key)
-      assert "c" in list_hset_values(@lock_set_key)
+      assert -1 == get_exp(@session_set_key)
     end
 
     test "skips already-expired session" do
@@ -217,8 +180,14 @@ defmodule Charon.SessionStore.RedisStoreTest do
       # stored lock_version has been increased
       assert {:error, :conflict} = RedisStore.upsert(@user_session, @config)
       assert @lock_incr_user_session |> serialize() |> sign() == get_session_set(@sid)
-      assert "1" == get_lock_set(@sid)
-      assert [@sid, @exp_str] == list_oset_values(@exp_oset_key)
+      assert "1" == get_session_set(@lock_key)
+      assert [@exp, @exp] == hget_exp(@session_set_key, [@sid, @lock_key])
+    end
+
+    test "get-update passes opt locking" do
+      assert :ok = RedisStore.upsert(@user_session, @config)
+      session = RedisStore.get(@sid, @uid, :full, @config)
+      assert :ok = RedisStore.upsert(session, @config)
     end
   end
 
@@ -227,57 +196,14 @@ defmodule Charon.SessionStore.RedisStoreTest do
       assert :ok = RedisStore.delete(@sid, @uid, :full, @config)
     end
 
-    test "deletes session from all sets" do
+    test "deletes session and lock" do
       insert(@user_session)
       insert(%{@user_session | id: "b"})
 
       assert :ok = RedisStore.delete("b", @uid, :full, @config)
 
-      assert @user_session |> serialize() |> sign() == get_session_set(@sid)
-      assert "0" == get_lock_set(@sid)
-      assert [@sid, @exp_str] == list_oset_values(@exp_oset_key)
-    end
-
-    test "all set exps correct if deleted session was highest exp session" do
-      insert(@user_session)
-      insert(%{@user_session | id: "b", refresh_expires_at: @exp + 10})
-      insert(%{@user_session | id: "c", refresh_expires_at: @exp + 20})
-
-      assert :ok = RedisStore.delete("c", @uid, :full, @config)
-
-      # exp reduced to next-in-line highest exp session
-      assert @exp + 10 == get_exp(@exp_oset_key)
-      assert @exp + 10 == get_exp(@lock_set_key)
-      assert @exp + 10 == get_exp(@session_set_key)
-    end
-
-    test "all set exps correct(ed) if deleted session not found" do
-      insert(@user_session)
-      # the set should never have this value, which doesn't match the exp of @user_session
-      far_future = @now + 10000
-      set_exp(@exp_oset_key, far_future)
-      set_exp(@lock_set_key, far_future)
-      set_exp(@session_set_key, far_future)
-
-      assert :ok = RedisStore.delete("b", @uid, :full, @config)
-
-      # exp reduced to next-in-line highest exp session
-      assert @exp = get_exp(@exp_oset_key)
-      assert @exp = get_exp(@lock_set_key)
-      assert @exp = get_exp(@session_set_key)
-    end
-
-    test "all set exps correct if deleted session was NOT highest exp session" do
-      insert(@user_session)
-      insert(%{@user_session | id: "b", refresh_expires_at: @exp + 10})
-      insert(%{@user_session | id: "c", refresh_expires_at: @exp + 20})
-
-      assert :ok = RedisStore.delete("b", @uid, :full, @config)
-
-      # set exp is unchanged
-      assert @exp + 20 == get_exp(@exp_oset_key)
-      assert @exp + 20 == get_exp(@lock_set_key)
-      assert @exp + 20 == get_exp(@session_set_key)
+      assert ["0", @user_session |> serialize() |> sign()] ==
+               get_all(@session_set_key) |> Enum.sort()
     end
 
     test "all sets removed if deleted session was last session" do
@@ -293,8 +219,8 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "returns the user's unexpired, deserialized sessions of requested type" do
-      # unexpired, present
-      add_session_set(@sid, @user_session |> serialize() |> sign())
+      # unexpired, present (also adds lock)
+      insert(@user_session)
       # unsigned
       add_session_set("b", %{@user_session | id: "b"} |> serialize())
       # expired, somehow present
@@ -312,6 +238,13 @@ defmodule Charon.SessionStore.RedisStoreTest do
                assert [@user_session] == RedisStore.get_all(@uid, :full, @config)
              end) =~ "Ignored Redis session"
     end
+
+    test "returns deserialized session when lock not found" do
+      session = %{@user_session | lock_version: 100}
+      insert(session)
+      assert 1 = command(["HDEL", @session_set_key, @lock_key]) |> to_result()
+      assert [session] == RedisStore.get_all(@uid, :full, @config)
+    end
   end
 
   describe "delete_all/3" do
@@ -321,8 +254,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
     end
 
     test "works when no sessions" do
-      add_to_oset(@exp_oset_key, @exp, @sid)
-      add_to_hash_set(@lock_set_key, @sid, 12)
+      add_to_hash_set(@session_set_key, @lock_key, 12)
       assert :ok == RedisStore.delete_all(@uid, :full, @config)
       assert {:ok, []} = command(~w(KEYS *))
     end
@@ -330,8 +262,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
     test "removes all sessions of requested type" do
       insert(@user_session)
 
-      assert [@exp_oset_key, @lock_set_key, @session_set_key] =
-               command(~w(KEYS *)) |> elem(1) |> Enum.sort()
+      assert [@session_set_key] = command(~w(KEYS *)) |> elem(1) |> Enum.sort()
 
       insert(%{@user_session | type: :oauth2})
       insert(%{@user_session | user_id: @uid + 1})
@@ -340,7 +271,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
 
       keys = command(~w(KEYS *)) |> elem(1) |> Enum.sort()
       count = Enum.count(keys)
-      assert count == Enum.count(keys -- [@exp_oset_key, @lock_set_key, @session_set_key])
+      assert count == Enum.count(keys -- [@session_set_key])
     end
   end
 end

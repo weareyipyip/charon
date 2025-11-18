@@ -3,6 +3,7 @@ defmodule Charon.Internal do
   # module consists of shared functions internal to the package
   # it CAN be relied on by child packages, so be careful when changing things
   use __MODULE__.Constants
+  alias Charon.Utils.PersistentTermCache
   require Logger
 
   @url_enc_opts padding: false
@@ -49,4 +50,15 @@ defmodule Charon.Internal do
   def url_encode(data), do: Base.url_encode64(data, @url_enc_opts)
   def url_decode(data), do: Base.url_decode64(data, @url_enc_opts)
   def url_decode!(data), do: Base.url_decode64!(data, @url_enc_opts)
+
+  @doc """
+  Split a string on dots. Uses a compiled binary pattern for performance.
+  """
+  @spec dot_split(binary(), String.split_opts()) :: [binary()]
+  def dot_split(string, opts) do
+    pattern =
+      PersistentTermCache.get_or_create(__MODULE__, fn -> :binary.compile_pattern(".") end)
+
+    String.split(string, pattern, opts)
+  end
 end

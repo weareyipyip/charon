@@ -2,19 +2,10 @@ defmodule Charon.TestUtils do
   alias Charon.SessionStore.RedisStore.StoreImpl
 
   def session_set_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.session_set_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
+    StoreImpl.session_set_key(user_id, type, %{key_prefix: prefix}) |> IO.iodata_to_binary()
   end
 
-  def exp_oset_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.exp_oset_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
-  end
-
-  def lock_set_key(user_id, type \\ :full, prefix \\ "charon_") do
-    StoreImpl.lock_set_key({to_string(user_id), to_string(type), prefix})
-    |> IO.iodata_to_binary()
-  end
+  def lock_key(sid), do: StoreImpl.lock_key(sid) |> IO.iodata_to_binary()
 
   def conn(), do: Plug.Test.conn(:get, "/")
 
@@ -36,5 +27,16 @@ defmodule Charon.TestUtils do
       user_id: 1
     }
     |> Map.merge(Map.new(overrides))
+  end
+
+  def peek_header(token), do: peek_token_part(token, 0)
+  def peek_payload(token), do: peek_token_part(token, 1)
+
+  defp peek_token_part(token, part) do
+    token
+    |> String.split(".")
+    |> Enum.at(part)
+    |> Base.url_decode64!(padding: false)
+    |> Jason.decode!()
   end
 end

@@ -7,3 +7,4 @@ alias Internal.{Crypto}
 
 RedisStore.start_link()
 charon_config = CharonConfig.from_enum(token_issuer: "local", get_base_secret: fn -> "very secure string" end)
+alias RedisStore.RedisClient
