@@ -86,7 +86,7 @@ defmodule Charon.TokenFactory.Jwt do
   The following options are supported:
     - `:get_keyset` (optional, default `default_keyset/1`). The keyset used to sign and verify JWTs. If not specified, a default keyset with a single key called "default" is used, which is derived from Charon's base secret.
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
-    - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each JWT.
+    - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each invocation. The default random generation provides adequate security for most applications (collision risk becomes significant only after ~2^48 tokens). For extremely high-volume applications, consider using a counter-based approach via this option, for example using [NoNoncense](`e:no_noncense:NoNoncense.html`).
 
   ## Examples / doctests
 
@@ -222,7 +222,8 @@ defmodule Charon.TokenFactory.Jwt do
   @spec default_keyset(Charon.Config.t()) :: keyset()
   def default_keyset(config) do
     PersistentTermCache.get_or_create(__MODULE__, fn ->
-      default_key = KeyGenerator.derive_key(config.get_base_secret.(), "charon_jwt_default")
+      base_secret = config.get_base_secret.()
+      default_key = KeyGenerator.derive_key(base_secret, "charon_jwt_default", log: false)
       %{"default" => {_default_alg = :hmac_sha256, default_key}}
     end)
   end

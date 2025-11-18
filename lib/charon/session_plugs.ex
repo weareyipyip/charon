@@ -160,7 +160,7 @@ defmodule Charon.SessionPlugs do
     tokens = create_tokens(access_tok_pl, refresh_tok_pl, timestamps, config)
 
     conn
-    |> del_or_set_cookies(tokens, timestamps, config, token_transport)
+    |> maybe_set_cookies(tokens, timestamps, config, token_transport)
     |> Internal.put_private(%{
       @session => new_session,
       @access_token_payload => access_tok_pl,
@@ -194,7 +194,9 @@ defmodule Charon.SessionPlugs do
         :ok
     end
 
-    delete_cookies(conn, config)
+    conn
+    |> Conn.delete_resp_cookie(config.refresh_cookie_name, config.refresh_cookie_opts)
+    |> Conn.delete_resp_cookie(config.access_cookie_name, config.access_cookie_opts)
   end
 
   ###########
@@ -315,11 +317,9 @@ defmodule Charon.SessionPlugs do
     }
   end
 
-  defp del_or_set_cookies(conn, tokens, _, config, :bearer) do
-    conn |> Conn.put_private(@tokens, tokens) |> delete_cookies(config)
-  end
+  defp maybe_set_cookies(conn, tokens, _, _, :bearer), do: Conn.put_private(conn, @tokens, tokens)
 
-  defp del_or_set_cookies(conn, tokens, {_, _, _, _, refresh_ttl, access_ttl}, config, transport) do
+  defp maybe_set_cookies(conn, tokens, {_, _, _, _, refresh_ttl, access_ttl}, config, transport) do
     %{access_token: access_token, refresh_token: refresh_token} = tokens
 
     {{access_token, access_cookie}, {refresh_token, refresh_cookie}} =
@@ -336,12 +336,6 @@ defmodule Charon.SessionPlugs do
     |> Conn.put_private(@tokens, tokens)
     |> Conn.put_resp_cookie(config.access_cookie_name, access_cookie, access_opts)
     |> Conn.put_resp_cookie(config.refresh_cookie_name, refresh_cookie, refresh_opts)
-  end
-
-  defp delete_cookies(conn, config) do
-    conn
-    |> Conn.delete_resp_cookie(config.refresh_cookie_name, config.refresh_cookie_opts)
-    |> Conn.delete_resp_cookie(config.access_cookie_name, config.access_cookie_opts)
   end
 
   defp get_token_transport!(conn, config, opts) do
@@ -362,8 +356,7 @@ defmodule Charon.SessionPlugs do
 
   defp split_signature(token) do
     [header, payload, signature] = String.split(token, ".", parts: 3)
-    token = [header, ?., payload, ?.] |> IO.iodata_to_binary()
-    {token, signature}
+    {"#{header}.#{payload}", ".#{signature}"}
   end
 
   defp gen_id(config)

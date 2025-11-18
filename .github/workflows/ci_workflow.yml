@@ -18,7 +18,7 @@ jobs:
           - 6379:6379
 
     strategy:
-      # https://hexdocs.pm/elixir/1.14/compatibility-and-deprecations.html#compatibility-between-elixir-and-erlang-otp
+      # https://hexdocs.pm/elixir/1.19/compatibility-and-deprecations.html#between-elixir-and-erlang-otp
       matrix:
         include:
           - elixir: 1.14.x

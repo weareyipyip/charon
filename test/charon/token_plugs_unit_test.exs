@@ -219,6 +219,34 @@ defmodule Charon.TokenPlugsTest do
     end
   end
 
+  describe "get_token_from_cookie/2" do
+    test "is backwards compatible with old splitting style header.payload. <> signature" do
+      conn =
+        conn()
+        |> put_private(@bearer_token, "token.")
+        |> put_private(@token_transport, :bearer)
+        |> put_req_cookie("c", "sig")
+        |> fetch_cookies()
+        |> get_token_from_cookie("c")
+
+      assert "token.sig" == Utils.get_bearer_token(conn)
+      assert :cookie == Utils.get_token_transport(conn)
+    end
+
+    test "ignores cookie in other cases" do
+      conn =
+        conn()
+        |> put_private(@bearer_token, "token")
+        |> put_private(@token_transport, :bearer)
+        |> put_req_cookie("c", "sig")
+        |> fetch_cookies()
+        |> get_token_from_cookie("c")
+
+      assert "token" == Utils.get_bearer_token(conn)
+      assert :bearer == Utils.get_token_transport(conn)
+    end
+  end
+
   doctest TokenPlugs
   doctest PutAssigns
 end

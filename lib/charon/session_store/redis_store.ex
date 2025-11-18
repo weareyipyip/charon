@@ -155,7 +155,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     @spec default_signing_key(Config.t()) :: binary
     def default_signing_key(config) do
       PersistentTermCache.get_or_create(__MODULE__, fn ->
-        KeyGenerator.derive_key(config.get_base_secret.(), "RedisStore HMAC")
+        KeyGenerator.derive_key(config.get_base_secret.(), "RedisStore HMAC", log: false)
       end)
     end
   end
