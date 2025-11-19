@@ -1,25 +1,20 @@
 defmodule Charon.TokenPlugsTest do
   use ExUnit.Case
   use Charon.Internal.Constants
-  alias Charon.{Utils, Internal, TokenPlugs, SessionStore}
+  alias Charon.{Utils, Internal, TokenPlugs, SessionStore, TokenFactory}
   import Charon.TestUtils
   import Utils
   import Plug.Conn
   import Plug.Test
   import TokenPlugs
-  alias TokenPlugs.PutAssigns
   alias Charon.Models.Session
 
   @config Charon.TestConfig.get()
 
-  def sign(payload), do: Charon.TokenFactory.Jwt.sign(payload, @config) |> elem(1)
+  def sign(payload), do: TokenFactory.Jwt.sign(payload, @config) |> elem(1)
 
   def verify_read_scope(conn, value) do
-    if "read" in String.split(value, ",") do
-      conn
-    else
-      "no read scope"
-    end
+    if "read" in String.split(value, ","), do: conn, else: "no read scope"
   end
 
   def telemetry_handler(event_name, measurements, metadata, _config) do
@@ -220,6 +215,30 @@ defmodule Charon.TokenPlugsTest do
   end
 
   describe "get_token_from_cookie/2" do
+    test "uses cookie as full token when no bearer token was found" do
+      conn =
+        conn()
+        |> put_req_cookie("access_cookie", "full.token.here")
+        |> fetch_cookies()
+        |> get_token_from_cookie("access_cookie")
+
+      assert "full.token.here" == Utils.get_bearer_token(conn)
+      assert :cookie_only == Utils.get_token_transport(conn)
+    end
+
+    test "appends cookie signature when cookie starts with dot" do
+      conn =
+        conn()
+        |> put_private(@bearer_token, "header.payload")
+        |> put_private(@token_transport, :bearer)
+        |> put_req_cookie("c", ".signature")
+        |> fetch_cookies()
+        |> get_token_from_cookie("c")
+
+      assert "header.payload.signature" == Utils.get_bearer_token(conn)
+      assert :cookie == Utils.get_token_transport(conn)
+    end
+
     test "is backwards compatible with old splitting style header.payload. <> signature" do
       conn =
         conn()
@@ -233,7 +252,7 @@ defmodule Charon.TokenPlugsTest do
       assert :cookie == Utils.get_token_transport(conn)
     end
 
-    test "ignores cookie in other cases" do
+    test "ignores cookie when bearer token present but doesn't end with dot and cookie doesn't start with dot" do
       conn =
         conn()
         |> put_private(@bearer_token, "token")
@@ -247,6 +266,333 @@ defmodule Charon.TokenPlugsTest do
     end
   end
 
+  describe "get_token_from_auth_header/2" do
+    test "extracts bearer token from authorization header" do
+      conn =
+        conn() |> put_req_header("authorization", "Bearer aaa") |> get_token_from_auth_header([])
+
+      assert {"aaa", :bearer} == {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+
+      conn =
+        conn() |> put_req_header("authorization", "Bearer: aaa") |> get_token_from_auth_header([])
+
+      assert {"aaa", :bearer} == {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+    end
+
+    test "returns nil when auth header is missing" do
+      conn = conn() |> get_token_from_auth_header([])
+      assert {nil, nil} == {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+    end
+
+    test "returns nil when auth header format is incorrect" do
+      conn = conn() |> put_req_header("authorization", "boom") |> get_token_from_auth_header([])
+      assert {nil, nil} == {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+
+      conn =
+        conn() |> put_req_header("authorization", "Bearer ") |> get_token_from_auth_header([])
+
+      assert {nil, nil} == {Utils.get_bearer_token(conn), Utils.get_token_transport(conn)}
+    end
+  end
+
+  describe "verify_token_signature/2" do
+    test "verifies valid token signature" do
+      token = sign(%{"msg" => "hurray!"})
+      conn = conn() |> set_token(token) |> verify_token_signature(@config)
+      assert %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
+    end
+
+    test "rejects invalid token signature" do
+      token = sign(%{"msg" => "hurray!"})
+      conn = conn() |> set_token(token <> "boom") |> verify_token_signature(@config)
+      assert nil == Internal.get_private(conn, @bearer_token_payload)
+      assert "bearer token signature invalid" == Utils.get_auth_error(conn)
+    end
+
+    test "returns error when bearer token not found" do
+      conn = conn() |> verify_token_signature(@config)
+      assert "bearer token not found" == Utils.get_auth_error(conn)
+    end
+  end
+
+  describe "verify_token_nbf_claim/2" do
+    test "accepts token with valid nbf claim" do
+      conn = conn() |> set_token_payload(%{"nbf" => Internal.now()})
+      assert ^conn = conn |> verify_token_nbf_claim([])
+    end
+
+    test "allows some clock drift" do
+      conn = conn() |> set_token_payload(%{"nbf" => Internal.now() + 3})
+      assert ^conn = conn |> verify_token_nbf_claim([])
+    end
+
+    test "rejects token not yet valid" do
+      conn = conn() |> set_token_payload(%{"nbf" => Internal.now() + 6})
+
+      assert "bearer token not yet valid" ==
+               conn |> verify_token_nbf_claim([]) |> Utils.get_auth_error()
+    end
+
+    test "requires nbf claim to be present" do
+      conn = conn() |> set_token_payload(%{})
+
+      assert "bearer token claim nbf not found" ==
+               conn |> verify_token_nbf_claim([]) |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_token_exp_claim/2" do
+    test "accepts token with valid exp claim" do
+      conn = conn() |> set_token_payload(%{"exp" => Internal.now()})
+      assert ^conn = conn |> verify_token_exp_claim([])
+    end
+
+    test "allows some clock drift" do
+      conn = conn() |> set_token_payload(%{"exp" => Internal.now() - 3})
+      assert ^conn = conn |> verify_token_exp_claim([])
+    end
+
+    test "rejects expired token" do
+      conn = conn() |> set_token_payload(%{"exp" => Internal.now() - 6})
+
+      assert "bearer token expired" ==
+               conn |> verify_token_exp_claim([]) |> Utils.get_auth_error()
+    end
+
+    test "requires exp claim to be present" do
+      conn = conn() |> set_token_payload(%{})
+
+      assert "bearer token claim exp not found" ==
+               conn |> verify_token_exp_claim([]) |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_token_claim_in/2" do
+    test "accepts token with claim in expected values" do
+      conn = conn() |> set_token_payload(%{"type" => "access"})
+      assert ^conn = conn |> verify_token_claim_in({"type", ~w(access)})
+    end
+
+    test "requires claim to be present" do
+      conn = conn() |> set_token_payload(%{})
+
+      assert "bearer token claim type not found" ==
+               conn |> verify_token_claim_in({"type", ~w(access)}) |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_token_claim_equals/2" do
+    test "accepts token with claim equal to expected value" do
+      conn = conn() |> set_token_payload(%{"type" => "access"})
+      assert ^conn = conn |> verify_token_claim_equals({"type", "access"})
+    end
+
+    test "requires claim to be present" do
+      conn = conn() |> set_token_payload(%{})
+
+      assert "bearer token claim type not found" ==
+               conn |> verify_token_claim_equals({"type", "access"}) |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_no_auth_error/2" do
+    test "passes through conn when no auth error present" do
+      conn = conn()
+      assert ^conn = verify_no_auth_error(conn, fn _conn, _error -> "BOOM" end)
+    end
+
+    test "calls error handler when auth error is present" do
+      conn = conn() |> set_auth_error("oops!")
+      conn = verify_no_auth_error(conn, &(&1 |> send_resp(401, &2) |> halt()))
+      assert conn.halted == true
+      assert conn.resp_body == "oops!"
+    end
+  end
+
+  describe "load_session/2" do
+    test "fetches session from session store" do
+      SessionStore.upsert(test_session(refresh_expires_at: 999_999_999_999_999), @config)
+      conn = conn() |> set_token_payload(%{"sid" => "a", "sub" => 1, "styp" => "full"})
+      assert %Session{} = conn |> load_session(@config) |> Utils.get_session()
+    end
+
+    test "requires token payload to contain sub, sid and styp claims" do
+      conn = conn() |> set_token_payload(1)
+
+      assert "bearer token claim sub, sid or styp not found" ==
+               conn |> load_session(@config) |> Utils.get_auth_error()
+    end
+
+    test "returns error when session not found" do
+      conn = conn() |> set_token_payload(%{"sid" => "a", "sub" => 1, "styp" => "full"})
+      assert "session not found" == conn |> load_session(@config) |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_session_payload/2" do
+    test "accepts valid session" do
+      conn = conn() |> set_session(%{the: "session"})
+      assert ^conn = conn |> verify_session_payload(fn conn, %{the: "session"} -> conn end)
+    end
+  end
+
+  describe "verify_token_payload/2" do
+    test "accepts valid token payload" do
+      conn = conn() |> set_token_payload(%{})
+      assert ^conn = conn |> verify_token_payload(fn conn, _pl -> conn end)
+    end
+  end
+
+  describe "verify_token_ordset_claim_contains/2" do
+    test "requires claim to be present" do
+      conn = conn() |> set_token_payload(%{})
+
+      assert "bearer token claim scope not found" ==
+               conn
+               |> verify_token_ordset_claim_contains({"scope", ~w(a b c)})
+               |> get_auth_error()
+    end
+  end
+
+  describe "verify_token_claim/2" do
+    test "passes with successful verification" do
+      refute conn()
+             |> set_token_payload(%{"scope" => "read,write"})
+             |> verify_token_claim({"scope", &verify_read_scope/2})
+             |> Utils.get_auth_error()
+    end
+
+    test "claim must be present" do
+      assert "bearer token claim scope not found" ==
+               conn()
+               |> set_token_payload(%{})
+               |> verify_token_claim({"scope", &verify_read_scope/2})
+               |> Utils.get_auth_error()
+    end
+  end
+
+  describe "verify_token_fresh/2" do
+    test "allows some clock drift" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now, prev_tokens_fresh_from: now - 10})
+        |> set_token_payload(%{"iat" => now - 11})
+
+      refute conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+    end
+
+    test "accepts tokens from current generation when within cycle TTL" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
+        |> set_token_payload(%{"iat" => now})
+
+      refute conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+    end
+
+    test "accepts tokens from previous generation when current gen is within cycle TTL" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
+
+      # younger-than-previous-gen-plus-clock-drift token is valid
+      refute conn
+             |> set_token_payload(%{"iat" => now - 15})
+             |> verify_token_fresh(5)
+             |> Utils.get_auth_error()
+    end
+
+    test "rejects tokens older than previous generation plus clock drift when current gen is within cycle TTL" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
+
+      # older-than-previous-gen-plus-clock-drift token is invalid
+      assert "token stale" ==
+               conn
+               |> set_token_payload(%{"iat" => now - 16})
+               |> verify_token_fresh(5)
+               |> Utils.get_auth_error()
+    end
+
+    test "does not cycle generation when current gen is within cycle TTL" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 3, prev_tokens_fresh_from: now - 10})
+        |> set_token_payload(%{"iat" => now})
+
+      refute conn |> verify_token_fresh(5) |> Internal.get_private(@cycle_token_generation)
+    end
+
+    test "accepts current generation tokens when current gen is too old" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
+        |> set_token_payload(%{"iat" => now})
+
+      refute conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+    end
+
+    test "accepts tokens younger than current gen plus clock drift when current gen is too old" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
+
+      refute conn
+             |> set_token_payload(%{"iat" => now - 15})
+             |> verify_token_fresh(5)
+             |> Utils.get_auth_error()
+    end
+
+    test "rejects tokens older than current gen plus clock drift when current gen is too old" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
+
+      assert "token stale" ==
+               conn
+               |> set_token_payload(%{"iat" => now - 16})
+               |> verify_token_fresh(5)
+               |> Utils.get_auth_error()
+    end
+
+    test "cycles generation when current gen is too old" do
+      now = Internal.now()
+
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: now - 10, prev_tokens_fresh_from: now - 20})
+        |> set_token_payload(%{"iat" => now})
+
+      assert conn |> verify_token_fresh(5) |> Internal.get_private(@cycle_token_generation)
+    end
+
+    test "requires iat claim to be present" do
+      conn =
+        conn()
+        |> set_session(%{tokens_fresh_from: 0, prev_tokens_fresh_from: 0})
+        |> set_token_payload(%{})
+
+      assert "bearer token claim iat not found" ==
+               conn |> verify_token_fresh(5) |> Utils.get_auth_error()
+    end
+  end
+
   doctest TokenPlugs
-  doctest PutAssigns
 end

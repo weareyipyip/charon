@@ -37,7 +37,7 @@ Charon is an extensible auth framework for Elixir. The base package provides tok
 - Sessions are managed by a session store behaviour with a default implementation using Redis / Valkey.
 - Flexible configuration that does not (have to) depend on the application environment.
 - Small number of dependencies.
-- Built-in `:telemetry` integration for monitoring session lifecycle events.
+- Built-in `:telemetry` integration for monitoring session lifecycle and token verification events.
 
 ## Child packages
 
@@ -133,6 +133,7 @@ defmodule MyApp.AccessTokenPipeline do
   plug :verify_token_nbf_claim
   plug :verify_token_exp_claim
   plug :verify_token_claim_equals, {"type", "access"}
+  plug :emit_telemetry
   plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
   plug Charon.TokenPlugs.PutAssigns
 end
@@ -159,6 +160,7 @@ defmodule MyApp.RefreshTokenPipeline do
   plug :verify_token_claim_equals, {"type", "refresh"}
   plug :load_session, @config
   plug :verify_token_fresh, 10
+  plug :emit_telemetry
   plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
   plug Charon.TokenPlugs.PutAssigns
 end
@@ -325,18 +327,12 @@ Charon defaults to using `SameSite=strict` cookies to provide defense-in-depth, 
 
 ### Telemetry
 
-Charon emits [`:telemetry`](https://hexdocs.pm/telemetry) events for session lifecycle operations, allowing you to monitor and track authentication activity in your application.
+Charon emits [`:telemetry`](https://hexdocs.pm/telemetry) events for monitoring session lifecycle and token verification operations:
 
-The following events are available:
+- **Session events** (`create`, `refresh`, `delete`, `delete_all`, `lock_conflict`) - emitted automatically
+- **Token events** (`valid`, `invalid`) - emitted when you include the `emit_telemetry` plug in your token verification pipeline (see examples in [Protecting routes](#protecting-routes))
 
-- `[:charon, :session, :create]` - Emitted when a new session is created
-- `[:charon, :session, :refresh]` - Emitted when an existing session is refreshed
-- `[:charon, :session, :delete]` - Emitted when a session is deleted
-- `[:charon, :session, :delete_all]` - Emitted when all sessions of a user are deleted
-
-All events include a `count` measurement (always 1) and metadata such as `session_id`, `user_id`, `session_type`, and `token_transport`.
-
-For more details, see the `Charon.Telemetry` module documentation.
+All events include measurements and metadata for tracking authentication activity. For complete event specifications, metadata fields, and usage examples, see the `Charon.Telemetry` module documentation.
 
 ## Copyright and License
 

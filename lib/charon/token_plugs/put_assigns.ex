@@ -1,7 +1,9 @@
 defmodule Charon.TokenPlugs.PutAssigns do
   @moduledoc """
   After verifying everything you would want to verify about a token,
-  assign the following to the conn:
+  assign data to the conn.
+
+  The following is assigned by default:
   - `:user_id` (bearer token claim "sub")
   - `:session_id` (bearer token claim "sid")
   - `:token_payload`
@@ -12,28 +14,7 @@ defmodule Charon.TokenPlugs.PutAssigns do
       # assign the user ID to key :current_user_id
       plug PutAssigns, claims: %{"sub" => :current_user_id, "sid" => :session_id}
 
-  ## Doctests
-
-      iex> opts = PutAssigns.init([])
-      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"})
-      iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
-      %{session_id: "a", token_payload: %{"sid" => "a", "sub" => 1}, user_id: 1}
-
-      iex> opts = PutAssigns.init(session: :da_session_baby)
-      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"}) |> set_session("hii")
-      iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
-      %{
-        session_id: "a",
-        token_payload: %{"sid" => "a", "sub" => 1},
-        user_id: 1,
-        da_session_baby: "hii"
-      }
-
-      # skipped on auth error
-      iex> opts = PutAssigns.init([])
-      iex> conn = conn() |> set_token_payload(%{"sub" => 1, "sid" => "a"}) |> set_auth_error("boom")
-      iex> conn |> PutAssigns.call(opts) |> Map.get(:assigns)
-      %{}
+  This plug is skipped if an authentication error is present.
   """
   use Charon.Internal.Constants
   @behaviour Plug

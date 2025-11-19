@@ -1,6 +1,10 @@
 # Changelog
 
-## 4.x
+## 4.0.1
+
+Docs have been improved by moving doctests to test files. Many doctests actually covered edge cases and did not make documentation clearer.
+
+## 4.0.0
 
 ### Breaking
 

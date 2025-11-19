@@ -96,5 +96,73 @@ defmodule Charon.TokenFactory.JwtTest do
     end
   end
 
+  describe "error handling" do
+    test "gracefully handles malformed tokens" do
+      assert {:error, "malformed token"} = verify("a", @charon_config)
+    end
+
+    test "handles invalid encoding" do
+      assert {:error, "encoding invalid"} = verify("a.b.c", @charon_config)
+    end
+
+    test "handles invalid JSON in header" do
+      header = "notjson" |> url_encode()
+      assert {:error, "json invalid"} = verify(header <> ".YQ.YQ", @charon_config)
+    end
+
+    test "handles missing alg in header" do
+      header = %{"missing" => "alg"} |> Jason.encode!() |> url_encode()
+      assert {:error, "malformed header"} = verify(header <> ".YQ.YQ", @charon_config)
+    end
+
+    test "handles unsupported algorithm" do
+      header = %{"alg" => "boom"} |> Jason.encode!() |> url_encode()
+      assert {:error, "key not found"} = verify(header <> ".YQ.YQ", @charon_config)
+    end
+
+    test "handles invalid signature" do
+      header = %{"alg" => "HS256", "kid" => "default"} |> Jason.encode!() |> url_encode()
+      assert {:error, "signature invalid"} = verify(header <> ".YQ.YQ", @charon_config)
+    end
+  end
+
+  describe "key cycling" do
+    test "supports cycling to a new signing key while still verifying old tokens" do
+      {:ok, token} = sign(%{}, @charon_config)
+      keyset = Jwt.default_keyset(@charon_config)
+      keyset = Map.put(keyset, "ed25519_1", Jwt.gen_keypair(:eddsa_ed25519))
+
+      config =
+        override_opt_mod_conf(@charon_config, Jwt,
+          get_keyset: fn _ -> keyset end,
+          signing_key: "ed25519_1"
+        )
+
+      assert {:ok, _} = verify(token, config)
+      {:ok, new_token} = sign(%{}, config)
+      assert new_token != token
+    end
+  end
+
+  describe "legacy tokens without kid claim" do
+    test "can verify old/external/legacy token without kid claim using kid_not_set.<alg> key" do
+      [header, pl] =
+        [%{"alg" => "HS256"}, %{}]
+        |> Enum.map(&Jason.encode!/1)
+        |> Enum.map(&url_encode/1)
+
+      base = "#{header}.#{pl}"
+      key = :crypto.strong_rand_bytes(32)
+      signature = :crypto.mac(:hmac, :sha256, key, base) |> url_encode()
+      token = "#{base}.#{signature}"
+
+      assert {:error, "key not found"} = verify(token, @charon_config)
+
+      keyset = %{"kid_not_set.HS256" => {:hmac_sha256, key}}
+      config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
+      assert {:ok, _} = verify(token, config)
+    end
+  end
+
   doctest Jwt
 end

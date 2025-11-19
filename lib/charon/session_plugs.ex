@@ -63,89 +63,38 @@ defmodule Charon.SessionPlugs do
 
   Additional claims or overrides can be provided with `opts`.
 
-  ## Examples / doctests
+  ## Options:
 
-      # error if user id not set for new session
-      iex> upsert_session(conn(), @config, token_transport: :bearer)
-      ** (RuntimeError) Set user id using upsert_session/3 option :user_id
+  - `:user_id` (required when creating a new session) - The user ID for the session owner
+  - `:token_transport` (required when creating a new session) - How tokens are transported to the client
+  - `:access_claim_overrides` - Map of additional or overridden claims for the access token
+  - `:refresh_claim_overrides` - Map of additional or overridden claims for the refresh token
+  - `:extra_session_payload` - Map of additional data to store in the server-side session
+  - `:session_type` - Session type atom (defaults to `:full`). Used to categorize sessions that require different lifecycle management. For example, OAuth2 provider sessions (see [CharonOauth2](`e:charon_oauth2:readme.html`)) or API key sessions might use a distinct type to ensure they are excluded from bulk operations like "logout all sessions". Only needed for specialized use cases.
 
-      # error if signature transport not set for new session
-      iex> upsert_session(conn(), @config, user_id: 1)
-      ** (RuntimeError) Set token transport using upsert_session/3 option :token_transport
+  ## Examples
 
-      # creates session if none present in conn
+  Create a new session for a user:
+
       iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :bearer)
       iex> %Session{} = Utils.get_session(conn)
       iex> %Tokens{} = Utils.get_tokens(conn)
 
-      # works with infinite lifespan sessions
+  Create a session with infinite lifespan:
+
       iex> conn = upsert_session(conn(), %{@config | session_ttl: :infinite}, user_id: 1, token_transport: :bearer)
       iex> %Session{expires_at: :infinite} = Utils.get_session(conn)
-      iex> %Tokens{} = Utils.get_tokens(conn)
 
-      # renews session if present in conn, updating only refresh_tokens, refreshed_at, and refresh_expires_at
-      # existing session's user id will not change despite attempted override
-      iex> old_session = test_session(user_id: 43, id: "a", expires_at: :infinite, refresh_expires_at: 0, refreshed_at: 0)
-      iex> conn = conn()
-      ...> |> Conn.put_private(@session, old_session)
-      ...> |> upsert_session(@config, user_id: 1, token_transport: :bearer)
-      iex> session = Utils.get_session(conn) |> Map.from_struct()
-      iex> old_session = Map.from_struct(old_session)
-      iex> Enum.find(~w(id user_id created_at expires_at)a, & session[&1] != old_session[&1])
-      nil
-      iex> Enum.find(~w(refresh_token_id refreshed_at refresh_expires_at)a, & session[&1] == old_session[&1])
-      nil
+  Add extra payload to the session:
 
-      # returns token signatures in cookies if token transport is :cookie
-      # cookie options are merged with defaults
-      iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :cookie)
-      iex> cookies = conn |> Conn.fetch_cookies() |> Map.get(:cookies)
-      iex> <<_access_sig::binary>> = Map.get(cookies, @config.access_cookie_name)
-      iex> <<_refresh_sig::binary>> = Map.get(cookies, @config.refresh_cookie_name)
-      iex> tokens = Utils.get_tokens(conn)
-      iex> [_, _] = String.split(tokens.access_token, ".", trim: true)
-      iex> [_, _] = String.split(tokens.refresh_token, ".", trim: true)
-      iex> %{http_only: true, path: _, same_site: "Strict", secure: true, max_age: _} = conn.resp_cookies["_refresh_token_signature"]
-
-
-      # returns full tokens in cookies if token transport is :cookie_only
-      iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :cookie_only)
-      iex> cookies = conn |> Conn.fetch_cookies() |> Map.get(:cookies)
-      iex> [_, _, _] = cookies |> Map.get(@config.access_cookie_name) |> String.split(".", trim: true)
-      iex> [_, _, _] = cookies |> Map.get(@config.refresh_cookie_name) |> String.split(".", trim: true)
-      iex> %{access_token: nil, refresh_token: nil} = Utils.get_tokens(conn)
-
-      # tokens get a lot of default claims
-      iex> conn = upsert_session(conn(), @config, user_id: 1, token_transport: :bearer)
-      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => <<sid::binary>>, "sub" => 1, "type" => "access", "styp" => "full"} = get_private(conn, @access_token_payload)
-      iex> %{"exp" => _, "iat" => _, "iss" => "my_test_app", "jti" => <<_::binary>>, "nbf" => _, "sid" => ^sid, "sub" => 1, "type" => "refresh", "styp" => "full"} = get_private(conn, @refresh_token_payload)
-
-      # allows adding extra claims to tokens
       iex> conn = upsert_session(
       ...>   conn(),
       ...>   @config,
       ...>   user_id: 1,
       ...>   token_transport: :bearer,
-      ...>   access_claim_overrides: %{"much" => :extra},
-      ...>   refresh_claim_overrides: %{"really" => true}
+      ...>   extra_session_payload: %{role: :admin}
       ...> )
-      iex> %{"much" => :extra} = get_private(conn, @access_token_payload)
-      iex> %{"really" => true} = get_private(conn, @refresh_token_payload)
-
-      # allows adding extra payload to session
-      iex> conn = upsert_session(
-      ...>   conn(),
-      ...>   @config,
-      ...>   user_id: 1,
-      ...>   token_transport: :bearer,
-      ...>   extra_session_payload: %{what?: "that's right!"}
-      ...> )
-      iex> %Session{extra_payload: %{what?: "that's right!"}} = Utils.get_session(conn)
-
-      # allows separating sessions by type (default :full)
-      iex> conn = upsert_session(conn(), @config, session_type: :oauth2, user_id: 1, token_transport: :bearer)
-      iex> %Session{type: :oauth2} = Utils.get_session(conn)
-      iex> %{"styp" => "oauth2"} = get_private(conn, @access_token_payload)
+      iex> %Session{extra_payload: %{role: :admin}} = Utils.get_session(conn)
   """
   @spec upsert_session(Conn.t(), Config.t(), upsert_session_opts()) :: Conn.t()
   def upsert_session(conn, config, opts \\ []) do
@@ -173,16 +122,7 @@ defmodule Charon.SessionPlugs do
 
   Note that the token remains valid until it expires, it is left up to the client to drop the access token. It will no longer be possible to refresh the session, however.
 
-  ## Examples / doctests
-
-      # instructs browsers to clear signature cookies
-      iex> conn()
-      ...> |> Plug.Test.put_req_cookie(@config.access_cookie_name, "anything")
-      ...> |> Plug.Test.put_req_cookie(@config.refresh_cookie_name, "anything")
-      ...> |> delete_session(@config)
-      ...> |> Conn.fetch_cookies()
-      ...> |> Map.get(:cookies)
-      %{}
+  This function also instructs browsers to clear signature cookies.
   """
   @spec delete_session(Conn.t(), Config.t()) :: Conn.t()
   def delete_session(conn, config) do

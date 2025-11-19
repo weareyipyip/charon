@@ -50,69 +50,6 @@ defmodule Charon.Models.Session do
 
   @doc """
   Upgrade a session (or map created from a session struct) to the latest struct version (#{@latest_version}).
-
-  ## DocTests
-
-      @charon_config Charon.Config.from_enum(token_issuer: "local")
-
-      # old version without the :version, :refesh_expires_at fields but with :__struct__ set
-      # is updated to latest version (#{@latest_version})
-      iex> session = %{
-      ...>   __struct__: Session,
-      ...>   created_at: 0,
-      ...>   expires_at: 1,
-      ...>   extra_payload: %{},
-      ...>   id: "ab",
-      ...>   refresh_token_id: "cd",
-      ...>   refreshed_at: 15,
-      ...>   type: :full,
-      ...>   user_id: 9
-      ...> }
-      ...> |> upgrade_version(@charon_config)
-      iex> %Session{
-      ...>   created_at: 0,
-      ...>   expires_at: 1,
-      ...>   extra_payload: %{},
-      ...>   id: "ab",
-      ...>   prev_tokens_fresh_from: 0,
-      ...>   refresh_expires_at: 1,
-      ...>   refresh_token_id: "cd",
-      ...>   refreshed_at: 15,
-      ...>   tokens_fresh_from: 15,
-      ...>   type: :full,
-      ...>   user_id: 9,
-      ...>   version: #{@latest_version}
-      ...> } = session
-
-      # old version - with :expires_at = nil - is updated without error
-      iex> session = %{
-      ...>   __struct__: Session,
-      ...>   created_at: 0,
-      ...>   expires_at: nil,
-      ...>   extra_payload: %{},
-      ...>   id: "ab",
-      ...>   refresh_token_id: "cd",
-      ...>   refreshed_at: 15,
-      ...>   type: :full,
-      ...>   user_id: 9
-      ...> }
-      ...> |> upgrade_version(@charon_config)
-      iex> %Session{
-      ...>   created_at: 0,
-      ...>   expires_at: :infinite,
-      ...>   extra_payload: %{},
-      ...>   id: "ab",
-      ...>   prev_tokens_fresh_from: 0,
-      ...>   refresh_expires_at: refresh_exp,
-      ...>   refresh_token_id: "cd",
-      ...>   refreshed_at: 15,
-      ...>   tokens_fresh_from: 15,
-      ...>   type: :full,
-      ...>   user_id: 9,
-      ...>   version: #{@latest_version}
-      ...> } = session
-      iex> is_integer(refresh_exp) and refresh_exp >= System.os_time(:second)
-      true
   """
   @spec upgrade_version(map, Config.t()) :: map
   def upgrade_version(session, config) do

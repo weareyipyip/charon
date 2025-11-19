@@ -65,10 +65,6 @@ defmodule Charon.TokenFactory.Jwt do
   In order to use asymmetric signatures, generate a key using `gen_keypair/1`.
   Create a publishable JWK using `keypair_to_pub_jwk/1`.
 
-      iex> keypair = Jwt.gen_keypair(:eddsa_ed25519)
-      iex> {:eddsa_ed25519, {_pubkey, _privkey}} = keypair
-      iex> %{"crv" => "Ed25519", "kty" => "OKP", "x" => <<_::binary>>} = Jwt.keypair_to_pub_jwk(keypair)
-
   ## Config
 
   Additional config is required for this module (see `Charon.TokenFactory.Jwt.Config`):
@@ -88,48 +84,32 @@ defmodule Charon.TokenFactory.Jwt do
     - `:signing_key` (optional, default "default"). The ID of the key in the keyset that is used to sign new tokens.
     - `:gen_poly1305_nonce` (optional, default `:random`). How to generate Poly1305-signed JWT nonces, can be overridden by a 0-arity function that must return a 96-bits binary. It is of critical importance that the nonce is unique for each invocation. The default random generation provides adequate security for most applications (collision risk becomes significant only after ~2^48 tokens). For extremely high-volume applications, consider using a counter-based approach via this option, for example using [NoNoncense](`e:no_noncense:NoNoncense.html`).
 
-  ## Examples / doctests
+  ## Examples
 
-      # gracefully handles malformed tokens / unsupported algo's / invalid signature
-      iex> verify("a", @charon_config)
-      {:error, "malformed token"}
-      iex> verify("a.b.c", @charon_config)
-      {:error, "encoding invalid"}
-      iex> header = "notjson" |> url_encode()
-      iex> verify(header <> ".YQ.YQ", @charon_config)
-      {:error, "json invalid"}
-      iex> header = %{"missing" => "alg"} |> Jason.encode!() |> url_encode()
-      iex> verify(header <> ".YQ.YQ", @charon_config)
-      {:error, "malformed header"}
-      iex> header = %{"alg" => "boom"} |> Jason.encode!() |> url_encode()
-      iex> verify(header <> ".YQ.YQ", @charon_config)
-      {:error, "key not found"}
-      iex> header = %{"alg" => "HS256", "kid" => "default"} |> Jason.encode!() |> url_encode()
-      iex> verify(header <> ".YQ.YQ", @charon_config)
-      {:error, "signature invalid"}
+  Generate and verify tokens with the default configuration:
 
-      # supports cycling to a new signing key, while still verifying old tokens
-      iex> {:ok, token} = sign(%{}, @charon_config)
-      iex> keyset = Jwt.default_keyset(@charon_config)
-      iex> keyset = Map.put(keyset, "ed25519_1", Jwt.gen_keypair(:eddsa_ed25519))
-      iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end, signing_key: "ed25519_1")
-      iex> {:ok, _} = verify(token, config)
-      iex> {:ok, new_token} = sign(%{}, config)
-      iex> new_token == token
-      false
+      iex> {:ok, token} = sign(%{"user_id" => 123}, @charon_config)
+      iex> {:ok, payload} = verify(token, @charon_config)
+      iex> payload["user_id"]
+      123
 
-      # an old / external / legacy token without a "kid" claim can still be verified
-      # by adding a "kid_not_set.<alg>" key to the keyset
-      # a token MUST have an alg claim, which is mandatory according to the JWT spec
-      iex> [header, pl] = [%{"alg" => "HS256"}, %{}] |> Enum.map(&Jason.encode!/1) |> Enum.map(&url_encode/1)
-      iex> base = "\#{header}.\#{pl}"
-      iex> key = :crypto.strong_rand_bytes(32)
-      iex> signature = :crypto.mac(:hmac, :sha256, key, base) |> url_encode()
-      iex> token = "\#{base}.\#{signature}"
-      iex> {:error, "key not found"} = verify(token, @charon_config)
-      iex> keyset = %{"kid_not_set.HS256" => {:hmac_sha256, key}}
-      iex> config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
-      iex> {:ok, _} = verify(token, config)
+  Generate an asymmetric keypair and create a publishable JWK:
+
+      iex> keypair = Jwt.gen_keypair(:eddsa_ed25519)
+      iex> {:eddsa_ed25519, {_pubkey, _privkey}} = keypair
+      iex> %{"crv" => "Ed25519", "kty" => "OKP", "x" => <<_::binary>>} = Jwt.keypair_to_pub_jwk(keypair)
+
+  Use a custom keyset to rotate keys:
+
+      iex> old_key = :crypto.strong_rand_bytes(32)
+      iex> new_key = :crypto.strong_rand_bytes(32)
+      iex> keyset = %{"old" => {:hmac_sha256, old_key}, "new" => {:hmac_sha512, new_key}}
+      iex> old_config = Charon.TestHelpers.override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end, signing_key: "old")
+      iex> new_config = Charon.TestHelpers.override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end, signing_key: "new")
+      iex> {:ok, old_token} = sign(%{"uid" => 1}, old_config)
+      iex> {:ok, new_token} = sign(%{"uid" => 2}, new_config)
+      iex> {:ok, _} = verify(old_token, new_config)
+      iex> {:ok, _} = verify(new_token, new_config)
   """
   alias Charon.Utils.{KeyGenerator, PersistentTermCache}
   import __MODULE__.Config, only: [get_mod_config: 1]
