@@ -15,7 +15,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     A persistent session store based on Redis, which implements behaviour `Charon.SessionStore`.
     In addition to the required callbacks, this store also provides `get_all/3` and `delete_all/3` (for a user) functions.
 
-    > ### Redis requirements {: .info}
+    > #### Redis requirements {: .info}
     >
     > This module requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands, and needs permissions to create Redis functions.
     > The optimistic-locking functionality of the store was not designed with a Redis cluster in mind

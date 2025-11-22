@@ -5,6 +5,9 @@ defmodule Charon.TokenFactory.Behaviour do
   Note that the token payload must be returned as a map with string keys on verification.
   When the payload is serialized as JSON, this happens automatically.
   However, when Erlang term format is used, this is not the case.
+  Given that verification is the hotter code path,
+  it probably makes sense to convert atom keys to string keys on token creation,
+  rather than on verification.
   """
   alias Charon.Config
 
