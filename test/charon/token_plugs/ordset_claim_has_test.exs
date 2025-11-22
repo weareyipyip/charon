@@ -47,14 +47,21 @@ defmodule Charon.TokenPlugs.OrdsetClaimHasTest do
 
     test "handles multiple claims in keyword list" do
       opts = OrdsetClaimHas.init(scope: ~w(read write), role: ~w(admin user))
-      assert opts == [{"role", {:all_of, ["admin", "user"]}}, {"scope", {:all_of, ["read", "write"]}}]
+
+      assert opts == [
+               {"role", {:all_of, ["admin", "user"]}},
+               {"scope", {:all_of, ["read", "write"]}}
+             ]
     end
 
     test "handles multiple claims with different operations" do
       opts =
         OrdsetClaimHas.init(scope: [all_of: ~w(read write)], role: [any_of: ~w(admin user)])
 
-      assert opts == [{"role", {:any_of, ["admin", "user"]}}, {"scope", {:all_of, ["read", "write"]}}]
+      assert opts == [
+               {"role", {:any_of, ["admin", "user"]}},
+               {"scope", {:all_of, ["read", "write"]}}
+             ]
     end
 
     test "creates ordset from expected values" do
@@ -91,7 +98,9 @@ defmodule Charon.TokenPlugs.OrdsetClaimHasTest do
     end
 
     test "passes when token claim contains all_of expected values and more" do
-      conn = init_and_call(%{"scope" => ["admin", "read", "write"]}, scope: [all_of: ~w(read write)])
+      conn =
+        init_and_call(%{"scope" => ["admin", "read", "write"]}, scope: [all_of: ~w(read write)])
+
       refute Utils.get_auth_error(conn)
     end
 
@@ -118,7 +127,9 @@ defmodule Charon.TokenPlugs.OrdsetClaimHasTest do
     end
 
     test "passes when token claim contains all_of expected values" do
-      conn = init_and_call(%{"role" => ["admin", "moderator"]}, role: [any_of: ~w(admin moderator)])
+      conn =
+        init_and_call(%{"role" => ["admin", "moderator"]}, role: [any_of: ~w(admin moderator)])
+
       refute Utils.get_auth_error(conn)
     end
 
