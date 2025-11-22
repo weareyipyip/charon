@@ -33,7 +33,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_signature, @config
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
-        plug :verify_token_claim_equals, {"type", "access"}
+        plug :verify_token_claim_equals, type: "access"
         plug :emit_telemetry
         plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
         plug Charon.TokenPlugs.PutAssigns
@@ -51,7 +51,7 @@ defmodule Charon.TokenPlugs do
         plug :verify_token_signature, @config
         plug :verify_token_nbf_claim
         plug :verify_token_exp_claim
-        plug :verify_token_claim_equals, {"type", "refresh"}
+        plug :verify_token_claim_equals, type: "refresh"
         plug :load_session, @config
         plug :verify_token_fresh, 10
         plug :emit_telemetry
@@ -66,6 +66,40 @@ defmodule Charon.TokenPlugs do
   use Internal.Constants
   import Internal
   import Charon.Utils
+
+  @typedoc """
+  The name of a token claim to verify.
+
+  Atoms are automatically converted to strings (e.g., `:type` becomes `"type"`).
+  This allows for a more ergonomic API when specifying claims.
+  """
+  @type claim_name :: String.t() | atom()
+
+  @typedoc """
+  A verifier function for custom claim validation.
+
+  The function receives the connection and the claim value, and must return:
+  - The connection (possibly modified) if validation succeeds
+  - An error message string if validation fails
+  """
+  @type verifier :: (Conn.t(), any() -> Conn.t() | binary())
+
+  @typedoc """
+  A single claim name paired with its expected/comparison value.
+  """
+  @type claim_and_expectation :: {claim_name(), any()}
+
+  @typedoc """
+  One or more claims with their expected/comparison values.
+
+  Can be provided as:
+  - A single tuple: `{"type", "access"}` or `{:type, "access"}`
+  - A keyword list: `[type: "access", role: "admin"]`
+  - A map: `%{type: "access", role: "admin"}`
+  - A list of tuples: `[{"type", "access"}, {"role", "admin"}]`
+  """
+  @type claims_and_expectations ::
+          claim_and_expectation() | [claim_and_expectation()] | %{claim_name() => any()}
 
   @doc """
   Get a bearer token from the `authorization` header.
@@ -200,26 +234,30 @@ defmodule Charon.TokenPlugs do
 
   @doc """
   Verify that the bearer token payload contains `claim` and that its value is in `expected`.
+  Also accepts a map/keyword of claims and lists of expected values.
 
   Must be used after `verify_token_signature/2`.
 
   ## Doctests / examples
 
       iex> conn()
-      ...> |> Utils.set_token_payload(%{"type" => "access"})
-      ...> |> verify_token_claim_in({"type", ["id", "refresh"]})
+      ...> |> Utils.set_token_payload(%{"uid" => 1, "type" => "access"})
+      ...> |> verify_token_claim_in(uid: 1..20, type: ["id", "refresh"])
       ...> |> Utils.get_auth_error()
       "bearer token claim type invalid"
   """
-  @spec verify_token_claim_in(Conn.t(), {String.t(), [any()]}) :: Conn.t()
-  def verify_token_claim_in(conn, _claim_and_expected = {claim, expected}) do
-    verify_claim(conn, claim, fn conn, v ->
-      if v in expected, do: conn, else: "bearer token claim #{claim} invalid"
-    end)
+  @spec verify_token_claim_in(Conn.t(), claims_and_expectations()) :: Conn.t()
+  def verify_token_claim_in(conn, claims_and_expected) do
+    verify_token_claim(conn, expectations_to_verifiers(claims_and_expected, &check_membership/4))
+  end
+
+  defp check_membership(conn, claim, claim_value, expected) do
+    if claim_value in expected, do: conn, else: "bearer token claim #{claim} invalid"
   end
 
   @doc """
   Verify that the bearer token payload contains `claim` and that its value is `expected`.
+  Also accepts a map/keyword of claims and expected values.
 
   Must be used after `verify_token_signature/2`.
 
@@ -227,16 +265,21 @@ defmodule Charon.TokenPlugs do
 
       iex> conn()
       ...> |> Utils.set_token_payload(%{"type" => "access"})
-      ...> |> verify_token_claim_equals({"type", "refresh"})
+      ...> |> verify_token_claim_equals(type: "refresh")
       ...> |> Utils.get_auth_error()
       "bearer token claim type invalid"
   """
-  @spec verify_token_claim_equals(Conn.t(), {String.t(), String.t()}) :: Conn.t()
-  def verify_token_claim_equals(conn, _claim_and_expected = {claim, expected}),
-    do: verify_token_claim_in(conn, {claim, [expected]})
+  @spec verify_token_claim_equals(Conn.t(), claims_and_expectations()) :: Conn.t()
+  def verify_token_claim_equals(conn, claims_and_expected),
+    do: verify_token_claim(conn, expectations_to_verifiers(claims_and_expected, &check_equals/4))
+
+  defp check_equals(conn, claim, claim_value, expected) do
+    if claim_value == expected, do: conn, else: "bearer token claim #{claim} invalid"
+  end
 
   @doc """
   Verify that the bearer token payload contains `claim` and that its value matches `verifier`, which receives the conn and the claim value, and must return the conn or an error message.
+  Also accepts a map/keyword of claims and verifiers.
 
   Must be used after `verify_token_signature/2`.
 
@@ -248,14 +291,20 @@ defmodule Charon.TokenPlugs do
 
       iex> conn()
       ...> |> Utils.set_token_payload(%{"scope" => "write"})
-      ...> |> verify_token_claim({"scope", &verify_read_scope/2})
+      ...> |> verify_token_claim(scope: &verify_read_scope/2)
       ...> |> Utils.get_auth_error()
       "no read scope"
   """
-  @spec verify_token_claim(Conn.t(), {String.t(), (Conn.t(), any() -> Conn.t() | binary())}) ::
+  @spec verify_token_claim(
+          Conn.t(),
+          {claim_name(), verifier()} | %{claim_name() => verifier()} | keyword(verifier())
+        ) ::
           Conn.t()
-  def verify_token_claim(conn, _claim_and_verifier = {claim, verifier}),
-    do: verify_claim(conn, claim, verifier)
+  def verify_token_claim(conn, claims_and_verifiers) do
+    for {claim, verifier} <- list_wrap(claims_and_verifiers), reduce: conn do
+      conn -> verify_claim(conn, atom_to_string(claim), verifier)
+    end
+  end
 
   @doc """
   Emit telemetry events after token verification.
@@ -405,7 +454,7 @@ defmodule Charon.TokenPlugs do
       ...> |> Utils.get_auth_error()
       "not user 2"
   """
-  @spec verify_session_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
+  @spec verify_session_payload(Conn.t(), verifier()) :: Conn.t()
   def verify_session_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
   def verify_session_payload(conn = %{private: %{@session => session}}, verifier) do
@@ -430,7 +479,7 @@ defmodule Charon.TokenPlugs do
       "no sub claim"
   """
   @compile {:inline, verify_token_payload: 2}
-  @spec verify_token_payload(Conn.t(), (Conn.t(), any -> Conn.t() | binary())) :: Conn.t()
+  @spec verify_token_payload(Conn.t(), verifier()) :: Conn.t()
   def verify_token_payload(conn, _verifier) when is_map_key(conn.private, @auth_error), do: conn
 
   def verify_token_payload(conn = %{private: %{@bearer_token_payload => payload}}, verifier) do
@@ -444,7 +493,12 @@ defmodule Charon.TokenPlugs do
   and that `ordset` (*which is also assumed to be either an ordset or a single element*)
   is a subset of that ordset.
 
-  **WATCH OUT!** Things will go horribly wrong if either the claim or the comparison value is not an ordset; both values must be properly sorted lists.
+  > #### Ordset requirement {: .warning}
+  >
+  > The verified token claims **and** the comparison value **must** be properly formatted `m::ordsets`.
+  > The plug does not validate this - malformed values will produce incorrect results or errors.
+
+  Also accepts a map/keyword of claims and expected ordsets.
 
   ## Doctests / examples
 
@@ -456,28 +510,34 @@ defmodule Charon.TokenPlugs do
 
       iex> conn()
       ...> |> Utils.set_token_payload(%{"scope" => ["a", "b", "c"]})
-      ...> |> verify_token_ordset_claim_contains({"scope", ["c", "d", "e"]})
+      ...> |> verify_token_ordset_claim_contains(scope: ["c", "d", "e"])
       ...> |> Utils.get_auth_error()
       "bearer token claim scope does not contain [d, e]"
   """
-  @spec verify_token_ordset_claim_contains(Plug.Conn.t(), {binary, any}) :: Plug.Conn.t()
-  def verify_token_ordset_claim_contains(conn, _claim_and_ordset = {claim, element_or_ordset}) do
-    verifier = fn conn, claim_value ->
-      element_or_ordset
-      |> List.wrap()
-      |> :ordsets.subtract(claim_value)
-      |> case do
-        [] -> conn
-        missing -> "bearer token claim #{claim} does not contain [#{Enum.join(missing, ", ")}]"
-      end
-    end
+  @spec verify_token_ordset_claim_contains(Plug.Conn.t(), claims_and_expectations()) ::
+          Plug.Conn.t()
+  @deprecated "It has been replaced by Charon.TokenPlugs.OrdsetClaimHas, which protects against misconfiguration by initializing comparison values as ordsets"
+  def verify_token_ordset_claim_contains(conn, claims_and_ordsets) do
+    verify_token_claim(conn, expectations_to_verifiers(claims_and_ordsets, &check_ordset/4))
+  end
 
-    verify_claim(conn, claim, verifier)
+  defp check_ordset(conn, claim, claim_value, expected) do
+    expected
+    |> list_wrap()
+    |> :ordsets.subtract(claim_value)
+    |> case do
+      [] -> conn
+      missing -> "bearer token claim #{claim} does not contain [#{Enum.join(missing, ", ")}]"
+    end
   end
 
   ###########
   # Private #
   ###########
+
+  @compile {:inline, list_wrap: 1}
+  defp list_wrap(list) when is_list(list), do: list
+  defp list_wrap(other), do: [other]
 
   defp verify_claim(conn, claim, verifier) do
     verify_token_payload(conn, fn _conn, payload ->
@@ -488,6 +548,20 @@ defmodule Charon.TokenPlugs do
     end)
   end
 
-  defp maybe_add_error(<<err::binary>>, conn), do: set_auth_error(conn, err)
-  defp maybe_add_error(conn, _conn), do: conn
+  @compile {:inline, atom_to_string: 1}
+  defp atom_to_string(atom) when is_atom(atom), do: Atom.to_string(atom)
+  defp atom_to_string(other), do: other
+
+  defp expectations_to_verifiers({claim, expected}, do_verify) do
+    claim = atom_to_string(claim)
+    {claim, fn conn, value -> do_verify.(conn, claim, value, expected) end}
+  end
+
+  defp expectations_to_verifiers(claims_and_verifiers, do_verify) do
+    for cv <- claims_and_verifiers, do: expectations_to_verifiers(cv, do_verify)
+  end
+
+  @compile {:inline, maybe_add_error: 2}
+  def maybe_add_error(<<err::binary>>, conn), do: set_auth_error(conn, err)
+  def maybe_add_error(conn, _conn), do: conn
 end

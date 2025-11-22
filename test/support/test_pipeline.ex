@@ -10,7 +10,7 @@ defmodule Charon.TestPipeline do
   plug(:verify_token_signature, @config)
   plug(:verify_token_nbf_claim)
   plug(:verify_token_exp_claim)
-  plug(:verify_token_claim_equals, {"type", "refresh"})
+  plug(:verify_token_claim_equals, type: "refresh")
   plug(:load_session, @config)
   plug(:verify_token_fresh, 5)
   plug(:emit_telemetry)

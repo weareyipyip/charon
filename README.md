@@ -132,7 +132,7 @@ defmodule MyApp.AccessTokenPipeline do
   plug :verify_token_signature, @config
   plug :verify_token_nbf_claim
   plug :verify_token_exp_claim
-  plug :verify_token_claim_equals, {"type", "access"}
+  plug :verify_token_claim_equals, type: "access"
   plug :emit_telemetry
   plug :verify_no_auth_error, &MyApp.TokenErrorHandler.on_error/2
   plug Charon.TokenPlugs.PutAssigns
@@ -157,7 +157,7 @@ defmodule MyApp.RefreshTokenPipeline do
   plug :verify_token_signature, @config
   plug :verify_token_nbf_claim
   plug :verify_token_exp_claim
-  plug :verify_token_claim_equals, {"type", "refresh"}
+  plug :verify_token_claim_equals, type: "refresh"
   plug :load_session, @config
   plug :verify_token_fresh, 10
   plug :emit_telemetry
