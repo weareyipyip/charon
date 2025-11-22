@@ -76,7 +76,7 @@ defmodule Charon.TokenPlugs.OrdsetClaimHas do
     case claims_and_expected do
       {_claim, _expected} = tuple -> [tuple]
       coll when is_list(coll) or is_map(coll) -> coll
-      _ -> raise ArgumentError, "must a tuple, map or keyword list"
+      _ -> raise ArgumentError, "must be a tuple, map or keyword list"
     end
     |> Enum.map(fn {claim, expected} -> {to_string(claim), normalize_expected(expected)} end)
     |> Enum.reject(fn {_claim, {_op, expected}} -> expected == [] end)
