@@ -1,5 +1,15 @@
 # Changelog
 
+## 4.1.0
+
+- New: `Charon.TokenPlugs.OrdsetClaimHas` — a plug for verifying token claims that are `m::ordsets`.
+  The old `Charon.TokenPlugs.verify_token_ordset_claim_contains/2` is deprecated in favour of the new plug,
+  which is a drop-in replacement which casts values (but not claims!) to ordsets automatically, making it more dev-friendly.
+
+- Improved ergonomics for several token plugs:
+  `Charon.TokenPlugs.verify_token_claim/2`, `Charon.TokenPlugs.verify_token_claim_equals/2` and `Charon.TokenPlugs.verify_token_claim_in/2`
+  now accept a tuple, keyword list or map of expectations and accept atoms for claim names.
+
 ## 4.0.1
 
 Docs have been improved by moving doctests to test files. Many doctests actually covered edge cases and did not make documentation clearer.
