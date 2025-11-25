@@ -45,7 +45,8 @@ defmodule Charon.MixProject do
       {:poolboy, "~> 1.5", optional: true},
       {:redix, "~> 1.1", optional: true},
       {:jason, "~> 1.0", only: [:test]},
-      {:telemetry, "~> 1.0", optional: true}
+      {:telemetry, "~> 1.0", optional: true},
+      {:benchmark, github: "juulSme/benchmark_ex", only: [:dev, :test]}
     ]
   end
 
