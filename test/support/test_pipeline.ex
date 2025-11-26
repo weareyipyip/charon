@@ -1,4 +1,5 @@
 defmodule Charon.TestPipeline do
+  @moduledoc false
   use Plug.Builder
   import Charon.TokenPlugs
 

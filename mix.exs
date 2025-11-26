@@ -44,12 +44,13 @@ defmodule Charon.MixProject do
       {:plug, "~> 1.11"},
       {:poolboy, "~> 1.5", optional: true},
       {:redix, "~> 1.1", optional: true},
-      {:jason, "~> 1.0", only: [:test]},
+      {:jason, "~> 1.0", only: [:dev, :test]},
       {:telemetry, "~> 1.0", optional: true},
       {:benchmark, github: "juulSme/benchmark_ex", only: [:dev, :test]}
     ]
   end
 
+  defp elixirc_paths(:dev), do: ["lib", "test/support"]
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 end

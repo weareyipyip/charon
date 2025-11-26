@@ -1,4 +1,5 @@
 defmodule Charon.TestUtils do
+  @moduledoc false
   alias Charon.SessionStore.RedisStore.StoreImpl
 
   def session_set_key(user_id, type \\ :full, prefix \\ "charon_") do

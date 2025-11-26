@@ -1,4 +1,5 @@
 defmodule Charon.TestConfig do
+  @moduledoc false
   def secret(), do: "supersecret"
 
   @config Charon.Config.from_enum(
