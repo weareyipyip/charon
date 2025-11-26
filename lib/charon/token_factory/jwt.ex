@@ -67,7 +67,7 @@ defmodule Charon.TokenFactory.Jwt do
 
   ## Config
 
-  Additional config is required for this module (see `Charon.TokenFactory.Jwt.Config`):
+  Additional config is required for this module:
 
       Charon.Config.from_enum(
         ...,
@@ -117,15 +117,6 @@ defmodule Charon.TokenFactory.Jwt do
   import Charon.Internal.Crypto
   @behaviour Charon.TokenFactory.Behaviour
 
-  @sign_alg_to_header_alg %{
-    hmac_sha256: "HS256",
-    hmac_sha384: "HS384",
-    hmac_sha512: "HS512",
-    eddsa_ed25519: "EdDSA",
-    eddsa_ed448: "EdDSA",
-    poly1305: "Poly1305"
-  }
-
   @type hmac_alg :: :hmac_sha256 | :hmac_sha384 | :hmac_sha512
   @type eddsa_alg :: :eddsa_ed25519 | :eddsa_ed448
   @type mac_alg :: :poly1305
@@ -140,13 +131,12 @@ defmodule Charon.TokenFactory.Jwt do
     mod_conf = get_mod_config(config)
     %{get_keyset: get_keyset, signing_key: kid} = mod_conf
 
-    with {:ok, _key = {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
-         json_payload <- jmod.encode!(payload) do
-      payload = url_encode(json_payload)
+    with {:ok, _key = {alg, secret}} <- config |> get_keyset.() |> get_key(kid) do
+      enc_payload = payload |> jmod.encode!() |> url_encode()
       nonce = new_poly1305_nonce(alg, mod_conf)
       key = {alg, gen_otk_for_nonce(secret, nonce)}
-      header = create_header(alg, kid, jmod, nonce)
-      data = [header, ?., payload]
+      header = create_header(alg, kid, nonce)
+      data = [header, ?., enc_payload]
       signature = data |> do_sign(key) |> url_encode()
       token = [data, ?., signature] |> IO.iodata_to_binary()
       {:ok, token}
@@ -212,14 +202,15 @@ defmodule Charon.TokenFactory.Jwt do
   # Private #
   ###########
 
+  @compile {:inline, get_key: 2}
   defp get_key(keyset, kid) do
-    if key = Map.get(keyset, kid) do
-      {:ok, key}
-    else
-      {:error, "key not found"}
+    case keyset do
+      %{^kid => key} -> {:ok, key}
+      _ -> {:error, "key not found"}
     end
   end
 
+  @compile {:inline, calc_hmac: 3}
   defp calc_hmac(data, key, alg), do: :crypto.mac(:hmac, alg, key, data)
 
   # Sign #
@@ -253,6 +244,7 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
     do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
 
+  @compile {:inline, new_poly1305_nonce: 2}
   defp new_poly1305_nonce(:poly1305, mod_conf) do
     case mod_conf.gen_poly1305_nonce do
       :random -> :crypto.strong_rand_bytes(12)
@@ -262,16 +254,25 @@ defmodule Charon.TokenFactory.Jwt do
 
   defp new_poly1305_nonce(_, _), do: nil
 
-  # header stuff #
-  defp create_header(alg, kid, jmod, nonce) do
-    %{alg: Map.fetch!(@sign_alg_to_header_alg, alg), typ: "JWT", kid: kid}
-    |> put_nonce_in_header(nonce)
-    |> jmod.encode!()
-    |> url_encode()
+  # strings whose lengths are multiples of 3 can be pre-encoded and concatenated
+  @sha256_head ~s({"alg":"HS256","typ":"JWT","kid":) |> url_encode()
+  @sha384_head ~s({"alg":"HS384","typ":"JWT","kid":) |> url_encode()
+  @sha512_head ~s({"alg":"HS512","typ":"JWT","kid":) |> url_encode()
+  @eddsa_head ~s({"alg":"EdDSA","typ":"JWT","kid":) |> url_encode()
+  @poly1305_head ~s({"alg":"Poly1305","typ":"JWT","kid":) |> url_encode()
+
+  @compile {:inline, create_header: 3}
+  @doc false
+  def create_header(:hmac_sha256, kid, _), do: [@sha256_head, url_encode(~s("#{kid}"}))]
+
+  def create_header(:poly1305, kid, nonce) do
+    [@poly1305_head, url_encode(~s("#{kid}","nonce":"#{url_encode(nonce)}"}))]
   end
 
-  defp put_nonce_in_header(map, nil), do: map
-  defp put_nonce_in_header(map, nonce), do: Map.put(map, :nonce, url_encode(nonce))
+  def create_header(:hmac_sha384, kid, _), do: [@sha384_head, url_encode(~s("#{kid}"}))]
+  def create_header(:hmac_sha512, kid, _), do: [@sha512_head, url_encode(~s("#{kid}"}))]
+  def create_header(:eddsa_ed25519, kid, _), do: [@eddsa_head, url_encode(~s("#{kid}"}))]
+  def create_header(:eddsa_ed448, kid, _), do: [@eddsa_head, url_encode(~s("#{kid}"}))]
 
   defp url_json_decode(encoded, json_mod) do
     with {_, {:ok, json}} <- {:enc, url_decode(encoded)},
@@ -294,11 +295,15 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
+  @compile {:inline, get_header_alg: 1}
   defp get_header_alg(_header_pl = %{"alg" => alg}), do: {:ok, alg}
   defp get_header_alg(_), do: {:error, "malformed header"}
 
-  defp get_header_kid(header_pl, alg), do: Map.get(header_pl, "kid", "kid_not_set.#{alg}")
+  @compile {:inline, get_header_kid: 2}
+  defp get_header_kid(%{"kid" => kid}, _), do: kid
+  defp get_header_kid(_, alg), do: "kid_not_set.#{alg}"
 
+  @compile {:inline, maybe_get_header_nonce: 2}
   defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
     with %{"nonce" => nonce} <- header_pl,
          {:ok, nonce} <- url_decode(nonce) do
