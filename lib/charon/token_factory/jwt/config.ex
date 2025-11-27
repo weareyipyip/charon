@@ -13,12 +13,16 @@ defmodule Charon.TokenFactory.Jwt.Config do
   @enforce_keys []
   defstruct get_keyset: &Jwt.default_keyset/1,
             signing_key: "default",
-            gen_poly1305_nonce: :random
+            gen_poly1305_nonce: :random,
+            poly1305_otk_cache: nil,
+            poly1305_otk_cache_ttl: 15 * 60
 
   @type t :: %{
           get_keyset: (Charon.Config.t() -> Jwt.keyset()),
           signing_key: binary() | {binary(), binary()},
-          gen_poly1305_nonce: :random | (-> <<_::96>>)
+          gen_poly1305_nonce: :random | (-> <<_::96>>),
+          poly1305_otk_cache: module() | nil,
+          poly1305_otk_cache_ttl: pos_integer()
         }
 
   @doc """

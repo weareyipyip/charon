@@ -4,8 +4,14 @@ defmodule Charon.TokenFactory.CompiledJwtTest do
   import Charon.TestUtils
   alias Charon.TokenFactory.Jwt
   alias TestApp.Charon.CompiledJwt
-  alias CompiledJwt.{Ed25519, Sha256, Poly1305}
+  alias CompiledJwt.{Ed25519, Sha256, Poly1305, Poly1305Cached}
   alias Jwt.Config
+  alias Jwt.{Config, OtkCache}
+
+  setup_all do
+    start_supervised!(OtkCache)
+    []
+  end
 
   describe "HS256" do
     setup do
@@ -99,6 +105,55 @@ defmodule Charon.TokenFactory.CompiledJwtTest do
     test "CompiledJwt token can be verified by Jwt.verify", seeds do
       {:ok, token} = Poly1305.sign(%{"foo" => "bar"}, seeds.config)
       assert {:ok, %{"foo" => "bar"}} = Jwt.verify(token, seeds.config)
+    end
+  end
+
+  describe "Poly1305 with otk caching" do
+    setup do
+      config = Poly1305Cached.config()
+      mod_conf = config |> Config.get_mod_config()
+      %{"c" => {:poly1305, key}} = mod_conf.get_keyset.(config)
+      jwk = %{"k" => url_encode(key), "kty" => "oct"}
+      [jwk: jwk, config: config]
+
+      :ets.delete_all_objects(OtkCache)
+
+      [config: config, jwk: jwk]
+    end
+
+    test "caches otk on sign", seeds do
+      {:ok, token} = Poly1305Cached.sign(%{}, seeds.config)
+      assert %{"nonce" => nonce} = peek_header(token)
+      cache_key = nonce
+      assert <<_::binary>> = OtkCache.get(cache_key)
+    end
+
+    test "uses cached otk on verify", seeds do
+      {:ok, token} = Poly1305Cached.sign(%{}, seeds.config)
+      assert %{"nonce" => nonce} = peek_header(token)
+      cache_key = nonce
+      assert <<_::binary>> = OtkCache.get(cache_key)
+      assert {:ok, _} = Poly1305Cached.verify(token, seeds.config)
+      OtkCache.put(cache_key, :crypto.strong_rand_bytes(32), now() + 60)
+      assert {:error, "signature invalid"} = Poly1305Cached.verify(token, seeds.config)
+    end
+
+    test "generates otk on verify cache miss and caches it", seeds do
+      {:ok, token} = Poly1305Cached.sign(%{}, seeds.config)
+      assert %{"nonce" => nonce} = peek_header(token)
+      cache_key = nonce
+
+      # otk is cached and verification passes
+      assert <<otk::binary>> = OtkCache.get(cache_key)
+      assert {:ok, _} = Poly1305Cached.verify(token, seeds.config)
+
+      # after we delete the otk, verification still passes
+      :ets.delete(OtkCache, cache_key)
+      assert nil == OtkCache.get(cache_key)
+      assert {:ok, _} = Poly1305Cached.verify(token, seeds.config)
+
+      # the otk is cached again
+      assert ^otk = OtkCache.get(cache_key)
     end
   end
 

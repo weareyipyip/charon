@@ -1,4 +1,5 @@
 alias TestApp.Charon.CompiledJwt
+alias Charon.TokenFactory.Jwt.OtkCache
 alias Charon.TokenFactory.Jwt
 
 defmodule CharonBench do
@@ -42,7 +43,7 @@ defmodule CharonBench do
 end
 
 # warm caches
-CharonBench.keyset(nil)
+{:ok, _} = OtkCache.start_link()
 CharonBench.counter_nonce()
 
 tasks = 1
@@ -70,6 +71,7 @@ ed25519_conf = CharonBench.config(signing_key: "d")
 {:ok, comp_poly1305_jwt} = CompiledJwt.Poly1305.sign(payload, poly1305_conf)
 {:ok, poly1305_jwt} = Jwt.sign(payload, poly1305_conf)
 {:ok, ed25519_jwt} = CompiledJwt.Ed25519.sign(payload, ed25519_conf)
+{:ok, comp_cached_poly1305_jwt} = CompiledJwt.Poly1305Cached.sign(payload, poly1305_conf)
 
 %{
   "sign hmac-sha256" => [fn -> Jwt.sign(payload, sha256_conf) end, tasks: tasks],
@@ -98,6 +100,10 @@ ed25519_conf = CharonBench.config(signing_key: "d")
   "verify ed25519" => [fn -> {:ok, _} = Jwt.verify(ed25519_jwt, ed25519_conf) end, tasks: tasks],
   "verify compiled poly1305" => [
     fn -> {:ok, _} = CompiledJwt.Poly1305.verify(comp_poly1305_jwt, poly1305_conf) end,
+    tasks: tasks
+  ],
+  "verify compiled poly1305 cached" => [
+    fn -> CompiledJwt.Poly1305Cached.verify(comp_cached_poly1305_jwt, poly1305_conf) end,
     tasks: tasks
   ]
 }

@@ -67,6 +67,7 @@ defmodule Charon.TokenFactory.CompiledJwt do
       # Verify a token
       {:ok, payload} = MyApp.CompiledJwt.verify(token, config)
   """
+  alias Charon.TokenFactory.Jwt.OtkCache
   alias Charon.TokenFactory.Jwt
   require Charon.Internal.Macros
   import Charon.Internal.Macros
@@ -107,6 +108,8 @@ defmodule Charon.TokenFactory.CompiledJwt do
       @signing_kid kid
       @header_tail header_tail
       @gen_nonce jwt_mod_conf.gen_poly1305_nonce
+      @otk_cache jwt_mod_conf.poly1305_otk_cache
+      @cache_ttl jwt_mod_conf.poly1305_otk_cache_ttl
 
       if @signing_alg == :poly1305 do
         @header_h Charon.TokenFactory.CompiledJwt.gen_static_poly1305_header_head(
@@ -125,8 +128,9 @@ defmodule Charon.TokenFactory.CompiledJwt do
             {:ok, {_, secret}} ->
               enc_payload = @jmod.encode!(payload) |> url_encode()
               nonce = new_poly1305_nonce()
-              data = [@header_h, url_encode(~s(#{url_encode(nonce)}"})), ?., enc_payload]
-              otk = gen_otk_for_nonce(secret, nonce)
+              enc_nonce = url_encode(nonce)
+              data = [@header_h, url_encode(~s(#{enc_nonce}"})), ?., enc_payload]
+              otk = gen_otk(secret, nonce) |> maybe_cache(enc_nonce)
               signature = :crypto.mac(:poly1305, otk, data) |> url_encode()
               token = [data, ?., signature] |> IO.iodata_to_binary()
               {:ok, token}
@@ -134,6 +138,16 @@ defmodule Charon.TokenFactory.CompiledJwt do
             _ ->
               {:error, "could not create jwt"}
           end
+        end
+
+        @compile {:inline, maybe_cache: 2}
+        if @otk_cache do
+          def maybe_cache(value, key) do
+            OtkCache.put(@otk_cache, key, value, now() + @cache_ttl)
+            value
+          end
+        else
+          def maybe_cache(value, _), do: value
         end
 
         @impl true
@@ -145,11 +159,10 @@ defmodule Charon.TokenFactory.CompiledJwt do
 
           with <<enc_payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
                  pl_and_sig,
-               {:ok, <<nonce::binary-@enc_nonce_length, ~s("})>>} <- url_decode(header_t),
-               {:ok, nonce} <- url_decode(nonce),
+               {:ok, <<enc_nonce::binary-@enc_nonce_length, ~s("})>>} <- url_decode(header_t),
                {:ok, {_, secret}} <- static_call(@get_keyset, config) |> get_key(),
                {:ok, signature} <- url_decode(signature),
-               otk = gen_otk_for_nonce(secret, nonce),
+               {:ok, otk} <- get_or_gen_otk(secret, enc_nonce),
                data = [@header_h, header_t, ?., enc_payload],
                valid? = :crypto.mac(:poly1305, otk, data) |> constant_time_compare(signature),
                true <- valid? or {:error, "signature invalid"},
@@ -171,8 +184,29 @@ defmodule Charon.TokenFactory.CompiledJwt do
           defp new_poly1305_nonce(), do: static_call(@gen_nonce)
         end
 
-        @compile {:inline, gen_otk_for_nonce: 2}
-        defp gen_otk_for_nonce(secret, nonce) do
+        @compile {:inline, get_or_gen_otk: 2}
+        if @otk_cache do
+          defp get_or_gen_otk(secret, enc_nonce) do
+            if value = OtkCache.get(@otk_cache, enc_nonce) do
+              {:ok, value}
+            else
+              gen_otk_from_enc_nonce(secret, enc_nonce)
+            end
+          end
+        else
+          defp get_or_gen_otk(secret, enc_nonce), do: gen_otk_from_enc_nonce(secret, enc_nonce)
+        end
+
+        @compile {:inline, gen_otk_from_enc_nonce: 2}
+        defp gen_otk_from_enc_nonce(secret, enc_nonce) do
+          case url_decode(enc_nonce) do
+            {:ok, nonce} -> {:ok, gen_otk(secret, nonce) |> maybe_cache(enc_nonce)}
+            other -> other
+          end
+        end
+
+        @compile {:inline, gen_otk: 2}
+        defp gen_otk(secret, nonce) do
           # after https://github.com/potatosalad/erlang-jose/blob/main/src/jwa/chacha20_poly1305/jose_chacha20_poly1305_crypto.erl#L58
           :crypto.crypto_one_time(:chacha20, secret, <<0::32, nonce::binary>>, <<0::256>>, true)
         end

@@ -82,3 +82,26 @@ defmodule TestApp.Charon.CompiledJwt.Poly1305 do
     <<:atomics.add_get(ref, 1, 1)::96>>
   end
 end
+
+defmodule TestApp.Charon.CompiledJwt.Poly1305Cached do
+  @moduledoc false
+  alias Charon.Utils.PersistentTermCache
+
+  @config Charon.Config.from_enum(
+            token_issuer: "my_test_app",
+            get_base_secret: &TestApp.Charon.CompiledJwt.get_base_secret/0,
+            session_store_module: Charon.SessionStore.DummyStore,
+            optional_modules: %{
+              Charon.TokenFactory.Jwt => [
+                signing_key: "c",
+                get_keyset: &TestApp.Charon.CompiledJwt.get_keyset/1,
+                gen_poly1305_nonce: &TestApp.Charon.CompiledJwt.Poly1305.counter_nonce/0,
+                poly1305_otk_cache: Charon.TokenFactory.Jwt.OtkCache
+              ]
+            }
+          )
+
+  use Charon.TokenFactory.CompiledJwt, config: @config, signing_alg: :poly1305
+
+  def config(), do: @config
+end
