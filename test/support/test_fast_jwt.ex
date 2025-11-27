@@ -32,7 +32,7 @@ defmodule Charon.TestFastJwt.Sha256 do
             }
           )
 
-  use Charon.TokenFactory.FastJwt, config: @config
+  use Charon.TokenFactory.FastJwt, config: @config, signing_alg: :hmac_sha256
 
   def config(), do: @config
 end
@@ -51,7 +51,7 @@ defmodule Charon.TestFastJwt.Ed25519 do
             }
           )
 
-  use Charon.TokenFactory.FastJwt, config: @config
+  use Charon.TokenFactory.FastJwt, config: @config, signing_alg: :eddsa_ed25519
 
   def config(), do: @config
 end
@@ -73,7 +73,7 @@ defmodule Charon.TestFastJwt.Poly1305 do
             }
           )
 
-  use Charon.TokenFactory.FastJwt, config: @config
+  use Charon.TokenFactory.FastJwt, config: @config, signing_alg: :poly1305
 
   def config(), do: @config
 

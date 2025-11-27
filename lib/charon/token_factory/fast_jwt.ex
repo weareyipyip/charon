@@ -64,6 +64,8 @@ defmodule Charon.TokenFactory.FastJwt do
       {:ok, payload} = MyApp.FastTokenFactory.verify(token, config)
   """
   alias Charon.TokenFactory.Jwt
+  require Charon.Internal.Macros
+  import Charon.Internal.Macros
   import Charon.Internal
 
   @doc false
@@ -89,15 +91,15 @@ defmodule Charon.TokenFactory.FastJwt do
       @behaviour Charon.TokenFactory.Behaviour
 
       config = opts[:config]
+      alg = Keyword.fetch!(opts, :signing_alg)
       %Charon.Config{} = config
       jwt_mod_conf = get_mod_config(config)
-      %Jwt.Config{signing_key: signing_kid, get_keyset: get_keyset} = jwt_mod_conf
-      {alg, _} = get_keyset.(config) |> Map.fetch!(signing_kid)
+      %Jwt.Config{} = jwt_mod_conf
 
       @jmod config.json_module
-      @get_keyset get_keyset
+      @get_keyset jwt_mod_conf.get_keyset
       @signing_alg alg
-      @signing_kid signing_kid
+      @signing_kid jwt_mod_conf.signing_key
       @gen_nonce jwt_mod_conf.gen_poly1305_nonce
 
       if @signing_alg == :poly1305 do
@@ -110,7 +112,7 @@ defmodule Charon.TokenFactory.FastJwt do
 
         @impl true
         def sign(payload, config) do
-          case @get_keyset.(config) |> get_key() do
+          case static_call(@get_keyset, config) |> get_key() do
             {:ok, {_, secret}} ->
               enc_payload = @jmod.encode!(payload) |> url_encode()
               nonce = new_poly1305_nonce()
@@ -136,7 +138,7 @@ defmodule Charon.TokenFactory.FastJwt do
                  pl_and_sig,
                {:ok, <<nonce::binary-@enc_nonce_length, ~s("})>>} <- url_decode(header_t),
                {:ok, nonce} <- url_decode(nonce),
-               {:ok, {_, secret}} <- @get_keyset.(config) |> get_key(),
+               {:ok, {_, secret}} <- static_call(@get_keyset, config) |> get_key(),
                {:ok, signature} <- url_decode(signature),
                otk = gen_otk_for_nonce(secret, nonce),
                data = [@header_h, header_t, ?., payload],
@@ -178,7 +180,7 @@ defmodule Charon.TokenFactory.FastJwt do
 
         @impl true
         def sign(payload, config) do
-          case @get_keyset.(config) |> get_key() do
+          case static_call(@get_keyset, config) |> get_key() do
             {:ok, {_, secret}} ->
               enc_payload = @jmod.encode!(payload) |> url_encode()
               data = [@header, enc_payload]
@@ -198,7 +200,7 @@ defmodule Charon.TokenFactory.FastJwt do
           with <<payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
                  payload_and_sig,
                {:ok, signature} <- url_decode(signature),
-               {:ok, {_, secret}} <- @get_keyset.(config) |> get_key(),
+               {:ok, {_, secret}} <- static_call(@get_keyset, config) |> get_key(),
                {_, true} <- {:signature_valid, do_verify([@header, payload], secret, signature)},
                {:ok, payload} <- url_decode(payload),
                res = {:ok, payload} <- @jmod.decode(payload) do
