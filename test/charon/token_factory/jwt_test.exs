@@ -6,7 +6,7 @@ defmodule Charon.TokenFactory.JwtTest do
   alias Jwt.Config
   import Jwt
 
-  @charon_config Charon.TestConfig.get()
+  @charon_config TestApp.Charon.get()
   @ed25519_keypair Jwt.gen_keypair(:eddsa_ed25519)
 
   describe "HS256" do

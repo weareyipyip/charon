@@ -1,4 +1,4 @@
-alias Charon.TestFastJwt
+alias TestApp.Charon.CompiledJwt
 alias Charon.TokenFactory.Jwt
 
 defmodule CharonBench do
@@ -65,35 +65,35 @@ poly1305_nonrand_conf =
 
 ed25519_conf = CharonBench.config(signing_key: "d")
 
-{:ok, sha256_jwt} = TestFastJwt.Sha256.sign(payload, sha256_conf)
+{:ok, sha256_jwt} = CompiledJwt.Sha256.sign(payload, sha256_conf)
 {:ok, sha512_jwt} = Jwt.sign(payload, sha512_conf)
-{:ok, poly1305_jwt} = TestFastJwt.Poly1305.sign(payload, poly1305_conf)
-{:ok, ed25519_jwt} = TestFastJwt.Ed25519.sign(payload, ed25519_conf)
+{:ok, poly1305_jwt} = CompiledJwt.Poly1305.sign(payload, poly1305_conf)
+{:ok, ed25519_jwt} = CompiledJwt.Ed25519.sign(payload, ed25519_conf)
 
 %{
   "sign hmac-sha256" => [fn -> Jwt.sign(payload, sha256_conf) end, tasks: tasks],
-  "sign fast hmac-sha256" => [
-    fn -> TestFastJwt.Sha256.sign(payload, sha256_conf) end,
+  "sign compiled hmac-sha256" => [
+    fn -> CompiledJwt.Sha256.sign(payload, sha256_conf) end,
     tasks: tasks
   ],
   "sign hmac-sha512" => [fn -> Jwt.sign(payload, sha512_conf) end, tasks: tasks],
   "sign poly1305" => [fn -> Jwt.sign(payload, poly1305_conf) end, tasks: tasks],
   "sign ed25519" => [fn -> Jwt.sign(payload, ed25519_conf) end, tasks: tasks],
   "sign poly1305 nonrand" => [fn -> Jwt.sign(payload, poly1305_nonrand_conf) end, tasks: tasks],
-  "sign fast poly1305 nonrand" => [
-    fn -> TestFastJwt.Poly1305.sign(payload, poly1305_nonrand_conf) end,
+  "sign compiled poly1305 nonrand" => [
+    fn -> CompiledJwt.Poly1305.sign(payload, poly1305_nonrand_conf) end,
     tasks: tasks
   ],
   "verify hmac-sha256" => [fn -> Jwt.verify(sha256_jwt, sha256_conf) end, tasks: tasks],
-  "verify fast hmac-sha256" => [
-    fn -> TestFastJwt.Sha256.verify(sha256_jwt, sha256_conf) end,
+  "verify compiled hmac-sha256" => [
+    fn -> CompiledJwt.Sha256.verify(sha256_jwt, sha256_conf) end,
     tasks: tasks
   ],
   "verify hmac-sha512" => [fn -> Jwt.verify(sha512_jwt, sha512_conf) end, tasks: tasks],
   "verify poly1305" => [fn -> Jwt.verify(poly1305_jwt, poly1305_conf) end, tasks: tasks],
   "verify ed25519" => [fn -> Jwt.verify(ed25519_jwt, ed25519_conf) end, tasks: tasks],
-  "verify fast poly1305" => [
-    fn -> TestFastJwt.Poly1305.verify(poly1305_jwt, poly1305_conf) end,
+  "verify compiled poly1305" => [
+    fn -> CompiledJwt.Poly1305.verify(poly1305_jwt, poly1305_conf) end,
     tasks: tasks
   ]
 }

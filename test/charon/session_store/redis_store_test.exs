@@ -4,7 +4,6 @@ defmodule Charon.SessionStore.RedisStoreTest do
   alias Charon.SessionStore.RedisStore
   import Charon.{TestUtils, Internal}
   import Charon.Internal.Crypto
-  alias Charon.{TestConfig}
   alias RedisStore.{RedisClient}
   import RedisClient, only: [command: 1]
 
@@ -13,7 +12,7 @@ defmodule Charon.SessionStore.RedisStoreTest do
   @exp @now + @ttl
   @mod_conf %{} |> RedisStore.init_config()
   @config %{
-    TestConfig.get()
+    TestApp.Charon.get()
     | session_ttl: :infinite,
       refresh_token_ttl: @ttl,
       optional_modules: %{RedisStore => @mod_conf}

@@ -1,9 +1,9 @@
-defmodule Charon.TestPipeline do
+defmodule TestApp.Charon.TokenPipeline do
   @moduledoc false
   use Plug.Builder
   import Charon.TokenPlugs
 
-  @config Charon.TestConfig.get()
+  @config TestApp.Charon.get()
 
   plug(:get_token_from_auth_header)
   plug(:fetch_cookies)

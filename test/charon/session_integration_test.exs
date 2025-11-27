@@ -1,14 +1,15 @@
 defmodule Charon.SessionIntegrationTest do
   use ExUnit.Case, async: false
   use Charon.Internal.Constants
-  alias Charon.{TestPipeline, SessionPlugs, Utils, Internal, TestUtils, TestHelpers}
+  alias Charon.{SessionPlugs, Utils, Internal, TestUtils, TestHelpers}
+  alias TestApp.Charon.TokenPipeline
   import TestUtils
   import Plug.Conn
   import Internal
   import Mock
 
   @moduletag :capture_log
-  @config Charon.TestConfig.get()
+  @config TestApp.Charon.get()
 
   def telemetry_handler(event_name, measurements, metadata, _config) do
     send(self(), {:telemetry, event_name, measurements, metadata})
@@ -41,7 +42,7 @@ defmodule Charon.SessionIntegrationTest do
       conn =
         conn()
         |> TestHelpers.put_token_for(test_session, token: :refresh)
-        |> TestPipeline.call([])
+        |> TokenPipeline.call([])
 
       assert nil == Utils.get_auth_error(conn)
 
@@ -90,7 +91,7 @@ defmodule Charon.SessionIntegrationTest do
       refresher = fn token ->
         conn()
         |> put_req_header("authorization", "Bearer #{token}")
-        |> TestPipeline.call([])
+        |> TokenPipeline.call([])
         |> case do
           %{private: %{@auth_error => error}} -> error
           conn -> SessionPlugs.upsert_session(conn, @config)
@@ -166,7 +167,7 @@ defmodule Charon.SessionIntegrationTest do
         conn =
           conn()
           |> put_req_header("authorization", "Bearer #{token}")
-          |> TestPipeline.call([])
+          |> TokenPipeline.call([])
 
         assert exp_error == Utils.get_auth_error(conn)
         assert conn.halted

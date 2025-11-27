@@ -1,4 +1,4 @@
-defmodule Charon.TestConfig do
+defmodule TestApp.Charon do
   @moduledoc false
   def secret(), do: "supersecret"
 

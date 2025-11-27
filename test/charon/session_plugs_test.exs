@@ -15,7 +15,7 @@ defmodule Charon.SessionPlugsTest do
   import Charon.{TestUtils, Internal}
   import Mock
 
-  @config Charon.TestConfig.get()
+  @config TestApp.Charon.get()
 
   @sid "a"
   @uid 426

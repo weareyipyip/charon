@@ -1,20 +1,20 @@
-defmodule Charon.TokenFactory.FastJwt do
+defmodule Charon.TokenFactory.CompiledJwt do
   @moduledoc """
   A compile-time optimized JWT token factory for maximum performance.
 
   This module generates a specialized token factory at compile time,
   with the signing algorithm, key ID, and header pre-computed as binary constants.
   This eliminates runtime overhead from dynamic dispatch and header construction,
-  resulting in significantly faster token signing and verification.
+  resulting in significantly faster token signing (5-10%) and verification (30%).
 
   For detailed information about keysets, algorithms, and configuration options,
   see `Charon.TokenFactory.Jwt`.
 
   > #### Experimental {: .warning}
   >
-  > This is an experimental module. It is tested, and the performance improvements work out,
-  > but it is less foolproof than its regular sibling. You must be careful that you use a signing
-  > key at runtime with the same ID but a different value than at compile time.
+  > This is an experimental module.
+  > The signing key ID and algorithm used for signing must not change between compile time and runtime.
+  > Only the key material for that KID may change.
   > This should be the case if you use `Charon.TokenFactory.Jwt.default_keyset/1`.
   > Use at your own risk.
 
@@ -40,28 +40,32 @@ defmodule Charon.TokenFactory.FastJwt do
 
     - **Pro**: Faster signing and verification for the configured signing key
     - **Pro**: Reduced memory allocations from pre-computed headers
-    - **Con**: Requires recompilation when changing the signing key ID or algorithm
-    - **Con**: The `get_keyset` function, signing key ID, and algorithm must be known at compile time
-      (the actual key material can change at runtime).
+    - **Con**: It is confusing which config is read when.
+      - **Signing**: Almost nothing is actually read from the passed-in config at runtime; ONLY the `:get_keyset` function. That implies that in order to change the signing key ID or algorithm, recompilation is required.
+      - **Verification**: This module only attempts to verify tokens that exactly match the precompiled header(-prefix). In that case only `:get_keyset` is read at runtime. All other tokens, however, are passed to `Charon.TokenFactory.Jwt` for verification, in which case everything is read at runtime as usual.
+    - **Con**: The signing key ID and algorithm must be known at compile time (the actual key material can change at runtime).
 
   ## Usage
 
-  Define a module that uses `FastJwt` with your Charon configuration:
+  Define a module that uses `CompiledJwt` with your Charon configuration:
 
-      defmodule MyApp.FastTokenFactory do
-        use Charon.TokenFactory.FastJwt, config: MyApp.Charon.config()
+      defmodule MyApp.CompiledJwt do
+        use Charon.TokenFactory.CompiledJwt,
+          config: MyApp.Charon.config(),
+          signing_alg: :hmac_sha256
       end
 
   The `:config` option must be a `Charon.Config` struct available at compile time.
   This module uses the same configuration as `Charon.TokenFactory.Jwt`, and its options must be set using `Charon.TokenFactory.Jwt` as the key of the `:optional_modules` map the Charon config.
+  The `:signing_alg` of the signing key specified in the config must match the one used at runtime (otherwise we can't optimize for the algorithm).
   The module will implement the `Charon.TokenFactory.Behaviour` and can be used
   directly in your application:
 
       # Sign a token
-      {:ok, token} = MyApp.FastTokenFactory.sign(%{"user_id" => 123}, config)
+      {:ok, token} = MyApp.CompiledJwt.sign(%{"user_id" => 123}, config)
 
       # Verify a token
-      {:ok, payload} = MyApp.FastTokenFactory.verify(token, config)
+      {:ok, payload} = MyApp.CompiledJwt.verify(token, config)
   """
   alias Charon.TokenFactory.Jwt
   require Charon.Internal.Macros
@@ -72,6 +76,7 @@ defmodule Charon.TokenFactory.FastJwt do
   # add padding spaces in the json so that the total length is a multiple of 3
   # this results in a base64-encoded binary to which another base64-encoded string
   # can be appended without breaking the encoding of the whole
+  # the closing <nonce>"} is added later (after the nonce is generated)
   def gen_static_poly1305_header_head(kid, jmod) do
     base_head = ~s({"alg":"Poly1305","typ":"JWT","kid":#{jmod.encode!(kid)},"nonce":)
 
@@ -103,7 +108,10 @@ defmodule Charon.TokenFactory.FastJwt do
       @gen_nonce jwt_mod_conf.gen_poly1305_nonce
 
       if @signing_alg == :poly1305 do
-        @header_h Charon.TokenFactory.FastJwt.gen_static_poly1305_header_head(@signing_kid, @jmod)
+        @header_h Charon.TokenFactory.CompiledJwt.gen_static_poly1305_header_head(
+                    @signing_kid,
+                    @jmod
+                  )
         @enc_nonce_example url_encode(<<0::96>>)
         @enc_nonce_length byte_size(@enc_nonce_example)
         @header_t_example url_encode(~s(#{@enc_nonce_example}"}))
@@ -134,21 +142,20 @@ defmodule Charon.TokenFactory.FastJwt do
             ) do
           payload_len = byte_size(pl_and_sig) - @sig_len - 1
 
-          with <<payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
+          with <<enc_payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
                  pl_and_sig,
                {:ok, <<nonce::binary-@enc_nonce_length, ~s("})>>} <- url_decode(header_t),
                {:ok, nonce} <- url_decode(nonce),
                {:ok, {_, secret}} <- static_call(@get_keyset, config) |> get_key(),
                {:ok, signature} <- url_decode(signature),
                otk = gen_otk_for_nonce(secret, nonce),
-               data = [@header_h, header_t, ?., payload],
+               data = [@header_h, header_t, ?., enc_payload],
                valid? = :crypto.mac(:poly1305, otk, data) |> constant_time_compare(signature),
-               {_, true} <- {:signature_valid, valid?},
-               {:ok, payload} <- url_decode(payload),
-               res = {:ok, payload} <- @jmod.decode(payload) do
+               true <- valid? or {:error, "signature invalid"},
+               {:ok, json_payload} <- url_decode(enc_payload),
+               res = {:ok, payload} <- @jmod.decode(json_payload) do
             res
           else
-            {:signature_valid, _} -> {:error, "signature invalid"}
             error = {:error, _msg} -> error
             _ -> {:error, "malformed token"}
           end
@@ -197,16 +204,16 @@ defmodule Charon.TokenFactory.FastJwt do
         def verify(<<@header, payload_and_sig::binary>>, config) do
           payload_len = byte_size(payload_and_sig) - @sig_len - 1
 
-          with <<payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
+          with <<enc_payload::binary-size(payload_len), ?., signature::binary-size(@sig_len)>> <-
                  payload_and_sig,
                {:ok, signature} <- url_decode(signature),
                {:ok, {_, secret}} <- static_call(@get_keyset, config) |> get_key(),
-               {_, true} <- {:signature_valid, do_verify([@header, payload], secret, signature)},
-               {:ok, payload} <- url_decode(payload),
-               res = {:ok, payload} <- @jmod.decode(payload) do
+               valid? = do_verify([@header, enc_payload], secret, signature),
+               true <- valid? or {:error, "signature invalid"},
+               {:ok, json_payload} <- url_decode(enc_payload),
+               res = {:ok, payload} <- @jmod.decode(json_payload) do
             res
           else
-            {:signature_valid, _} -> {:error, "signature invalid"}
             error = {:error, _msg} -> error
             _ -> {:error, "malformed token"}
           end

@@ -9,7 +9,7 @@ defmodule Charon.TokenPlugsTest do
   import TokenPlugs
   alias Charon.Models.Session
 
-  @config Charon.TestConfig.get()
+  @config TestApp.Charon.get()
 
   def sign(payload), do: TokenFactory.Jwt.sign(payload, @config) |> elem(1)
 

@@ -156,11 +156,10 @@ defmodule Charon.TokenFactory.Jwt do
          {:ok, {alg, secret}} <- config |> get_keyset.() |> get_key(kid),
          key = {alg, gen_otk_for_nonce(secret, nonce)},
          data = [header, ?., payload],
-         {_, true} <- {:signature_valid, do_verify(data, key, signature)},
+         true <- do_verify(data, key, signature) or {:error, "signature invalid"},
          {:ok, payload} <- url_json_decode(payload, jmod) do
       {:ok, payload}
     else
-      {:signature_valid, _} -> {:error, "signature invalid"}
       error = {:error, _msg} -> error
       _ -> {:error, "malformed token"}
     end
