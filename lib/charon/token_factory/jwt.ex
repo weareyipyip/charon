@@ -380,16 +380,17 @@ defmodule Charon.TokenFactory.Jwt do
   defp new_p1305_nonce(_, _), do: nil
 
   @compile {:inline, create_header: 3}
-  defp create_header(:hmac_sha256, header_tail, _), do: [@hdr_s256_h, header_tail]
+  @doc false
+  def create_header(:hmac_sha256, header_tail, _), do: [@hdr_s256_h, header_tail]
 
-  defp create_header(:poly1305, header_tail, nonce) do
+  def create_header(:poly1305, header_tail, nonce) do
     [@p1305_h, url_encode(~s(#{url_encode(nonce)}",)), @hseg3_p1305, header_tail]
   end
 
-  defp create_header(:hmac_sha384, header_tail, _), do: [@hdr_s384_h, header_tail]
-  defp create_header(:hmac_sha512, header_tail, _), do: [@hdr_s512_h, header_tail]
-  defp create_header(:eddsa_ed25519, header_tail, _), do: [@hdr_eddsa_h, header_tail]
-  defp create_header(:eddsa_ed448, header_tail, _), do: [@hdr_eddsa_h, header_tail]
+  def create_header(:hmac_sha384, header_tail, _), do: [@hdr_s384_h, header_tail]
+  def create_header(:hmac_sha512, header_tail, _), do: [@hdr_s512_h, header_tail]
+  def create_header(:eddsa_ed25519, header_tail, _), do: [@hdr_eddsa_h, header_tail]
+  def create_header(:eddsa_ed448, header_tail, _), do: [@hdr_eddsa_h, header_tail]
 
   defp url_json_decode(encoded, json_mod) do
     with {_, {:ok, json}} <- {:enc, url_decode(encoded)},
