@@ -17,7 +17,7 @@ defmodule Charon.SessionStore.RedisStore.Config do
   Raises for missing mandatory keys and sets defaults for optional keys.
   """
   @spec from_enum(Enum.t()) :: t()
-  def from_enum(enum), do: struct!(__MODULE__, enum)
+  def from_enum(enum), do: struct!(__MODULE__, enum) |> Map.from_struct()
 
   @doc """
   Get the config for this module from the parent `Charon.Config` struct.

@@ -51,6 +51,8 @@ defmodule Charon.Internal do
   def url_decode(data), do: Base.url_decode64(data, @url_enc_opts)
   def url_decode!(data), do: Base.url_decode64!(data, @url_enc_opts)
 
+  def len_check_url_enc(data) when rem(byte_size(data), 3) == 0, do: url_encode(data)
+
   @doc """
   Split a string on dots. Uses a compiled binary pattern for performance.
   """

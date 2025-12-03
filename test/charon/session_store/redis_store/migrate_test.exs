@@ -5,7 +5,6 @@ defmodule Charon.SessionStore.RedisStore.MigrateTest do
   alias Charon.SessionStore.RedisStore
   import Charon.{TestUtils, Internal}
   import Charon.Internal.Crypto
-  alias Charon.{TestConfig}
   alias RedisStore.{RedisClient}
   require Logger
 
@@ -14,7 +13,7 @@ defmodule Charon.SessionStore.RedisStore.MigrateTest do
   @exp @now + @ttl
   @mod_conf %{} |> RedisStore.init_config()
   @config %{
-    TestConfig.get()
+    TestApp.Charon.get()
     | session_ttl: :infinite,
       refresh_token_ttl: @ttl,
       optional_modules: %{RedisStore => @mod_conf}
@@ -29,7 +28,7 @@ defmodule Charon.SessionStore.RedisStore.MigrateTest do
                 )
 
   setup_all do
-    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
+    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost"), database: 15]
     start_supervised!({RedisStore, redix_opts: redix_opts})
     :ok
   end
