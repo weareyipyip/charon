@@ -7,7 +7,7 @@ defmodule Charon.SessionStore.RedisStore.Config do
   defstruct key_prefix: "charon_",
             get_signing_key: &RedisStore.default_signing_key/1
 
-  @type t :: %__MODULE__{
+  @type t :: %{
           key_prefix: String.t(),
           get_signing_key: (Charon.Config.t() -> binary())
         }

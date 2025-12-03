@@ -4,9 +4,9 @@ defmodule Charon.TokenFactory.Jwt.Config do
 
   ## Changing the signing key at runtime
 
-  Do not modify `signing_key` directly on the struct.
-  Use `from_enum/1` to create a new config when changing the signing key it
-  is used to pre-calculate some things for performance.
+  Do not modify `signing_key` directly on the config.
+  Use `from_enum/1` to create a new config when changing the signing key, it
+  pre-calculates derived config for performance.
   """
   alias Charon.TokenFactory.Jwt
 
@@ -15,9 +15,9 @@ defmodule Charon.TokenFactory.Jwt.Config do
             signing_key: "default",
             gen_poly1305_nonce: :random
 
-  @type t :: %__MODULE__{
+  @type t :: %{
           get_keyset: (Charon.Config.t() -> Jwt.keyset()),
-          signing_key: binary | {binary, binary()},
+          signing_key: binary() | {binary(), binary()},
           gen_poly1305_nonce: :random | (-> <<_::96>>)
         }
 

@@ -251,13 +251,7 @@ defmodule Charon.TokenFactory.JwtTest do
 
       keyset = %{"kid_not_set.HS256" => {:hmac_sha256, key}}
 
-      config =
-        override_opt_mod_conf(
-          @charon_config,
-          Jwt,
-          Jwt.Config.from_enum(get_keyset: fn _ -> keyset end)
-        )
-
+      config = override_opt_mod_conf(@charon_config, Jwt, get_keyset: fn _ -> keyset end)
       assert {:ok, _} = verify(token, config)
     end
   end
