@@ -3,7 +3,7 @@ defmodule Charon.Models.SessionTest do
   alias Charon.Models.Session
   import Session
 
-  @charon_config Charon.TestConfig.get()
+  @charon_config TestApp.Charon.get()
 
   doctest Session
 

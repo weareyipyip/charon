@@ -3,7 +3,7 @@ defmodule Charon.SessionStore.RedisStore.RedisClientTest do
   alias Charon.SessionStore.RedisStore.{RedisClient, ConnectionPool}
 
   setup_all do
-    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
+    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost"), database: 15]
     start_supervised!({ConnectionPool, redix_opts: redix_opts})
     :ok
   end

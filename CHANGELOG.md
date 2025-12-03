@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.2.0
+
+- Improve `Charon.TokenFactory.Jwt` performance by 25-30% by precomputing header segments and pattern matching on the resulting binaries without json/base64 encoding/decoding operations for the header.
+
 ## 4.1.0
 
 - New: `Charon.TokenPlugs.OrdsetClaimHas` — a plug for verifying token claims that are `m::ordsets`.
@@ -19,7 +23,6 @@ Docs have been improved by moving doctests to test files. Many doctests actually
 ### Breaking
 
 - `Charon.SessionStore.RedisStore`
-
   - Requires Redis >= 8.0.0 or Valkey >= 9.0.0 or another Redis-compatible key-value store with support for [HSETEX](https://redis.io/docs/latest/commands/hsetex/) and related Redis 8 commands.
   - Simplified implementation that relies on expiring hash fields. This means a single datastructure (instead of 3) now holds a user's sessions, and only a single Redis function is needed instead of several.
   - Added `Charon.SessionStore.RedisStore.Migrate.migrate_v3_to_v4!/1` to facilitate the upgrade. The function should be called during a maintenance window to avoid losing sessions.
@@ -31,7 +34,6 @@ Docs have been improved by moving doctests to test files. Many doctests actually
 - `Charon.Utils.KeyGenerator` no longer caches keys in `m::persistent_term`. A simple cache helper has been added as `Charon.Utils.PersistentTermCache`. While caching of derived keys is often desirable, caching using `m::persistent_term` is not always appropriate; this should not be used for dynamically generated keys, for example, but only for create-once-use-often keys. Calling code should decide this for itself.
 
 - 3.x marked-deprecated functions have been removed:
-
   - `Charon.Utils.get_token_signature_transport/1`
   - `Charon.Utils.set_token_signature_transport/2`
   - `Charon.Utils.set_user_id/2`
@@ -40,11 +42,9 @@ Docs have been improved by moving doctests to test files. Many doctests actually
 ### Non-breaking
 
 - `Charon.SessionPlugs` / `Charon.Config`
-
   - Config option `:gen_id` now allows overriding the session / access token / refresh token ID generator. The default remains the same - a 128-bits random url64-encoded string. Generated IDs _must_ be unique and must be a binary.
 
 - `Charon.TokenPlugs` / `Charon.SessionPlugs`
-
   - Instead of splitting tokens as "header.payload." and "signature", the split has changed to "header.payload" and ".signature", which allows pattern matching on the cookie binary. The old style is still supported for backwards compatibility.
 
 ## 3.4.1
@@ -76,7 +76,6 @@ Docs have been improved by moving doctests to test files. Many doctests actually
 ### Breaking
 
 - `Charon.SessionStore.RedisStore`
-
   - requires Redis >= 7.x.x
   - uses a Redix connection pool by itself, which requires initialization under the application supervision tree
   - implements optimistic locking
@@ -88,11 +87,9 @@ Docs have been improved by moving doctests to test files. Many doctests actually
     - sessions that have not been migrated using `migrate_sessions/1` can no longer be used
 
 - `Charon.SessionStore.LocalStore`
-
   - implements optimistic locking
 
 - 2.x marked-deprecated functions have been removed:
-
   - `Charon.Models.Session.deserialize/2`
   - `Charon.Models.Session.serialize/1`
   - `Charon.SessionStore.delete/3`

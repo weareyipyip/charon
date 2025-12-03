@@ -7,7 +7,7 @@ defmodule Charon.TelemetryTest do
   alias Plug.Conn
   import Charon.TestUtils
 
-  @config Charon.TestConfig.get()
+  @config TestApp.Charon.get()
 
   def telemetry_handler(event_name, measurements, metadata, _config) do
     send(self(), {:telemetry, event_name, measurements, metadata})

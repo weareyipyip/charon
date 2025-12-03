@@ -22,7 +22,7 @@ defmodule Charon.SessionStore.RedisStore.LuaFunctionsTest do
     do: ["HSETEX", set_k, "EXAT", to_string(exp), "FIELDS", "1", k, v] |> exec_cmd()
 
   setup_all do
-    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost")]
+    redix_opts = [host: System.get_env("REDIS_HOSTNAME", "localhost"), database: 15]
     start_supervised!({RedisStore, redix_opts: redix_opts})
     :ok
   end
