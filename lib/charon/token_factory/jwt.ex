@@ -411,7 +411,7 @@ defmodule Charon.TokenFactory.Jwt do
 
   @compile {:inline, maybe_get_header_nonce: 2}
   defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
-    with %{"nonce" => nonce} <- header_pl,
+    with %{"nonce" => <<nonce::binary-16>>} <- header_pl,
          {:ok, nonce} <- url_decode(nonce) do
       {:ok, nonce}
     else
