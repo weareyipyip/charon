@@ -271,7 +271,7 @@ defmodule Charon.TokenFactory.Jwt do
          {:ok, nonce} <- maybe_get_header_nonce(payload, alg),
          {:ok, {alg, secret}} <- config |> mod_conf.get_keyset.() |> get_key(kid),
          key = {alg, gen_otk_if_nonce(secret, nonce)} do
-      shared_verify(enc_header, enc_pl, enc_sig, key, config.json_module)
+      shared_verify(enc_header, enc_pl, enc_sig, key, jmod)
     else
       error = {:error, _msg} -> error
       _ -> {:error, "malformed token"}
