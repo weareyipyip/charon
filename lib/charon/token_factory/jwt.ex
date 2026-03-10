@@ -253,16 +253,16 @@ defmodule Charon.TokenFactory.Jwt do
   # match "typ":"JWT","kid":"<kid>"} and definitively enter fast path or leave the fast path
   defp maybe_fast_s3(alg, tail, token, config) do
     mconf = get_mod_config(config)
-    {kid, htail} = mconf.signing_key
+    {kid, expected_header_tail} = mconf.signing_key
 
     case tail do
-      <<@hseg2, ^htail::binary, ?., enc_pl_and_sig::binary>> ->
+      <<@hseg2, ^expected_header_tail::binary, ?., enc_pl_and_sig::binary>> ->
         # the header is recognized; reconstruct it from the header tail for fast-track verification
         case alg do
-          :s256 -> [@hdr_s256_h, htail]
-          :s384 -> [@hdr_s384_h, htail]
-          :s512 -> [@hdr_s512_h, htail]
-          :eddsa -> [@hdr_eddsa_h, htail]
+          :s256 -> [@hdr_s256_h, expected_header_tail]
+          :s384 -> [@hdr_s384_h, expected_header_tail]
+          :s512 -> [@hdr_s512_h, expected_header_tail]
+          :eddsa -> [@hdr_eddsa_h, expected_header_tail]
         end
         |> fast_verify(enc_pl_and_sig, kid, config, mconf)
 
@@ -289,8 +289,7 @@ defmodule Charon.TokenFactory.Jwt do
   @compile {:inline, fast_verify: 5}
   # fast path verification for non-poly1305 algs
   defp fast_verify(enc_header, pl_and_sig, kid, config, mod_conf) do
-    with {:ok, key = {alg, _}} <-
-           config |> mod_conf.get_keyset.() |> get_key(kid),
+    with {:ok, key = {alg, _}} <- config |> mod_conf.get_keyset.() |> get_key(kid),
          sig_len = alg_to_sig_len(alg),
          payload_len = byte_size(pl_and_sig) - sig_len - 1,
          <<enc_pl::binary-size(payload_len), ?., enc_sig::binary-size(sig_len)>> <- pl_and_sig do
