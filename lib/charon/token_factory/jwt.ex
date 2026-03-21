@@ -116,6 +116,8 @@ defmodule Charon.TokenFactory.Jwt do
   import __MODULE__.Config, only: [get_mod_config: 1]
   import Charon.Internal
   import Charon.Internal.Crypto
+  require PersistentTermCache.Macro
+
   @behaviour Charon.TokenFactory.Behaviour
 
   # strings whose lengths are multiples of 3 can be pre-encoded and concatenated
@@ -160,6 +162,10 @@ defmodule Charon.TokenFactory.Jwt do
     %{"default" => {_default_alg = :hmac_sha256, default_key}}
   end
 
+  ########
+  # Sign #
+  ########
+
   @impl true
   def sign(payload, config) do
     mod_conf = get_mod_config(config)
@@ -197,7 +203,6 @@ defmodule Charon.TokenFactory.Jwt do
 
   defp create_token(error, _, _), do: error
 
-  # Sign #
   defp do_sign(data, {:hmac_sha256, key}), do: calc_hmac(data, key, :sha256)
   defp do_sign(data, {:poly1305, otk}), do: :crypto.mac(:poly1305, otk, data)
   defp do_sign(data, {:hmac_sha384, key}), do: calc_hmac(data, key, :sha384)
@@ -209,38 +214,48 @@ defmodule Charon.TokenFactory.Jwt do
   defp do_sign(data, {:eddsa_ed448, {_, privkey}}),
     do: :crypto.sign(:eddsa, :none, data, [privkey, :ed448])
 
+  ##########
+  # Verify #
+  ##########
+
   @impl true
   def verify(token, config) do
     mod_conf = get_mod_config(config)
+    init_keyset(config, mod_conf) |> maybe_fast_verify(token, config)
+  end
 
-    # if we signed the token ourselves, the header will have a fixed b64-encoded pattern
-    # which we can use to fast-track verification without b64/json-decoding the whole thing
-    init_keyset(config, mod_conf)
-    |> case do
-      {:static, expected_hdr, key, keyset} ->
-        case token do
-          <<^expected_hdr::binary, ?., payload_and_sig::binary>> ->
-            fast_verify(expected_hdr, payload_and_sig, key, config)
+  ###############
+  # Fast verify #
+  ###############
 
-          _ ->
-            slow_verify(token, config, keyset)
-        end
+  # if we signed the token ourselves, the header will have a fixed b64-encoded pattern
+  # which we can use to fast-track verification without b64/json-decoding the whole thing
+  @compile {:inline, maybe_fast_verify: 3}
+  defp maybe_fast_verify(init_keyset, token, config)
 
-      {:poly1305, exp_htail, secret, keyset} ->
-        case token do
-          <<@p1305_h, nonce_seg::binary-24, @p1305_kid_seg, ^exp_htail::bits, ?.,
-            enc_pl_and_sig::bits>> ->
-            [@p1305_h, nonce_seg, @p1305_kid_seg, exp_htail]
-            |> fast_p1305_verify(nonce_seg, enc_pl_and_sig, secret, config)
+  defp maybe_fast_verify({:static, expected_hdr, key, keyset}, token, config) do
+    case token do
+      <<^expected_hdr::binary, ?., payload_and_sig::binary>> ->
+        fast_verify(expected_hdr, payload_and_sig, key, config)
 
-          _ ->
-            slow_verify(token, config, keyset)
-        end
-
-      error ->
-        error
+      _ ->
+        slow_verify(token, keyset, config)
     end
   end
+
+  defp maybe_fast_verify({:poly1305, exp_htail, secret, keyset}, token, config) do
+    case token do
+      <<@p1305_h, nonce_seg::binary-24, @p1305_kid_seg, ^exp_htail::bits, ?.,
+        enc_pl_and_sig::bits>> ->
+        [@p1305_h, nonce_seg, @p1305_kid_seg, exp_htail]
+        |> fast_p1305_verify(nonce_seg, enc_pl_and_sig, secret, config)
+
+      _ ->
+        slow_verify(token, keyset, config)
+    end
+  end
+
+  defp maybe_fast_verify(error, _, _), do: error
 
   @compile {:inline, fast_verify: 4}
   # fast path verification for non-poly1305 algs
@@ -277,8 +292,12 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
+  ###############
+  # Slow verify #
+  ###############
+
   # the fallback slow path verification that fully decodes the header json
-  defp slow_verify(token, config, keyset) do
+  defp slow_verify(token, keyset, config) do
     jmod = config.json_module
 
     with [enc_header, enc_pl, enc_sig] <- dot_split(token, parts: 3),
@@ -295,6 +314,30 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
+  @compile {:inline, get_header_alg: 1}
+  defp get_header_alg(_header_pl = %{"alg" => alg}), do: {:ok, alg}
+  defp get_header_alg(_), do: {:error, "malformed header"}
+
+  @compile {:inline, get_header_kid: 2}
+  defp get_header_kid(%{"kid" => kid}, _), do: kid
+  defp get_header_kid(_, alg), do: "kid_not_set.#{alg}"
+
+  @compile {:inline, maybe_get_header_nonce: 2}
+  defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
+    with %{"nonce" => <<nonce::binary-16>>} <- header_pl,
+         {:ok, nonce} <- url_decode(nonce) do
+      {:ok, nonce}
+    else
+      _ -> {:error, "malformed header"}
+    end
+  end
+
+  defp maybe_get_header_nonce(_, _), do: {:ok, nil}
+
+  #################
+  # Shared verify #
+  #################
+
   # all verification paths ultimately check the signature here and then decode the payload
   defp shared_verify(enc_header, enc_pl, enc_sig, key, jmod) do
     with {:ok, signature} <- url_decode(enc_sig),
@@ -308,8 +351,37 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
-  require PersistentTermCache.Macro
+  defp do_verify(data, {:hmac_sha256, key}, signature),
+    do: data |> calc_hmac(key, :sha256) |> constant_time_compare(signature)
 
+  defp do_verify(data, {:poly1305, otk}, signature),
+    do: :crypto.mac(:poly1305, otk, data) |> constant_time_compare(signature)
+
+  defp do_verify(data, {:hmac_sha384, key}, signature),
+    do: data |> calc_hmac(key, :sha384) |> constant_time_compare(signature)
+
+  defp do_verify(data, {:hmac_sha512, key}, signature),
+    do: data |> calc_hmac(key, :sha512) |> constant_time_compare(signature)
+
+  defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
+    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed25519])
+
+  defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
+    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
+
+  defp url_json_decode(encoded, json_mod) do
+    with {_, {:ok, json}} <- {:enc, url_decode(encoded)},
+         {:ok, payload} <- json_mod.decode(json) do
+      {:ok, payload}
+    else
+      {:enc, _} -> {:error, "encoding invalid"}
+      _ -> {:error, "json invalid"}
+    end
+  end
+
+  ##########
+  # Keyset #
+  ##########
   defp init_keyset(config, mod_conf = %{signing_key: kid}) do
     PersistentTermCache.Macro.get_or_create {__MODULE__, kid} do
       keyset = mod_conf.get_keyset.(config)
@@ -346,57 +418,12 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
+  ###########
+  # Helpers #
+  ###########
+
   @compile {:inline, calc_hmac: 3}
   defp calc_hmac(data, key, alg), do: :crypto.mac(:hmac, alg, key, data)
-
-  # Verify #
-  defp do_verify(data, {:hmac_sha256, key}, signature),
-    do: data |> calc_hmac(key, :sha256) |> constant_time_compare(signature)
-
-  defp do_verify(data, {:poly1305, otk}, signature),
-    do: :crypto.mac(:poly1305, otk, data) |> constant_time_compare(signature)
-
-  defp do_verify(data, {:hmac_sha384, key}, signature),
-    do: data |> calc_hmac(key, :sha384) |> constant_time_compare(signature)
-
-  defp do_verify(data, {:hmac_sha512, key}, signature),
-    do: data |> calc_hmac(key, :sha512) |> constant_time_compare(signature)
-
-  defp do_verify(data, {:eddsa_ed25519, {pubkey, _privkey}}, signature),
-    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed25519])
-
-  defp do_verify(data, {:eddsa_ed448, {pubkey, _privkey}}, signature),
-    do: :crypto.verify(:eddsa, :none, data, signature, [pubkey, :ed448])
-
-  defp url_json_decode(encoded, json_mod) do
-    with {_, {:ok, json}} <- {:enc, url_decode(encoded)},
-         {:ok, payload} <- json_mod.decode(json) do
-      {:ok, payload}
-    else
-      {:enc, _} -> {:error, "encoding invalid"}
-      _ -> {:error, "json invalid"}
-    end
-  end
-
-  @compile {:inline, get_header_alg: 1}
-  defp get_header_alg(_header_pl = %{"alg" => alg}), do: {:ok, alg}
-  defp get_header_alg(_), do: {:error, "malformed header"}
-
-  @compile {:inline, get_header_kid: 2}
-  defp get_header_kid(%{"kid" => kid}, _), do: kid
-  defp get_header_kid(_, alg), do: "kid_not_set.#{alg}"
-
-  @compile {:inline, maybe_get_header_nonce: 2}
-  defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
-    with %{"nonce" => <<nonce::binary-16>>} <- header_pl,
-         {:ok, nonce} <- url_decode(nonce) do
-      {:ok, nonce}
-    else
-      _ -> {:error, "malformed header"}
-    end
-  end
-
-  defp maybe_get_header_nonce(_, _), do: {:ok, nil}
 
   @compile {:inline, gen_otk_if_nonce: 2}
   defp gen_otk_if_nonce(secret, nil), do: secret
