@@ -3,6 +3,7 @@ defmodule Charon.Utils.PersistentTermCache do
   @moduledoc """
   Cache things using `m::persistent_term`. Be careful when using this; `m::persistent_term` is only suitable for very read-heavy storage, to the point the cached item should probably be write-once-read-often.
   """
+  require __MODULE__.Macro
 
   @doc """
   Get the item stored under `key` from `m::persistent_term`. If it does not exist, create it using `create/0` and cache it under `key`.
@@ -18,6 +19,8 @@ defmodule Charon.Utils.PersistentTermCache do
   """
   @spec get_or_create(term(), (-> term())) :: term()
   def get_or_create(key, create) do
-    :persistent_term.get(key, nil) || create.() |> tap(&:persistent_term.put(key, &1))
+    __MODULE__.Macro.get_or_create key do
+      create.()
+    end
   end
 end

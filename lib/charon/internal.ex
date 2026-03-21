@@ -4,6 +4,7 @@ defmodule Charon.Internal do
   # it CAN be relied on by child packages, so be careful when changing things
   use __MODULE__.Constants
   alias Charon.Utils.PersistentTermCache
+  require PersistentTermCache.Macro
   require Logger
 
   @url_enc_opts padding: false
@@ -59,7 +60,9 @@ defmodule Charon.Internal do
   @spec dot_split(binary(), String.split_opts()) :: [binary()]
   def dot_split(string, opts) do
     pattern =
-      PersistentTermCache.get_or_create(__MODULE__, fn -> :binary.compile_pattern(".") end)
+      PersistentTermCache.Macro.get_or_create __MODULE__ do
+        :binary.compile_pattern(".")
+      end
 
     String.split(string, pattern, opts)
   end

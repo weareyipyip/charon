@@ -87,6 +87,7 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     alias Charon.{Config, Utils}
     alias __MODULE__.{LuaFunctions, ConnectionPool, StoreImpl}
     alias Utils.{KeyGenerator, PersistentTermCache}
+    require PersistentTermCache.Macro
     require Logger
 
     @doc """
@@ -145,9 +146,9 @@ if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
     """
     @spec default_signing_key(Config.t()) :: binary
     def default_signing_key(config) do
-      PersistentTermCache.get_or_create(__MODULE__, fn ->
+      PersistentTermCache.Macro.get_or_create __MODULE__ do
         KeyGenerator.derive_key(config.get_base_secret.(), "RedisStore HMAC", log: false)
-      end)
+      end
     end
   end
 else
