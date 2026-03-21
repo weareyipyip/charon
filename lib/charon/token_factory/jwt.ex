@@ -301,13 +301,12 @@ defmodule Charon.TokenFactory.Jwt do
     jmod = config.json_module
 
     with [enc_header, enc_pl, enc_sig] <- dot_split(token, parts: 3),
-         {:ok, payload} <- url_json_decode(enc_header, jmod),
-         {:ok, alg} <- get_header_alg(payload),
-         kid = get_header_kid(payload, alg),
-         {:ok, nonce} <- maybe_get_header_nonce(payload, alg),
-         {:ok, {alg, secret}} <- get_key(keyset, kid),
-         key = {alg, gen_otk_if_nonce(secret, nonce)} do
-      shared_verify(enc_header, enc_pl, enc_sig, key, jmod)
+         {:ok, hdr_payload} <- url_json_decode(enc_header, jmod),
+         {:ok, hdr_alg_claim} <- get_header_alg(hdr_payload),
+         kid = get_header_kid(hdr_payload, hdr_alg_claim),
+         {:ok, key} <- get_key(keyset, kid),
+         {:ok, token_key} <- resolve_token_key(hdr_payload, key) do
+      shared_verify(enc_header, enc_pl, enc_sig, token_key, jmod)
     else
       error = {:error, _msg} -> error
       _ -> {:error, "malformed token"}
@@ -315,24 +314,24 @@ defmodule Charon.TokenFactory.Jwt do
   end
 
   @compile {:inline, get_header_alg: 1}
-  defp get_header_alg(_header_pl = %{"alg" => alg}), do: {:ok, alg}
+  defp get_header_alg(_header_pl = %{"alg" => hdr_alg_claim}), do: {:ok, hdr_alg_claim}
   defp get_header_alg(_), do: {:error, "malformed header"}
 
   @compile {:inline, get_header_kid: 2}
   defp get_header_kid(%{"kid" => kid}, _), do: kid
-  defp get_header_kid(_, alg), do: "kid_not_set.#{alg}"
+  defp get_header_kid(_, hdr_alg_claim), do: "kid_not_set.#{hdr_alg_claim}"
 
-  @compile {:inline, maybe_get_header_nonce: 2}
-  defp maybe_get_header_nonce(header_pl, _alg = "Poly1305") do
+  @compile {:inline, resolve_token_key: 2}
+  defp resolve_token_key(header_pl, {:poly1305 = p1305, secret}) do
     with %{"nonce" => <<nonce::binary-16>>} <- header_pl,
          {:ok, nonce} <- url_decode(nonce) do
-      {:ok, nonce}
+      {:ok, {p1305, gen_otk(secret, nonce)}}
     else
       _ -> {:error, "malformed header"}
     end
   end
 
-  defp maybe_get_header_nonce(_, _), do: {:ok, nil}
+  defp resolve_token_key(_, key), do: {:ok, key}
 
   #################
   # Shared verify #
@@ -424,10 +423,6 @@ defmodule Charon.TokenFactory.Jwt do
 
   @compile {:inline, calc_hmac: 3}
   defp calc_hmac(data, key, alg), do: :crypto.mac(:hmac, alg, key, data)
-
-  @compile {:inline, gen_otk_if_nonce: 2}
-  defp gen_otk_if_nonce(secret, nil), do: secret
-  defp gen_otk_if_nonce(secret, nonce), do: gen_otk(secret, nonce)
 
   @compile {:inline, gen_otk: 2}
   defp gen_otk(secret, nonce) do
