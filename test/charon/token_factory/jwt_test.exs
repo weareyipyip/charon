@@ -52,12 +52,14 @@ defmodule Charon.TokenFactory.JwtTest do
       {_, {_, privkey}} = @ed25519_keypair
       jwk = pub_jwk |> Map.put("d", url_encode(privkey))
 
-      jws = %{"alg" => "EdDSA", "kid" => "ed25519_1", "typ" => "JWT"}
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
+      jws = %{"alg" => "EdDSA", "kid" => kid, "typ" => "JWT"}
 
       config =
         override_opt_mod_conf(@charon_config, Jwt,
-          get_keyset: fn _ -> %{"ed25519_1" => @ed25519_keypair} end,
-          signing_key: "ed25519_1"
+          get_keyset: fn _ -> %{kid => @ed25519_keypair} end,
+          signing_key: kid
         )
 
       %{keypair: @ed25519_keypair, pub_jwk: pub_jwk, jwk: jwk, jws: jws, config: config}
@@ -80,7 +82,7 @@ defmodule Charon.TokenFactory.JwtTest do
       expected = url_encode(~s({"alg":"EdDSA","typ":"JWT","kid":"#{kid}"}))
       assert [^expected, _, _] = String.split(charon_token, ".")
       assert {:ok, json} = url_decode(expected)
-      assert {:ok, %{"kid" => "ed25519_1"}} = Jason.decode(json)
+      assert {:ok, %{"kid" => ^kid}} = Jason.decode(json)
     end
 
     test "JOSE token can be verified by Charon", seeds do
@@ -95,12 +97,14 @@ defmodule Charon.TokenFactory.JwtTest do
       {_, {_, privkey}} = @ed448_keypair
       jwk = pub_jwk |> Map.put("d", url_encode(privkey))
 
-      jws = %{"alg" => "EdDSA", "kid" => "ed448_1", "typ" => "JWT"}
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
+      jws = %{"alg" => "EdDSA", "kid" => kid, "typ" => "JWT"}
 
       config =
         override_opt_mod_conf(@charon_config, Jwt,
-          get_keyset: fn _ -> %{"ed448_1" => @ed448_keypair} end,
-          signing_key: "ed448_1"
+          get_keyset: fn _ -> %{kid => @ed448_keypair} end,
+          signing_key: kid
         )
 
       %{keypair: @ed448_keypair, pub_jwk: pub_jwk, jwk: jwk, jws: jws, config: config}
@@ -123,7 +127,7 @@ defmodule Charon.TokenFactory.JwtTest do
       expected = url_encode(~s({"alg":"EdDSA","typ":"JWT","kid":"#{kid}"}))
       assert [^expected, _, _] = String.split(charon_token, ".")
       assert {:ok, json} = url_decode(expected)
-      assert {:ok, %{"kid" => "ed448_1"}} = Jason.decode(json)
+      assert {:ok, %{"kid" => ^kid}} = Jason.decode(json)
     end
 
     test "JOSE token can be verified by Charon", seeds do
@@ -138,14 +142,16 @@ defmodule Charon.TokenFactory.JwtTest do
       encoded_key = url_encode(base_key)
       jwk = %{"k" => encoded_key, "kty" => "oct"}
 
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
       config =
         override_opt_mod_conf(@charon_config, Jwt,
-          get_keyset: fn _ -> %{"k1" => {:poly1305, base_key}} end,
-          signing_key: "k1",
+          get_keyset: fn _ -> %{kid => {:poly1305, base_key}} end,
+          signing_key: kid,
           gen_poly1305_nonce: :random
         )
 
-      [config: config, jwk: jwk]
+      [config: config, jwk: jwk, kid: kid]
     end
 
     test "Charon token can be verified by JOSE", seeds do
@@ -169,11 +175,11 @@ defmodule Charon.TokenFactory.JwtTest do
 
       assert [^expected, _, _] = String.split(charon_token, ".")
       assert {:ok, json} = url_decode(expected)
-      assert {:ok, %{"kid" => "k1"}} = Jason.decode(json)
+      assert {:ok, %{"kid" => ^kid}} = Jason.decode(json)
     end
 
     test "JOSE token can be verified by Charon", seeds do
-      jws = %{"alg" => "Poly1305", "kid" => "k1"}
+      jws = %{"alg" => "Poly1305", "kid" => seeds.kid}
       {_, jose_token} = JOSE.JWT.sign(seeds.jwk, jws, %{}) |> JOSE.JWS.compact()
       assert {:ok, _} = verify(jose_token, seeds.config)
     end
@@ -220,12 +226,13 @@ defmodule Charon.TokenFactory.JwtTest do
     test "supports cycling to a new signing key while still verifying old tokens" do
       {:ok, token} = sign(%{}, @charon_config)
       keyset = Jwt.default_keyset(@charon_config)
-      keyset = Map.put(keyset, "ed25519_2", Jwt.gen_keypair(:eddsa_ed25519))
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+      keyset = Map.put(keyset, kid, Jwt.gen_keypair(:eddsa_ed25519))
 
       config =
         override_opt_mod_conf(@charon_config, Jwt,
           get_keyset: fn _ -> keyset end,
-          signing_key: "ed25519_2"
+          signing_key: kid
         )
 
       assert {:ok, _} = verify(token, config)
@@ -262,17 +269,19 @@ defmodule Charon.TokenFactory.JwtTest do
 
   describe "fast path verification" do
     test "token with different kid falls back to full verify" do
-      # Create token with one key
+      # Create token with the default key
       {:ok, token} = sign(%{"data" => "test"}, @charon_config)
 
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
       # Change signing_key config but keep same keyset
-      ks = Map.put(@default_keyset, "other_key", {:hmac_sha256, :crypto.strong_rand_bytes(32)})
+      ks = Map.put(@default_keyset, kid, {:hmac_sha256, :crypto.strong_rand_bytes(32)})
 
       # Add a new key and change the signing key, but keep old key in keyset
       config =
         override_opt_mod_conf(@charon_config, Jwt,
           get_keyset: fn _ -> ks end,
-          signing_key: "other_key"
+          signing_key: kid
         )
 
       # Old token should not match fast path pattern (different __header_tail)
@@ -286,20 +295,29 @@ defmodule Charon.TokenFactory.JwtTest do
       # Create SHA256 token
       {:ok, sha256_token} = sign(%{"data" => "test"}, @charon_config)
 
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
       # Configure for SHA512 but include SHA256 key in keyset
       config =
         override_opt_mod_conf(@charon_config, Jwt,
-          get_keyset: fn _ ->
-            %{
-              "default" => {:hmac_sha256, key},
-              "sha512_key" => {:hmac_sha512, key}
-            }
-          end,
-          signing_key: "sha512_key"
+          get_keyset: fn _ -> %{"default" => {:hmac_sha256, key}, kid => {:hmac_sha512, key}} end,
+          signing_key: kid
         )
 
       # SHA256 token should not match SHA512 fast path but should verify
       assert {:ok, %{"data" => "test"}} = verify(sha256_token, config)
+    end
+
+    test "falls back to slow if signing key not found" do
+      # Create token with the default key
+      {:ok, token} = sign(%{"data" => "test"}, @charon_config)
+
+      kid = :crypto.strong_rand_bytes(16) |> Base.encode16()
+
+      # set a missing signing key
+      config = override_opt_mod_conf(@charon_config, Jwt, signing_key: kid)
+
+      assert {:ok, %{"data" => "test"}} = verify(token, config)
     end
   end
 

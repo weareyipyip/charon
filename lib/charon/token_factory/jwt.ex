@@ -172,7 +172,7 @@ defmodule Charon.TokenFactory.Jwt do
 
     init_keyset(config, mod_conf)
     |> case do
-      {:static, header, key, _keyset} ->
+      {:fixed_hdr, header, key, _keyset} ->
         {header, key}
 
       {:poly1305 = alg, header_tail, secret, _keyset} ->
@@ -233,13 +233,10 @@ defmodule Charon.TokenFactory.Jwt do
   @compile {:inline, maybe_fast_verify: 3}
   defp maybe_fast_verify(init_keyset, token, config)
 
-  defp maybe_fast_verify({:static, expected_hdr, key, keyset}, token, config) do
+  defp maybe_fast_verify({:fixed_hdr, hdr, key, keyset}, token, config) do
     case token do
-      <<^expected_hdr::binary, ?., payload_and_sig::binary>> ->
-        fast_verify(expected_hdr, payload_and_sig, key, config)
-
-      _ ->
-        slow_verify(token, keyset, config)
+      <<^hdr::binary, ?., pl_and_sig::binary>> -> fast_verify(hdr, pl_and_sig, key, config)
+      _ -> slow_verify(token, keyset, config)
     end
   end
 
@@ -255,7 +252,10 @@ defmodule Charon.TokenFactory.Jwt do
     end
   end
 
-  defp maybe_fast_verify(error, _, _), do: error
+  # if the signing key is not found, verification could still work with one of the other keys
+  defp maybe_fast_verify({:key_not_found, keyset}, token, config) do
+    slow_verify(token, keyset, config)
+  end
 
   @compile {:inline, fast_verify: 4}
   # fast path verification for non-poly1305 algs
@@ -401,10 +401,10 @@ defmodule Charon.TokenFactory.Jwt do
             end
             |> then(fn alg -> ~s({"alg":"#{alg}","typ":"JWT","kid":"#{kid}"}) |> url_encode() end)
 
-          {:static, expected_header, key, keyset}
+          {:fixed_hdr, expected_header, key, keyset}
 
-        error ->
-          error
+        _ ->
+          {:key_not_found, keyset}
       end
     end
   end
