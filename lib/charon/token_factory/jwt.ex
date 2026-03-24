@@ -35,6 +35,12 @@ defmodule Charon.TokenFactory.Jwt do
 
   Older tokens will be verified using the older key, based on their `"kid"` header claim.
 
+  > #### Warning: keyset caching {: .warning}
+  > The resolved keyset is cached in `m::persistent_term`, keyed by the `:signing_key` value.
+  > If you change the contents of your keyset (e.g. add or remove keys) **without** also
+  > changing `:signing_key`, the running node will continue using the old cached keyset
+  > until it is restarted. To force a cache refresh at runtime, change `:signing_key`.
+
   ### Tokens without a `"kid"` header claim
 
   Legacy or external tokens may not have a `"kid"` header claim.
