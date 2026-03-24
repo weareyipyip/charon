@@ -179,7 +179,7 @@ defmodule Charon.TokenFactory.Jwt do
     init_keyset(config, mod_conf)
     |> case do
       {:fixed_hdr, header, key, _keyset} ->
-        {header, key}
+        {:ok, {header, key}}
 
       {:poly1305 = alg, header_tail, secret, _keyset} ->
         nonce =
@@ -190,16 +190,16 @@ defmodule Charon.TokenFactory.Jwt do
 
         key = {alg, gen_otk(secret, nonce)}
         header = [@p1305_h, url_encode(~s(#{url_encode(nonce)}",)), @p1305_kid_seg, header_tail]
-        {header, key}
+        {:ok, {header, key}}
 
-      error ->
-        error
+      _ ->
+        {:error, "could not create jwt"}
     end
     |> create_token(payload, config)
   end
 
   @compile {:inline, create_token: 3}
-  defp create_token({header, key}, payload, config) do
+  defp create_token({:ok, {header, key}}, payload, config) do
     enc_payload = payload |> config.json_module.encode!() |> url_encode()
     data = [header, ?., enc_payload]
     signature = data |> do_sign(key) |> url_encode()
