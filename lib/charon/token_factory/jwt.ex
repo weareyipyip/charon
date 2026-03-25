@@ -181,14 +181,14 @@ defmodule Charon.TokenFactory.Jwt do
       {:fixed_hdr, header, key, _keyset} ->
         {:ok, {header, key}}
 
-      {:poly1305 = alg, header_tail, secret, _keyset} ->
+      {:poly1305, header_tail, secret, _keyset} ->
         nonce =
           case mod_conf.gen_poly1305_nonce do
             :random -> :crypto.strong_rand_bytes(12)
             function -> function.()
           end
 
-        key = {alg, gen_otk(secret, nonce)}
+        key = {:poly1305, gen_otk(secret, nonce)}
         header = [@p1305_h, url_encode(~s(#{url_encode(nonce)}",)), @p1305_kid_seg, header_tail]
         {:ok, {header, key}}
 
@@ -328,10 +328,10 @@ defmodule Charon.TokenFactory.Jwt do
   defp get_header_kid(_, hdr_alg_claim), do: "kid_not_set.#{hdr_alg_claim}"
 
   @compile {:inline, resolve_token_key: 2}
-  defp resolve_token_key(header_pl, {:poly1305 = p1305, secret}) do
+  defp resolve_token_key(header_pl, {:poly1305, secret}) do
     with %{"nonce" => <<nonce::binary-16>>} <- header_pl,
          {:ok, nonce} <- url_decode(nonce) do
-      {:ok, {p1305, gen_otk(secret, nonce)}}
+      {:ok, {:poly1305, gen_otk(secret, nonce)}}
     else
       _ -> {:error, "malformed header"}
     end
@@ -387,6 +387,7 @@ defmodule Charon.TokenFactory.Jwt do
   ##########
   # Keyset #
   ##########
+
   defp init_keyset(config, mod_conf = %{signing_key: kid}) do
     PersistentTermCache.Macro.get_or_create {__MODULE__, kid} do
       keyset = mod_conf.get_keyset.(config)
@@ -397,16 +398,8 @@ defmodule Charon.TokenFactory.Jwt do
           {:poly1305, header_tail, secret, keyset}
 
         {:ok, key = {alg, _}} ->
-          expected_header =
-            case alg do
-              :hmac_sha256 -> "HS256"
-              :hmac_sha384 -> "HS384"
-              :hmac_sha512 -> "HS512"
-              :eddsa_ed25519 -> "EdDSA"
-              :eddsa_ed448 -> "EdDSA"
-            end
-            |> then(fn alg -> ~s({"alg":"#{alg}","typ":"JWT","kid":"#{kid}"}) |> url_encode() end)
-
+          alg_claim = to_alg_claim(alg)
+          expected_header = ~s({"alg":"#{alg_claim}","typ":"JWT","kid":"#{kid}"}) |> url_encode()
           {:fixed_hdr, expected_header, key, keyset}
 
         _ ->
@@ -422,6 +415,14 @@ defmodule Charon.TokenFactory.Jwt do
       _ -> {:error, "key not found"}
     end
   end
+
+  @compile {:inline, to_alg_claim: 1}
+  defp to_alg_claim(alg)
+  defp to_alg_claim(:hmac_sha256), do: "HS256"
+  defp to_alg_claim(:hmac_sha384), do: "HS384"
+  defp to_alg_claim(:hmac_sha512), do: "HS512"
+  defp to_alg_claim(:eddsa_ed25519), do: "EdDSA"
+  defp to_alg_claim(:eddsa_ed448), do: "EdDSA"
 
   ###########
   # Helpers #
