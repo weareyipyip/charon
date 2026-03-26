@@ -1,5 +1,9 @@
 # Changelog
 
+## 4.3.0
+
+- Improve `Charon.TokenFactory.Jwt` key/header caching and reduce complexity.
+
 ## 4.2.0
 
 - Improve `Charon.TokenFactory.Jwt` performance by 25-30% by precomputing header segments and pattern matching on the resulting binaries without json/base64 encoding/decoding operations for the header.
