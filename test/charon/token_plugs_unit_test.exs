@@ -315,6 +315,95 @@ defmodule Charon.TokenPlugsTest do
     end
   end
 
+  defmodule SigVerifyCacheMock do
+    use Agent
+    @behaviour Charon.TokenPlugs.SigVerifyCache.Behaviour
+
+    def start_link(_), do: Agent.start_link(fn -> %{} end, name: __MODULE__)
+
+    @impl true
+    def get(token_hash, _config), do: Agent.get(__MODULE__, &Map.get(&1, token_hash, :miss))
+
+    @impl true
+    def put(token_hash, payload, _exp, _config) do
+      Agent.update(__MODULE__, &Map.put(&1, token_hash, {:hit, payload}))
+    end
+  end
+
+  @cache_config %{
+    TestApp.Charon.get()
+    | token_signature_cache_module: SigVerifyCacheMock
+  }
+
+  describe "verify_token_signature/2 with caching enabled" do
+    setup do
+      start_supervised!(SigVerifyCacheMock)
+      :ok
+    end
+
+    test "verifies valid token signature on cache miss" do
+      token = sign(%{"msg" => "hurray!"})
+      conn = conn() |> set_token(token) |> verify_token_signature(@cache_config)
+      assert %{"msg" => "hurray!"} = Internal.get_private(conn, @bearer_token_payload)
+    end
+
+    test "reuses cached payload on cache hit" do
+      token = sign(%{"msg" => "cached!"})
+      conn() |> set_token(token) |> verify_token_signature(@cache_config)
+
+      conn = conn() |> set_token(token) |> verify_token_signature(@cache_config)
+      assert %{"msg" => "cached!"} = Internal.get_private(conn, @bearer_token_payload)
+    end
+
+    test "rejects invalid token signature on cache miss" do
+      token = sign(%{"msg" => "hurray!"})
+      conn = conn() |> set_token(token <> "boom") |> verify_token_signature(@cache_config)
+      assert nil == Internal.get_private(conn, @bearer_token_payload)
+      assert "bearer token signature invalid" == Utils.get_auth_error(conn)
+    end
+
+    test "returns error when bearer token not found" do
+      conn = conn() |> verify_token_signature(@cache_config)
+      assert "bearer token not found" == Utils.get_auth_error(conn)
+    end
+
+    test "short-circuits when auth error already set" do
+      conn =
+        conn()
+        |> set_auth_error("previous error")
+        |> set_token(sign(%{}))
+        |> verify_token_signature(@cache_config)
+
+      assert "previous error" == Utils.get_auth_error(conn)
+    end
+
+    test "caches successful verification" do
+      token = sign(%{})
+      hash = :crypto.hash(:sha256, token)
+
+      conn() |> set_token(token) |> verify_token_signature(@cache_config)
+
+      assert {:hit, {:ok, _}} = SigVerifyCacheMock.get(hash, @cache_config)
+    end
+
+    test "caches failed verification" do
+      token = sign(%{}) <> "boom"
+      hash = :crypto.hash(:sha256, token)
+
+      conn() |> set_token(token) |> verify_token_signature(@cache_config)
+
+      assert {:hit, {:error, _}} = SigVerifyCacheMock.get(hash, @cache_config)
+    end
+
+    test "returns error from cache on repeated invalid token" do
+      token = sign(%{}) <> "boom"
+      conn() |> set_token(token) |> verify_token_signature(@cache_config)
+
+      conn = conn() |> set_token(token) |> verify_token_signature(@cache_config)
+      assert "bearer token signature invalid" == Utils.get_auth_error(conn)
+    end
+  end
+
   describe "verify_token_nbf_claim/2" do
     test "accepts token with valid nbf claim" do
       conn = conn() |> set_token_payload(%{"nbf" => Internal.now()})

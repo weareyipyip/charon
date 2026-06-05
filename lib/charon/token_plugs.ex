@@ -63,6 +63,7 @@ defmodule Charon.TokenPlugs do
   import Conn, except: [put_private: 3]
 
   alias Charon.{Config, TokenFactory, Internal, SessionStore}
+  alias Charon.TokenPlugs.SigVerifyCache
   use Internal.Constants
   import Internal
   import Charon.Utils
@@ -184,20 +185,57 @@ defmodule Charon.TokenPlugs do
 
   If verification succeeds, the token payload is stored in the connection's private state.
   If verification fails, an authentication error is set instead.
+
+  ## Caching
+
+  When `:token_signature_cache_module` is set in `Charon.Config`, the verification result -
+  both success and failure - is cached by a SHA-256 hash of the token.
+  On a cache hit, cryptographic signature verification is skipped entirely.
+
+  Note that caching is likely to negatively impact performance and memory consumption  for
+  symmetrically signed tokens (HMAC, Poly1305 etc), because they can be verified extremely quickly and efficiently.
+  Asymmetric signing algorithms (RSA, ECDSA, EdDSA etc) are much more expensive in terms of CPU usage.
+  That's why caching is disabled by default and should only be enabled for asymmetrically signed tokens.
+
+  Claim verification plugs such as `verify_token_exp_claim/2` and `verify_token_fresh/2` are
+  **not** covered by the cache and still run on every request.
+
+  To enable caching, configure a module implementing `Charon.TokenPlugs.SigVerifyCache.Behaviour`
+  and configure Charon to use it.
+
+      # config
+      config :my_app, :charon,
+        token_signature_cache_module: Charon.TokenPlugs.SigVerifyCache.EtsCache
   """
   @spec verify_token_signature(Conn.t(), Config.t()) :: Conn.t()
   def verify_token_signature(conn, _charon_config) when is_map_key(conn.private, @auth_error),
     do: conn
 
   def verify_token_signature(conn = %{private: %{@bearer_token => token}}, config) do
-    with {:ok, payload} <- TokenFactory.verify(token, config) do
-      put_private(conn, %{@now => now(), @bearer_token_payload => payload})
+    with now = now(),
+         {:ok, payload} <- maybe_cached_verify(token, now, config) do
+      put_private(conn, %{@now => now, @bearer_token_payload => payload})
     else
       _ -> set_auth_error(conn, "bearer token signature invalid")
     end
   end
 
   def verify_token_signature(conn, _), do: set_auth_error(conn, "bearer token not found")
+
+  defp maybe_cached_verify(token, _now, config = %{token_signature_cache_module: nil}) do
+    TokenFactory.verify(token, config)
+  end
+
+  defp maybe_cached_verify(token, now, config) do
+    with token_hash = :crypto.hash(:sha256, token),
+         :miss <- SigVerifyCache.get(token_hash, config) do
+      verify_res = TokenFactory.verify(token, config)
+      SigVerifyCache.put(token_hash, verify_res, now + config.access_token_ttl, config)
+      verify_res
+    else
+      {_hit, cached_result} -> cached_result
+    end
+  end
 
   @doc """
   Verify that the bearer token payload contains a valid `nbf` (not before) claim.
