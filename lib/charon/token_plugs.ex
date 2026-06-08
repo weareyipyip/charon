@@ -192,7 +192,7 @@ defmodule Charon.TokenPlugs do
   both success and failure - is cached by a SHA-256 hash of the token.
   On a cache hit, cryptographic signature verification is skipped entirely.
 
-  Note that caching is likely to negatively impact performance and memory consumption  for
+  Note that caching is likely to negatively impact performance and memory consumption for
   symmetrically signed tokens (HMAC, Poly1305 etc), because they can be verified extremely quickly and efficiently.
   Asymmetric signing algorithms (RSA, ECDSA, EdDSA etc) are much more expensive in terms of CPU usage.
   That's why caching is disabled by default and should only be enabled for asymmetrically signed tokens.
