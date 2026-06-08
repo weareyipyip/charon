@@ -1,5 +1,5 @@
 defmodule Charon.TokenPlugs.SigVerifyCache.EtsCache do
-  @moduledoc since: "4.2.0"
+  @moduledoc since: "4.4.0"
   @moduledoc """
   ETS-based implementation of `Charon.TokenPlugs.SigVerifyCache.Behaviour`.
 

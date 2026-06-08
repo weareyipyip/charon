@@ -1,5 +1,5 @@
 defmodule Charon.TokenPlugs.SigVerifyCache.Behaviour do
-  @moduledoc since: "4.2.0"
+  @moduledoc since: "4.4.0"
   @moduledoc """
   Behaviour for token signature cache backends used by
   `Charon.TokenPlugs.verify_token_signature/2`.

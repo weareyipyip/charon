@@ -1,6 +1,6 @@
 if Code.ensure_loaded?(Redix) and Code.ensure_loaded?(:poolboy) do
   defmodule Charon.TokenPlugs.SigVerifyCache.RedisCache do
-    @moduledoc since: "4.2.0"
+    @moduledoc since: "4.4.0"
     @moduledoc """
     Redis-based implementation of `Charon.TokenPlugs.SigVerifyCache.Behaviour`.
 

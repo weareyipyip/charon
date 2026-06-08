@@ -1,5 +1,5 @@
 defmodule Charon.TokenPlugs.SigVerifyCache do
-  @moduledoc since: "4.2.0"
+  @moduledoc since: "4.4.0"
   @moduledoc """
   Entrypoint for `Charon.TokenPlugs.SigVerifyCache.Behaviour` implementation.
   All functions delegate to the module configured as `:token_signature_cache_module` in
