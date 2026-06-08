@@ -1,5 +1,10 @@
 # Changelog
 
+## 4.4.0 (pending)
+
+- Add optional `Charon.TokenPlugs.verify_token_signature/2` signature caching
+- Add `Charon.TokenPlugs.SigVerifyCache`, `Charon.TokenPlugs.SigVerifyCache.Behaviour`, `Charon.TokenPlugs.SigVerifyCache.EtsCache` and `Charon.TokenPlugs.SigVerifyCache.RedisCache`
+
 ## 4.3.0
 
 - Improve `Charon.TokenFactory.Jwt` key/header caching and reduce complexity.

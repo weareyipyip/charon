@@ -80,7 +80,7 @@ defmodule Charon.TokenFactory.Jwt do
         ...,
         optional_modules: %{
           Charon.TokenFactory.Jwt => %{
-            get_keyset: fn -> %{"key1" => {:hmac_sha256, "my_key"}} end,
+            get_keyset: fn _ -> %{"key1" => {:hmac_sha256, "my_key"}} end,
             signing_key: "key1"
           }
         }
@@ -248,8 +248,8 @@ defmodule Charon.TokenFactory.Jwt do
 
   defp maybe_fast_verify({:poly1305, exp_htail, secret, keyset}, token, config) do
     case token do
-      <<@p1305_h, nonce_seg::binary-24, @p1305_kid_seg, ^exp_htail::bits, ?.,
-        enc_pl_and_sig::bits>> ->
+      <<@p1305_h, nonce_seg::binary-24, @p1305_kid_seg, ^exp_htail::binary, ?.,
+        enc_pl_and_sig::binary>> ->
         [@p1305_h, nonce_seg, @p1305_kid_seg, exp_htail]
         |> fast_p1305_verify(nonce_seg, enc_pl_and_sig, secret, config)
 

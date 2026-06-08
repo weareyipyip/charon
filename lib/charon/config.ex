@@ -50,6 +50,7 @@ defmodule Charon.Config do
    - `:session_ttl` Time in seconds until a new session expires OR `:infinite` for non-expiring sessions.
    - `:token_factory_module` A module that implements `Charon.TokenFactory.Behaviour`, used to create and verify authentication tokens.
    - `:token_issuer` Value of the "iss" claim in tokens, for example "https://myapp.com"
+   - `:token_signature_cache_module` A module that implements `Charon.TokenPlugs.SigVerifyCache.Behaviour`, used by `Charon.TokenPlugs.verify_token_signature/2` to cache signature verification results. Defaults to `nil` (caching disabled).
   """
   @enforce_keys [:token_issuer, :get_base_secret]
   defstruct [
@@ -75,7 +76,8 @@ defmodule Charon.Config do
     session_store_module: Charon.SessionStore.RedisStore,
     # 1 year
     session_ttl: 365 * 24 * 60 * 60,
-    token_factory_module: Charon.TokenFactory.Jwt
+    token_factory_module: Charon.TokenFactory.Jwt,
+    token_signature_cache_module: nil
   ]
 
   @type t :: %__MODULE__{
@@ -93,7 +95,8 @@ defmodule Charon.Config do
           session_store_module: module(),
           session_ttl: pos_integer() | :infinite,
           token_factory_module: module(),
-          token_issuer: String.t()
+          token_issuer: String.t(),
+          token_signature_cache_module: module() | nil
         }
 
   @doc """
