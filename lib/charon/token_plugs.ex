@@ -198,7 +198,8 @@ defmodule Charon.TokenPlugs do
   That's why caching is disabled by default and should only be enabled for asymmetrically signed tokens.
 
   Claim verification plugs such as `verify_token_exp_claim/2` and `verify_token_fresh/2` are
-  **not** covered by the cache and still run on every request.
+  **not** covered by the cache. They will, and should, still run on every request.
+  This way, deciding if the token has expired is decoupled from the caching of cryptographic operations.
 
   To enable caching, configure a module implementing `Charon.TokenPlugs.SigVerifyCache.Behaviour`
   and configure Charon to use it.
